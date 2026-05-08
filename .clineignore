@@ -72,7 +72,6 @@ dmypy.json
 
 # Git
 .git/
-.gitignore
 
 # OS-specific
 Thumbs.db
