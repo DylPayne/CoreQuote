@@ -1,57 +1,24 @@
-from logic.models import Board, Slide
+"""
+units.py  ← COMPATIBILITY SHIM — DO NOT ADD LOGIC HERE
+────────────────────────────────────────────────────────────────────────────────
+This file previously contained BaseUnit, DrawerUnit, and DoorUnit.
 
-class BaseUnit:
-    def __init__(self, h, w, d, thickness=16):
-        self.h = h
-        self.w = w
-        self.d = d
-        self.t = thickness
+The unit system has been refactored into the `units/` package:
 
-    def get_carcass_list(self) -> list[Board]:
-        return [
-            Board("Side", self.h-(2*self.t), self.d-self.t, 2),
-            Board("Base", self.w, self.d, 1),
-            Board("Rail", self.w, 100, 2),
-            Board("Backing", self.h-(2*self.t), self.w, 1)
-        ]
-    
-class DrawerUnit(BaseUnit):
-    # TODO: Add slide selection functionality
+    logic/units/
+    ├── __init__.py      ← public re-exports (same API as before)
+    ├── base.py          ← CabinetUnit abstract base class
+    ├── types.py         ← DrawerUnit, DoorUnit, WallUnit, TallUnit
+    └── definitions.py   ← UNIT_REGISTRY, UnitConfig, DrawerConfig, etc.
 
-    def __init__(self, h, w, d, slide: Slide, num_drawers=3, thickness=16):
-        super().__init__(h, w, d, thickness)
-        self.num_drawers = num_drawers
-        self.slide = slide
+All existing imports of the form:
+    from logic.units import DrawerUnit, DoorUnit
+continue to work unchanged because logic/units/__init__.py re-exports them.
 
-    def get_carcass_list(self):
-        # Get base carcass boards
-        boards = super().get_carcass_list()
+This file is kept only so that any direct import of `logic.units` as a module
+(rather than a package) does not break.  It simply re-exports from the package.
+"""
 
-        drawer_depth = self.slide.side_length
-        # This is intertnal drawer width
-        drawer_width = self.w-self.slide.side_clearance_total
-        drawer_side_rebate = 10
-
-        # Get drawer carcass boards
-        # TODO: Replace draw carcass side and front dimensions based on selected slide
-        # TODO: Add functionality to modify drawer side rebate by adjusting drawer base
-        boards.append(Board("Drawer Side", drawer_depth, 200, 2*self.num_drawers))
-        boards.append(Board("Drawer Front/Back", drawer_width, 174, 2*self.num_drawers))
-        boards.append(Board("Drawer Base", drawer_width+drawer_side_rebate, drawer_depth, self.num_drawers))
-
-        return boards
-
-class DoorUnit(BaseUnit):
-    def __init__(self, h, w, d, num_doors=2, num_shelves=1, thickness=16):
-        super().__init__(h, w, d, thickness)
-        self.num_doors = num_doors
-        self.num_shelves = num_shelves
-
-    def get_carcass_list(self):
-        boards = super().get_carcass_list()
-
-        shelf_setback = 20
-
-        boards.append(Board("Shelf", self.w-(2*self.t), self.d-self.t-shelf_setback, self.num_shelves))
-
-        return boards
+# Re-export everything from the new package so old-style imports still work.
+from logic.units.types import DrawerUnit, DoorUnit, WallUnit, TallUnit  # noqa: F401
+from logic.units.base import CabinetUnit                                 # noqa: F401

@@ -1,19 +1,21 @@
-from turtle import width
-
 import streamlit as st
 import pandas as pd
+import sys
 import os
 
-st.set_page_config(page_title="Slides", layout="wide")
-st.title("Slides")
+sys.path.append(os.path.join(os.getcwd(), 'src'))
 
-CSV_PATH = "data/slides.csv"
+from logic.database import get_all_slides, create_slide, update_slide, delete_slide
+
+st.title("🗂️ Slides Library")
+
 COLUMNS = ["brand", "model", "code", "length", "side_length", "side_clearance_total"]
 
 def load_data():
-    if os.path.exists(CSV_PATH) and os.path.getsize(CSV_PATH) > 0:
-        return pd.read_csv(CSV_PATH)
-    return pd.DataFrame(columns=COLUMNS)
+    rows = get_all_slides()
+    if not rows:
+        return pd.DataFrame(columns=["id", *COLUMNS])
+    return pd.DataFrame(rows)[["id", *COLUMNS]]
 
 if 'original_df' not in st.session_state:
     st.session_state.original_df = load_data()
@@ -37,16 +39,15 @@ def add_slide_dialog():
             
         if st.form_submit_button("Add to Library", use_container_width=True):
             if brand and model:
-                new_row = pd.DataFrame([{
-                    "brand": brand, "model": model, "code": code, 
-                    "length": length, "side_length": side_len, 
-                    "side_clearance_total": clearance
-                }])
-                
-                updated_df = pd.concat([st.session_state.original_df, new_row], ignore_index=True)
-                updated_df.to_csv(CSV_PATH, index=False)
-                st.session_state.original_df = updated_df
-                
+                create_slide(
+                    brand=brand,
+                    model=model,
+                    code=code,
+                    length=int(length),
+                    side_length=int(side_len),
+                    side_clearance_total=int(clearance),
+                )
+                st.session_state.original_df = load_data()
                 st.success(f"Added {brand} {model}!")
                 st.rerun() # This closes the dialog and refreshes the table
             else:
@@ -64,15 +65,43 @@ with col_btn:
 # Display the Table
 df = st.session_state.original_df
 if not df.empty:
-    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="main_editor")
+    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="main_editor", hide_index=True)
     
     has_changes = not edited_df.equals(st.session_state.original_df)
 
     if has_changes:
         st.warning("⚠️ **Unsaved changes detected!**")
         if st.button("💾 Save All Changes", type="primary", use_container_width=True):
-            edited_df.to_csv(CSV_PATH, index=False)
-            st.session_state.original_df = edited_df 
+            original_df = st.session_state.original_df.copy()
+
+            original_ids = set(original_df["id"].dropna().astype(int).tolist()) if not original_df.empty else set()
+            edited_ids = set(edited_df["id"].dropna().astype(int).tolist()) if "id" in edited_df.columns else set()
+
+            # Deletes
+            for sid in sorted(original_ids - edited_ids):
+                delete_slide(int(sid))
+
+            # Inserts / updates
+            for _, row in edited_df.iterrows():
+                sid = row.get("id")
+                payload = {
+                    "brand": str(row.get("brand", "")).strip(),
+                    "model": str(row.get("model", "")).strip(),
+                    "code": str(row.get("code", "")).strip(),
+                    "length": int(row.get("length", 0) or 0),
+                    "side_length": int(row.get("side_length", 0) or 0),
+                    "side_clearance_total": int(row.get("side_clearance_total", 0) or 0),
+                }
+                if not payload["brand"] or not payload["model"]:
+                    st.error("Each row must have Brand and Model.")
+                    st.stop()
+
+                if pd.isna(sid) or sid == "":
+                    create_slide(**payload)
+                else:
+                    update_slide(int(sid), **payload)
+
+            st.session_state.original_df = load_data()
             st.success("Library updated!")
             st.rerun()
 else:

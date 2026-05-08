@@ -1,30 +1,62 @@
-# logic.py
+"""
+logic.py
+────────────────────────────────────────────────────────────────────────────────
+Legacy panel-calculation helpers.
 
-def get_cabinet_parts(height, width, depth, thickness):
+These functions are kept for backward compatibility with the Calculator page
+(_Calculator.py) which calls them directly.  They now delegate to the
+CuttingEngine so the formulas live in exactly one place.
+
+New code should use CuttingEngine.calculate_panels(unit) directly.
+"""
+
+from __future__ import annotations
+
+from logic.models import Slide
+from logic.units.types import DrawerUnit, DoorUnit
+from logic.cutting.engine import CuttingEngine
+
+
+def get_door_panel_list(height: int, width: int, num_doors: int) -> list[dict]:
     """
-    Your custom rules for a standard base cabinet.
+    Calculate door panel dimensions for a door unit.
+
+    Delegates to DoorUnitStrategy via the CuttingEngine.
+
+    Args:
+        height:    Cabinet height in mm.
+        width:     Cabinet width in mm.
+        num_doors: Number of doors (1 or 2).
+
+    Returns:
+        List of dicts with keys "L", "W", "Qty".
     """
-    # Example: Subtracting thickness for a 'butt joint' construction
-    sides_height = height
-    bottom_width = width - (2 * thickness)
-    
-    return [
-        {"Part": "Side (x2)", "L": sides_height, "W": depth},
-        {"Part": "Bottom", "L": bottom_width, "W": depth},
-        {"Part": "Top Rail (x2)", "L": bottom_width, "W": 100}, # 100mm rail
-        {"Part": "Draw Base (x2)", "L": depth-thickness-10, "W": width-(thickness*2)-10+8},
-        {"Part": "Draw Sides (x4)", "L": depth-thickness-10, "W": 200}
-    ]
+    # Build a minimal DoorUnit so the engine can dispatch correctly.
+    unit   = DoorUnit(h=height, w=width, d=560, num_doors=num_doors, num_shelves=0)
+    boards = CuttingEngine.calculate_panels(unit)
+    return [{"L": b.length, "W": b.width, "Qty": b.qty} for b in boards]
 
-# def get_door_carcass_list(height, width, depth, thickness):
-#     rails = 
 
-def get_door_panel_list(height, width, num_doors):
-    return [
-        {"L": height, "W": width-3 if num_doors == 1 else width/2-3, "Qty": num_doors}
-    ]
+def get_draw_panel_list(height: int, width: int, num_draws: int) -> list[dict]:
+    """
+    Calculate drawer-front panel dimensions for a drawer unit.
 
-def get_draw_panel_list(height, width, num_draws):
-    return [
-        {"L": height, "W": width-3 if num_draws == 1 else width/num_draws-3, "Qty": num_draws}
-    ]
+    Delegates to DrawerUnitStrategy via the CuttingEngine.
+
+    Args:
+        height:    Cabinet height in mm.
+        width:     Cabinet width in mm.
+        num_draws: Number of drawers (1–4).
+
+    Returns:
+        List of dicts with keys "L", "W", "Qty".
+    """
+    # Build a minimal DrawerUnit with a dummy slide (panels don't use slide data).
+    dummy_slide = Slide(
+        brand="", model="", code="",
+        length=0, side_length=0, side_clearance_total=0,
+    )
+    unit   = DrawerUnit(h=height, w=width, d=560, slide=dummy_slide,
+                        num_drawers=num_draws)
+    boards = CuttingEngine.calculate_panels(unit)
+    return [{"L": b.length, "W": b.width, "Qty": b.qty} for b in boards]
