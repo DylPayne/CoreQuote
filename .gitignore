@@ -1,0 +1,48 @@
+# ---- Python bytecode / cache ----
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+
+# ---- Build / packaging ----
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# ---- Tool caches ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- IDE / editor ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+
+# ---- Environment files ----
+.env
+.env.*
+
+# ---- Local runtime artifacts ----
+.tmp/
+
+# ---- Project runtime data (uncomment if you don't want to track local DB) ----
+# data/corequote.db
