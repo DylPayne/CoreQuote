@@ -11,6 +11,7 @@ from logic.database import (
     get_all_board_types,
     get_all_slides,
     get_all_hinges,
+    get_all_handles,
 )
 from logic.models import Slide
 from logic.cutlist import build_cutlist
@@ -40,6 +41,9 @@ slide_lookup = {s["id"]: s for s in slides}
 hinges = get_all_hinges()
 hinge_ids = [h["id"] for h in hinges]
 hinge_lookup = {h["id"]: h for h in hinges}
+handles = get_all_handles()
+handle_ids = [h["id"] for h in handles]
+handle_lookup = {h["id"]: h for h in handles}
 board_types = get_all_board_types()
 board_lookup = {b["id"]: b for b in board_types}
 board_ids = [None] + [b["id"] for b in board_types]
@@ -142,6 +146,52 @@ def _get_hinge_id(extra: dict) -> int | None:
             return int(h["id"])
 
     return hinge_ids[0] if hinge_ids else None
+
+
+def _handle_label(row: dict) -> str:
+    name = str(row.get("name", "")).strip()
+    supplier = str(row.get("supplier", "")).strip()
+    code = str(row.get("code", "")).strip()
+    label = name or "Handle"
+    if supplier:
+        label += f" • {supplier}"
+    if code:
+        label += f" • {code}"
+    return label
+
+
+def _handle_from_quote(prefix: str) -> dict:
+    return {
+        "name": str(quote.get(f"default_{prefix}_handle_name") or ""),
+        "supplier": str(quote.get(f"default_{prefix}_handle_supplier") or ""),
+        "code": str(quote.get(f"default_{prefix}_handle_code") or ""),
+    }
+
+
+def _handle_id_by_payload(payload: dict | None) -> int | None:
+    payload = payload or {}
+    if not handles:
+        return None
+    name = str(payload.get("name") or "")
+    supplier = str(payload.get("supplier") or "")
+    code = str(payload.get("code") or "")
+    for h in handles:
+        if str(h["name"]) == name and str(h["supplier"]) == supplier and str(h["code"]) == code:
+            return int(h["id"])
+    return handle_ids[0] if handle_ids else None
+
+
+def _handle_payload_from_id(handle_id: int | None) -> dict:
+    if handle_id is None:
+        return {}
+    row = handle_lookup.get(handle_id)
+    if not row:
+        return {}
+    return {
+        "name": str(row.get("name", "")),
+        "supplier": str(row.get("supplier", "")),
+        "code": str(row.get("code", "")),
+    }
 
 
 def _default_drawer_face_ratios(num_drawers: int) -> list[float]:
@@ -258,6 +308,28 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                     key=f"{key_prefix}_slide_id",
                 )
 
+        default_drawer_handle_payload = {
+            "name": normalized_extra.get("drawer_handle_name", ""),
+            "supplier": normalized_extra.get("drawer_handle_supplier", ""),
+            "code": normalized_extra.get("drawer_handle_code", ""),
+        }
+        if not any(str(v).strip() for v in default_drawer_handle_payload.values()):
+            default_drawer_handle_payload = _handle_from_quote("drawer")
+
+        if not handles:
+            st.warning("No handles available. Add handles in Handle Library.")
+            is_valid = False
+            selected_drawer_handle_id = None
+        else:
+            selected_drawer_handle_id = st.selectbox(
+                "Drawer Handle Type",
+                handle_ids,
+                index=(handle_ids.index(_handle_id_by_payload(default_drawer_handle_payload)) if _handle_id_by_payload(default_drawer_handle_payload) in handle_ids else 0),
+                format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                key=f"{key_prefix}_drawer_handle_id",
+                help="Uses quote default unless unit override is changed.",
+            )
+
         st.markdown("###### Drawer Face Heights")
         stored_ratios = normalized_extra.get("drawer_face_ratios")
         if isinstance(stored_ratios, list) and len(stored_ratios) == int(num_drawers):
@@ -353,6 +425,15 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
 
                 drawer_face_heights_manual = manual_vals
 
+            drawer_handle_qty = st.number_input(
+                "Handle Quantity Override",
+                min_value=0,
+                value=int(normalized_extra.get("handle_qty", int(num_drawers))),
+                step=1,
+                key=f"{key_prefix}_drawer_handle_qty",
+                help="Default is one handle per drawer front.",
+            )
+
         preview_heights = drawer_face_heights_manual or _face_heights_from_ratios(int(h), drawer_face_ratios)
         st.caption(
             "Drawer face heights preview (top → bottom): "
@@ -406,7 +487,17 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
             "slide_side_length": int(slide.side_length),
             "slide_side_clearance_total": int(slide.side_clearance_total),
             "slide_side_height_uplift": int(slide.side_height_uplift),
+            "handle_qty": int(drawer_handle_qty),
         }
+        if selected_drawer_handle_id is not None:
+            drawer_handle_row = handle_lookup[selected_drawer_handle_id]
+            extra.update(
+                {
+                    "drawer_handle_name": str(drawer_handle_row.get("name", "")),
+                    "drawer_handle_supplier": str(drawer_handle_row.get("supplier", "")),
+                    "drawer_handle_code": str(drawer_handle_row.get("code", "")),
+                }
+            )
 
     elif ut in ("Base Door", "Wall Door", "Tall Standard", "Tall Pantry"):
         st.markdown("##### Door / Shelf Options")
@@ -453,6 +544,49 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
             d = st.number_input("Depth (mm)", min_value=1, value=int(initial.get("depth", 580)), key=f"{key_prefix}_tall_depth")
 
         extra = {"num_doors": int(num_doors), "num_shelves": int(num_shelves)}
+
+        handle_prefix = "base" if ut == "Base Door" else ("wall" if ut == "Wall Door" else "tall")
+        default_door_handle_payload = {
+            "name": normalized_extra.get("handle_name", ""),
+            "supplier": normalized_extra.get("handle_supplier", ""),
+            "code": normalized_extra.get("handle_code", ""),
+        }
+        if not any(str(v).strip() for v in default_door_handle_payload.values()):
+            default_door_handle_payload = _handle_from_quote(handle_prefix)
+
+        if not handles:
+            st.warning("No handles available. Add handles in Handle Library.")
+            is_valid = False
+            selected_door_handle_id = None
+        else:
+            selected_door_handle_id = st.selectbox(
+                "Handle Type",
+                handle_ids,
+                index=(handle_ids.index(_handle_id_by_payload(default_door_handle_payload)) if _handle_id_by_payload(default_door_handle_payload) in handle_ids else 0),
+                format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                key=f"{key_prefix}_door_handle_id",
+            )
+
+        with st.expander("Advanced Options", expanded=False):
+            handle_qty = st.number_input(
+                "Handle Quantity Override",
+                min_value=0,
+                value=int(normalized_extra.get("handle_qty", int(num_doors))),
+                step=1,
+                key=f"{key_prefix}_door_handle_qty",
+                help="Default is one handle per door.",
+            )
+        extra["handle_qty"] = int(handle_qty)
+
+        if selected_door_handle_id is not None:
+            door_handle_row = handle_lookup[selected_door_handle_id]
+            extra.update(
+                {
+                    "handle_name": str(door_handle_row.get("name", "")),
+                    "handle_supplier": str(door_handle_row.get("supplier", "")),
+                    "handle_code": str(door_handle_row.get("code", "")),
+                }
+            )
         if selected_hinge_id is not None:
             hinge_row = hinge_lookup[selected_hinge_id]
             extra.update(
@@ -573,6 +707,26 @@ def _compute_component_counts(units: list[dict]) -> list[dict]:
             hinge_key = f"hinge::{hinge_brand}::{hinge_model}::{hinge_code}::{hinge_angle}"
             _add_component(hinge_key, hinge_label, total_hinges, "pcs")
 
+        if "Draw" in utype:
+            handle_qty = int(extra.get("handle_qty", extra.get("num_drawers", 0)) or 0)
+            handle_name = str(extra.get("drawer_handle_name", "")).strip()
+            handle_supplier = str(extra.get("drawer_handle_supplier", "")).strip()
+            handle_code = str(extra.get("drawer_handle_code", "")).strip()
+        else:
+            handle_qty = int(extra.get("handle_qty", extra.get("num_doors", 0)) or 0)
+            handle_name = str(extra.get("handle_name", "")).strip()
+            handle_supplier = str(extra.get("handle_supplier", "")).strip()
+            handle_code = str(extra.get("handle_code", "")).strip()
+
+        if handle_qty > 0:
+            handle_label = handle_name or "Handle"
+            if handle_supplier:
+                handle_label += f" • {handle_supplier}"
+            if handle_code:
+                handle_label += f" • {handle_code}"
+            handle_key = f"handle::{handle_name}::{handle_supplier}::{handle_code}"
+            _add_component(handle_key, handle_label, handle_qty, "pcs")
+
     rows = list(counts.values())
     rows.sort(key=lambda r: r["component"])
     return rows
@@ -629,6 +783,14 @@ with tab_units:
                         st.caption(
                             f"Drawers: {extra.get('num_drawers', '?')}  •  Slide: {slide_label}"
                         )
+                        drawer_handle_label = "Handle"
+                        if extra.get("drawer_handle_name"):
+                            drawer_handle_label = str(extra.get("drawer_handle_name"))
+                        if extra.get("drawer_handle_supplier"):
+                            drawer_handle_label += f" • {extra.get('drawer_handle_supplier')}"
+                        if extra.get("drawer_handle_code"):
+                            drawer_handle_label += f" • {extra.get('drawer_handle_code')}"
+                        st.caption(f"Handles: {extra.get('handle_qty', extra.get('num_drawers', '?'))}  •  Type: {drawer_handle_label}")
                     elif ("Door" in u["unit_type"]) or ("Tall" in u["unit_type"]):
                         hinge_label = (
                             f"{extra.get('hinge_brand', '')} {extra.get('hinge_model', '')} "
@@ -639,6 +801,14 @@ with tab_units:
                             f"Shelves: {extra.get('num_shelves', '?')}  •  "
                             f"Hinge: {hinge_label}"
                         )
+                        door_handle_label = "Handle"
+                        if extra.get("handle_name"):
+                            door_handle_label = str(extra.get("handle_name"))
+                        if extra.get("handle_supplier"):
+                            door_handle_label += f" • {extra.get('handle_supplier')}"
+                        if extra.get("handle_code"):
+                            door_handle_label += f" • {extra.get('handle_code')}"
+                        st.caption(f"Handles: {extra.get('handle_qty', extra.get('num_doors', '?'))}  •  Type: {door_handle_label}")
                 with col_actions:
                     act_edit, act_del = st.columns(2)
                     with act_edit:
@@ -689,7 +859,7 @@ with tab_components:
     else:
         component_rows = _compute_component_counts(units)
         if not component_rows:
-            st.info("No slide or hinge data found for the units in this quote.")
+            st.info("No slide, hinge, or handle data found for the units in this quote.")
         else:
             st.dataframe(component_rows, use_container_width=True, hide_index=True)
-        st.caption("Slides are recorded as pairs. Hinges are calculated per door at 1 per 600mm of height (minimum 2 per door).")
+        st.caption("Slides are recorded as pairs. Hinges are calculated per door at 1 per 600mm of height (minimum 2 per door). Handles use each unit's stored handle quantity.")

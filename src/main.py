@@ -46,11 +46,12 @@ calc_page     = st.Page("pages/_Calculator.py",  title="Cutlist Generator", icon
 slides_page   = st.Page("pages/_Slides.py",      title="Slides Library",    icon=":material/view_list:")
 hinges_page   = st.Page("pages/_Hinges.py",      title="Hinges Library",    icon=":material/hardware:")
 boards_page   = st.Page("pages/_Boards.py",      title="Board Library",     icon=":material/grid_view:")
+handles_page  = st.Page("pages/_Handles.py",     title="Handle Library",    icon=":material/touch_app:")
 
 pg = st.navigation(
     {
         "Projects": [projects_page, quotes_page, detail_page],
-        "Tools":    [calc_page, slides_page, hinges_page, boards_page],
+        "Tools":    [calc_page, slides_page, hinges_page, boards_page, handles_page],
     }
 )
 

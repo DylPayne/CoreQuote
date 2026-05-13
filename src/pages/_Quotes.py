@@ -11,6 +11,7 @@ from logic.database import (
     get_all_board_types,
     get_all_slides,
     get_all_hinges,
+    get_all_handles,
 )
 
 
@@ -27,6 +28,9 @@ slide_lookup = {s["id"]: s for s in slides}
 hinges = get_all_hinges()
 hinge_ids = [h["id"] for h in hinges]
 hinge_lookup = {h["id"]: h for h in hinges}
+handles = get_all_handles()
+handle_ids = [h["id"] for h in handles]
+handle_lookup = {h["id"]: h for h in handles}
 
 UNIT_DEFAULT_KEYS = ["Base Drawer", "Base Door", "Wall Door", "Tall Standard", "Tall Pantry"]
 
@@ -98,6 +102,43 @@ def _board_index_for_id(board_id: int | None) -> int:
     if board_id in board_ids:
         return board_ids.index(board_id)
     return 0
+
+
+def _handle_label(handle: dict) -> str:
+    name = str(handle.get("name", "")).strip()
+    supplier = str(handle.get("supplier", "")).strip()
+    code = str(handle.get("code", "")).strip()
+    label = name or "Handle"
+    if supplier:
+        label += f" • {supplier}"
+    if code:
+        label += f" • {code}"
+    return label
+
+
+def _handle_payload_from_id(handle_id: int | None) -> dict:
+    if handle_id is None:
+        return {}
+    r = handle_lookup.get(handle_id)
+    if not r:
+        return {}
+    return {
+        "name": str(r["name"]),
+        "supplier": str(r["supplier"]),
+        "code": str(r["code"]),
+    }
+
+
+def _handle_id_from_quote(quote: dict | None, prefix: str) -> int | None:
+    if not handles or not quote:
+        return handle_ids[0] if handle_ids else None
+    name = str(quote.get(f"default_{prefix}_handle_name") or "")
+    supplier = str(quote.get(f"default_{prefix}_handle_supplier") or "")
+    code = str(quote.get(f"default_{prefix}_handle_code") or "")
+    for h in handles:
+        if str(h["name"]) == name and str(h["supplier"]) == supplier and str(h["code"]) == code:
+            return int(h["id"])
+    return handle_ids[0] if handle_ids else None
 
 # ── Guard: must have an active project ────────────────────────────────────────
 if "active_project_id" not in st.session_state or st.session_state.active_project_id is None:
@@ -184,6 +225,46 @@ def new_quote_dialog():
                 key="new_quote_default_hinge",
             )
 
+        st.markdown("##### Default Handles")
+        if not handles:
+            st.info("No handles available yet. Add handles in Handle Library to set defaults.")
+            default_base_handle_id = None
+            default_wall_handle_id = None
+            default_tall_handle_id = None
+            default_drawer_handle_id = None
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                default_base_handle_id = st.selectbox(
+                    "Base Unit Handle",
+                    handle_ids,
+                    index=0,
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key="new_quote_default_base_handle",
+                )
+                default_tall_handle_id = st.selectbox(
+                    "Tall Unit Handle",
+                    handle_ids,
+                    index=0,
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key="new_quote_default_tall_handle",
+                )
+            with c2:
+                default_wall_handle_id = st.selectbox(
+                    "Wall Unit Handle",
+                    handle_ids,
+                    index=0,
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key="new_quote_default_wall_handle",
+                )
+                default_drawer_handle_id = st.selectbox(
+                    "Drawer Handle",
+                    handle_ids,
+                    index=0,
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key="new_quote_default_drawer_handle",
+                )
+
         if st.form_submit_button("Create Quote", use_container_width=True):
             if name.strip():
                 create_quote(
@@ -195,6 +276,10 @@ def new_quote_dialog():
                     unit_defaults=unit_defaults,
                     default_slide=_slide_payload_from_id(default_slide_id),
                     default_hinge=_hinge_payload_from_id(default_hinge_id),
+                    default_base_handle=_handle_payload_from_id(default_base_handle_id),
+                    default_wall_handle=_handle_payload_from_id(default_wall_handle_id),
+                    default_tall_handle=_handle_payload_from_id(default_tall_handle_id),
+                    default_drawer_handle=_handle_payload_from_id(default_drawer_handle_id),
                 )
                 st.success(f"Quote '{name}' created!")
                 st.rerun()
@@ -286,6 +371,51 @@ def edit_quote_dialog(quote: dict):
                 key=f"edit_quote_default_hinge_{quote['id']}",
             )
 
+        st.markdown("##### Default Handles")
+        if not handles:
+            st.info("No handles available yet. Add handles in Handle Library to set defaults.")
+            default_base_handle_id = None
+            default_wall_handle_id = None
+            default_tall_handle_id = None
+            default_drawer_handle_id = None
+        else:
+            resolved_base_handle_id = _handle_id_from_quote(quote, "base")
+            resolved_wall_handle_id = _handle_id_from_quote(quote, "wall")
+            resolved_tall_handle_id = _handle_id_from_quote(quote, "tall")
+            resolved_drawer_handle_id = _handle_id_from_quote(quote, "drawer")
+
+            c1, c2 = st.columns(2)
+            with c1:
+                default_base_handle_id = st.selectbox(
+                    "Base Unit Handle",
+                    handle_ids,
+                    index=handle_ids.index(resolved_base_handle_id) if resolved_base_handle_id in handle_ids else 0,
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key=f"edit_quote_default_base_handle_{quote['id']}",
+                )
+                default_tall_handle_id = st.selectbox(
+                    "Tall Unit Handle",
+                    handle_ids,
+                    index=handle_ids.index(resolved_tall_handle_id) if resolved_tall_handle_id in handle_ids else 0,
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key=f"edit_quote_default_tall_handle_{quote['id']}",
+                )
+            with c2:
+                default_wall_handle_id = st.selectbox(
+                    "Wall Unit Handle",
+                    handle_ids,
+                    index=handle_ids.index(resolved_wall_handle_id) if resolved_wall_handle_id in handle_ids else 0,
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key=f"edit_quote_default_wall_handle_{quote['id']}",
+                )
+                default_drawer_handle_id = st.selectbox(
+                    "Drawer Handle",
+                    handle_ids,
+                    index=handle_ids.index(resolved_drawer_handle_id) if resolved_drawer_handle_id in handle_ids else 0,
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key=f"edit_quote_default_drawer_handle_{quote['id']}",
+                )
+
         col_save, col_del = st.columns(2)
         with col_save:
             if st.form_submit_button(":material/save: Save Changes", use_container_width=True):
@@ -299,6 +429,10 @@ def edit_quote_dialog(quote: dict):
                         unit_defaults=unit_defaults,
                         default_slide=_slide_payload_from_id(default_slide_id),
                         default_hinge=_hinge_payload_from_id(default_hinge_id),
+                        default_base_handle=_handle_payload_from_id(default_base_handle_id),
+                        default_wall_handle=_handle_payload_from_id(default_wall_handle_id),
+                        default_tall_handle=_handle_payload_from_id(default_tall_handle_id),
+                        default_drawer_handle=_handle_payload_from_id(default_drawer_handle_id),
                     )
                     st.success("Quote updated!")
                     st.rerun()

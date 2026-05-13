@@ -108,6 +108,15 @@ def init_db():
                 created_at         TEXT    NOT NULL DEFAULT (datetime('now')),
                 UNIQUE (brand, model, code)
             );
+
+            CREATE TABLE IF NOT EXISTS handles (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL,
+                supplier    TEXT    NOT NULL DEFAULT '',
+                code        TEXT    NOT NULL DEFAULT '',
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (name, supplier, code)
+            );
         """)
 
         # Lightweight migrations for existing DBs.
@@ -138,6 +147,30 @@ def init_db():
             conn.execute("ALTER TABLE quotes ADD COLUMN default_hinge_code TEXT")
         if "default_hinge_opening_angle_deg" not in quote_cols:
             conn.execute("ALTER TABLE quotes ADD COLUMN default_hinge_opening_angle_deg INTEGER")
+        if "default_base_handle_name" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_base_handle_name TEXT")
+        if "default_base_handle_supplier" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_base_handle_supplier TEXT")
+        if "default_base_handle_code" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_base_handle_code TEXT")
+        if "default_wall_handle_name" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_wall_handle_name TEXT")
+        if "default_wall_handle_supplier" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_wall_handle_supplier TEXT")
+        if "default_wall_handle_code" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_wall_handle_code TEXT")
+        if "default_tall_handle_name" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_tall_handle_name TEXT")
+        if "default_tall_handle_supplier" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_tall_handle_supplier TEXT")
+        if "default_tall_handle_code" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_tall_handle_code TEXT")
+        if "default_drawer_handle_name" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_drawer_handle_name TEXT")
+        if "default_drawer_handle_supplier" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_drawer_handle_supplier TEXT")
+        if "default_drawer_handle_code" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_drawer_handle_code TEXT")
 
         unit_cols = {r["name"] for r in conn.execute("PRAGMA table_info(units)").fetchall()}
         if "carcass_board_type_id" not in unit_cols:
@@ -239,18 +272,30 @@ def create_quote(
     unit_defaults: dict | None = None,
     default_slide: dict | None = None,
     default_hinge: dict | None = None,
+    default_base_handle: dict | None = None,
+    default_wall_handle: dict | None = None,
+    default_tall_handle: dict | None = None,
+    default_drawer_handle: dict | None = None,
 ) -> int:
     unit_defaults = _json_safe(unit_defaults or {})
     default_slide = _json_safe(default_slide or {})
     default_hinge = _json_safe(default_hinge or {})
+    default_base_handle = _json_safe(default_base_handle or {})
+    default_wall_handle = _json_safe(default_wall_handle or {})
+    default_tall_handle = _json_safe(default_tall_handle or {})
+    default_drawer_handle = _json_safe(default_drawer_handle or {})
     with get_connection() as conn:
         cur = conn.execute(
             """INSERT INTO quotes
                (project_id, name, notes, default_carcass_board_type_id, default_door_board_type_id,
                 unit_defaults_json, default_slide_brand, default_slide_model, default_slide_code,
                 default_slide_length, default_slide_side_length, default_slide_side_clearance_total,
-                default_hinge_brand, default_hinge_model, default_hinge_code, default_hinge_opening_angle_deg)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 default_hinge_brand, default_hinge_model, default_hinge_code, default_hinge_opening_angle_deg,
+                 default_base_handle_name, default_base_handle_supplier, default_base_handle_code,
+                 default_wall_handle_name, default_wall_handle_supplier, default_wall_handle_code,
+                 default_tall_handle_name, default_tall_handle_supplier, default_tall_handle_code,
+                 default_drawer_handle_name, default_drawer_handle_supplier, default_drawer_handle_code)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 project_id,
                 name,
@@ -268,6 +313,18 @@ def create_quote(
                 default_hinge.get("model"),
                 default_hinge.get("code"),
                 default_hinge.get("opening_angle_deg"),
+                default_base_handle.get("name"),
+                default_base_handle.get("supplier"),
+                default_base_handle.get("code"),
+                default_wall_handle.get("name"),
+                default_wall_handle.get("supplier"),
+                default_wall_handle.get("code"),
+                default_tall_handle.get("name"),
+                default_tall_handle.get("supplier"),
+                default_tall_handle.get("code"),
+                default_drawer_handle.get("name"),
+                default_drawer_handle.get("supplier"),
+                default_drawer_handle.get("code"),
             )
         )
         return cur.lastrowid
@@ -308,10 +365,18 @@ def update_quote(
     unit_defaults: dict | None = None,
     default_slide: dict | None = None,
     default_hinge: dict | None = None,
+    default_base_handle: dict | None = None,
+    default_wall_handle: dict | None = None,
+    default_tall_handle: dict | None = None,
+    default_drawer_handle: dict | None = None,
 ):
     unit_defaults = _json_safe(unit_defaults or {})
     default_slide = _json_safe(default_slide or {})
     default_hinge = _json_safe(default_hinge or {})
+    default_base_handle = _json_safe(default_base_handle or {})
+    default_wall_handle = _json_safe(default_wall_handle or {})
+    default_tall_handle = _json_safe(default_tall_handle or {})
+    default_drawer_handle = _json_safe(default_drawer_handle or {})
     with get_connection() as conn:
         conn.execute(
             """UPDATE quotes
@@ -319,7 +384,11 @@ def update_quote(
                    unit_defaults_json=?,
                    default_slide_brand=?, default_slide_model=?, default_slide_code=?,
                    default_slide_length=?, default_slide_side_length=?, default_slide_side_clearance_total=?,
-                   default_hinge_brand=?, default_hinge_model=?, default_hinge_code=?, default_hinge_opening_angle_deg=?
+                   default_hinge_brand=?, default_hinge_model=?, default_hinge_code=?, default_hinge_opening_angle_deg=?,
+                   default_base_handle_name=?, default_base_handle_supplier=?, default_base_handle_code=?,
+                   default_wall_handle_name=?, default_wall_handle_supplier=?, default_wall_handle_code=?,
+                   default_tall_handle_name=?, default_tall_handle_supplier=?, default_tall_handle_code=?,
+                   default_drawer_handle_name=?, default_drawer_handle_supplier=?, default_drawer_handle_code=?
                WHERE id=?""",
             (
                 name,
@@ -337,6 +406,18 @@ def update_quote(
                 default_hinge.get("model"),
                 default_hinge.get("code"),
                 default_hinge.get("opening_angle_deg"),
+                default_base_handle.get("name"),
+                default_base_handle.get("supplier"),
+                default_base_handle.get("code"),
+                default_wall_handle.get("name"),
+                default_wall_handle.get("supplier"),
+                default_wall_handle.get("code"),
+                default_tall_handle.get("name"),
+                default_tall_handle.get("supplier"),
+                default_tall_handle.get("code"),
+                default_drawer_handle.get("name"),
+                default_drawer_handle.get("supplier"),
+                default_drawer_handle.get("code"),
                 quote_id,
             )
         )
@@ -618,6 +699,41 @@ def update_hinge(
 def delete_hinge(hinge_id: int):
     with get_connection() as conn:
         conn.execute("DELETE FROM hinges WHERE id = ?", (hinge_id,))
+
+
+# ── Handles ─────────────────────────────────────────────────────────────────────
+
+def create_handle(name: str, supplier: str, code: str) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO handles (name, supplier, code)
+               VALUES (?, ?, ?)""",
+            (name.strip(), supplier.strip(), code.strip()),
+        )
+        return cur.lastrowid
+
+
+def get_all_handles() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM handles ORDER BY name ASC, supplier ASC, code ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_handle(handle_id: int, name: str, supplier: str, code: str):
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE handles
+               SET name=?, supplier=?, code=?
+               WHERE id=?""",
+            (name.strip(), supplier.strip(), code.strip(), int(handle_id)),
+        )
+
+
+def delete_handle(handle_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM handles WHERE id = ?", (int(handle_id),))
 
 
 def delete_unit(unit_id: int):
