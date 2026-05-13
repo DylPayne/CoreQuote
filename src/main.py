@@ -12,14 +12,18 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+logo_path = os.path.join("src", "components", "branding", "core_logo.png")
+
+if os.path.exists(logo_path):
+    if hasattr(st, "logo"):
+        st.logo(logo_path, size="small", icon_image=logo_path)
+    else:
+        st.sidebar.image(logo_path, use_container_width=True)
+
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&family=Montserrat:wght@500;600;700&display=swap');
-
-    :root {
-        --core-logo-letter-spacing: 0.28em;
-    }
 
     html, body, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="stSidebar"] {
         font-family: 'Lato', sans-serif;
@@ -27,28 +31,6 @@ st.markdown(
 
     h1, h2, h3, h4, h5, h6 {
         font-family: 'Montserrat', sans-serif !important;
-    }
-
-    .core-sidebar-logo {
-        font-family: 'Montserrat', sans-serif;
-        font-weight: 400;
-        font-size: 1.15rem;
-        letter-spacing: var(--core-logo-letter-spacing);
-        text-transform: uppercase;
-        line-height: 1;
-        margin: 0.25rem 0 0.9rem 0;
-    }
-
-    [data-testid="stSidebarNav"]::before {
-        content: "CORE";
-        display: block;
-        font-family: 'Montserrat', sans-serif;
-        font-weight: 400;
-        font-size: 1.15rem;
-        letter-spacing: var(--core-logo-letter-spacing);
-        text-transform: uppercase;
-        line-height: 1;
-        padding: 0.35rem 0.2rem 0.9rem 0.2rem;
     }
     </style>
     """,
