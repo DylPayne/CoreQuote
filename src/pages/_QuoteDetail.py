@@ -233,28 +233,10 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
     if initial_door_board_id is None:
         initial_door_board_id = quote.get("default_door_board_type_id")
 
-    st.markdown("##### Materials")
-    col_cb, col_db = st.columns(2)
-    with col_cb:
-        carcass_board_type_id = st.selectbox(
-            "Carcass Board Type",
-            board_ids,
-            index=_board_index_for_id(initial_carcass_board_id),
-            format_func=_board_option_label,
-            key=f"{key_prefix}_carcass_board",
-        )
-    with col_db:
-        door_board_type_id = st.selectbox(
-            "Door Board Type",
-            board_ids,
-            index=_board_index_for_id(initial_door_board_id),
-            format_func=_board_option_label,
-            key=f"{key_prefix}_door_board",
-        )
-
+    carcass_board_type_id = initial_carcass_board_id
+    door_board_type_id = initial_door_board_id
     selected_carcass = board_lookup.get(carcass_board_type_id) if carcass_board_type_id is not None else None
     bt = int(selected_carcass["thickness"]) if selected_carcass else int(initial.get("thickness", 16))
-    st.caption(f"Carcass thickness applied: **{bt} mm**")
 
     st.markdown("##### Unit Setup")
     default_type_key = normalized_type if normalized_type in UNIT_TYPE_KEYS else UNIT_TYPE_KEYS[0]
@@ -264,15 +246,8 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
     ut = UNIT_TYPE_LABEL_TO_KEY[selected_type_label]
 
     default_h, default_d = _default_dims_for_unit_type(ut)
-    col_h, col_w, col_d = st.columns(3)
+    col_w = st.columns(1)[0]
     ut_key_suffix = ut.lower().replace(" ", "_")
-    with col_h:
-        h = st.number_input(
-            "Height (mm)",
-            min_value=1,
-            value=int(initial.get("height", default_h)),
-            key=f"{key_prefix}_height_{ut_key_suffix}",
-        )
     with col_w:
         w = st.number_input(
             "Width (mm)",
@@ -280,28 +255,61 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
             value=int(initial.get("width", 600)),
             key=f"{key_prefix}_width_{ut_key_suffix}",
         )
-    with col_d:
-        d = st.number_input(
-            "Depth (mm)",
-            min_value=1,
-            value=int(initial.get("depth", default_d)),
-            key=f"{key_prefix}_depth_{ut_key_suffix}",
-        )
 
     extra = {}
     is_valid = True
 
     if ut == "Base Drawer":
         st.markdown("##### Drawer Options")
-        col_nd, col_sl = st.columns(2)
-        with col_nd:
-            num_drawers = st.selectbox(
-                "Number of Drawers",
-                [1, 2, 3, 4],
-                index=max(0, min(3, int(normalized_extra.get("num_drawers", 3)) - 1)),
-                key=f"{key_prefix}_num_drawers",
-            )
-        with col_sl:
+        num_drawers = st.selectbox(
+            "Number of Drawers",
+            [1, 2, 3, 4],
+            index=max(0, min(3, int(normalized_extra.get("num_drawers", 3)) - 1)),
+            key=f"{key_prefix}_num_drawers",
+        )
+
+        with st.expander("Overrides", expanded=False):
+            st.caption("Preset-backed defaults from the quote. Change only when this unit must differ.")
+
+            col_h, col_d = st.columns(2)
+            with col_h:
+                h = st.number_input(
+                    "Height (mm)",
+                    min_value=1,
+                    value=int(initial.get("height", default_h)),
+                    key=f"{key_prefix}_height_{ut_key_suffix}",
+                )
+            with col_d:
+                d = st.number_input(
+                    "Depth (mm)",
+                    min_value=1,
+                    value=int(initial.get("depth", default_d)),
+                    key=f"{key_prefix}_depth_{ut_key_suffix}",
+                )
+
+            st.markdown("##### Materials")
+            col_cb, col_db = st.columns(2)
+            with col_cb:
+                carcass_board_type_id = st.selectbox(
+                    "Carcass Board Type",
+                    board_ids,
+                    index=_board_index_for_id(initial_carcass_board_id),
+                    format_func=_board_option_label,
+                    key=f"{key_prefix}_carcass_board",
+                )
+            with col_db:
+                door_board_type_id = st.selectbox(
+                    "Door Board Type",
+                    board_ids,
+                    index=_board_index_for_id(initial_door_board_id),
+                    format_func=_board_option_label,
+                    key=f"{key_prefix}_door_board",
+                )
+
+            selected_carcass = board_lookup.get(carcass_board_type_id) if carcass_board_type_id is not None else None
+            bt = int(selected_carcass["thickness"]) if selected_carcass else int(initial.get("thickness", 16))
+            st.caption(f"Carcass thickness applied: **{bt} mm**")
+
             if not slides:
                 st.warning("No slides available. Add slides in Slides Library.")
                 is_valid = False
@@ -320,82 +328,91 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                     key=f"{key_prefix}_slide_id",
                 )
 
-        default_drawer_handle_payload = {
-            "name": normalized_extra.get("drawer_handle_name", ""),
-            "supplier": normalized_extra.get("drawer_handle_supplier", ""),
-            "code": normalized_extra.get("drawer_handle_code", ""),
-        }
-        if not any(str(v).strip() for v in default_drawer_handle_payload.values()):
-            default_drawer_handle_payload = _handle_from_quote("drawer")
+            default_drawer_handle_payload = {
+                "name": normalized_extra.get("drawer_handle_name", ""),
+                "supplier": normalized_extra.get("drawer_handle_supplier", ""),
+                "code": normalized_extra.get("drawer_handle_code", ""),
+            }
+            if not any(str(v).strip() for v in default_drawer_handle_payload.values()):
+                default_drawer_handle_payload = _handle_from_quote("drawer")
 
-        if not handles:
-            st.warning("No handles available. Add handles in Handle Library.")
-            is_valid = False
-            selected_drawer_handle_id = None
-        else:
-            selected_drawer_handle_id = st.selectbox(
-                "Drawer Handle Type",
-                handle_ids,
-                index=(handle_ids.index(_handle_id_by_payload(default_drawer_handle_payload)) if _handle_id_by_payload(default_drawer_handle_payload) in handle_ids else 0),
-                format_func=lambda hid: _handle_label(handle_lookup[hid]),
-                key=f"{key_prefix}_drawer_handle_id",
-                help="Uses quote default unless unit override is changed.",
-            )
-
-        st.markdown("###### Drawer Face Heights")
-        stored_ratios = normalized_extra.get("drawer_face_ratios")
-        if isinstance(stored_ratios, list) and len(stored_ratios) == int(num_drawers):
-            base_ratios = [float(r) for r in stored_ratios]
-        else:
-            base_ratios = _default_drawer_face_ratios(int(num_drawers))
-
-        ratio_mode_options = ["Equal", "Custom"]
-        default_mode = "Custom" if isinstance(stored_ratios, list) else "Equal"
-        if int(num_drawers) == 3 and not isinstance(stored_ratios, list):
-            default_mode = "Custom"  # default 25/25/50 for 3-drawer units
-
-        ratio_mode = st.radio(
-            "Distribution Mode",
-            ratio_mode_options,
-            index=ratio_mode_options.index(default_mode),
-            horizontal=True,
-            key=f"{key_prefix}_drawer_ratio_mode",
-            help="Equal = all fronts same height. Custom = choose each drawer's share.",
-        )
-
-        if ratio_mode == "Equal":
-            drawer_face_ratios = [1.0 / int(num_drawers)] * int(num_drawers)
-        else:
-            st.caption("Set percentage per drawer from top to bottom. Total must equal 100%.")
-            percent_values: list[float] = []
-            for i in range(int(num_drawers)):
-                default_pct = round(base_ratios[i] * 100.0, 2)
-                percent_values.append(
-                    float(
-                        st.number_input(
-                            f"Drawer {i+1} face %",
-                            min_value=0.0,
-                            max_value=100.0,
-                            value=float(default_pct),
-                            step=1.0,
-                            key=f"{key_prefix}_drawer_face_pct_{i}",
-                        )
-                    )
+            if not handles:
+                st.warning("No handles available. Add handles in Handle Library.")
+                is_valid = False
+                selected_drawer_handle_id = None
+            else:
+                selected_drawer_handle_id = st.selectbox(
+                    "Drawer Handle Type",
+                    handle_ids,
+                    index=(handle_ids.index(_handle_id_by_payload(default_drawer_handle_payload)) if _handle_id_by_payload(default_drawer_handle_payload) in handle_ids else 0),
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key=f"{key_prefix}_drawer_handle_id",
+                    help="Uses quote default unless unit override is changed.",
                 )
 
-            pct_sum = sum(percent_values)
-            if pct_sum <= 0:
-                st.error("Drawer face percentages must add up to 100%.")
-                is_valid = False
-                drawer_face_ratios = _default_drawer_face_ratios(int(num_drawers))
-            else:
-                drawer_face_ratios = [p / pct_sum for p in percent_values]
-                if abs(pct_sum - 100.0) > 0.01:
-                    st.warning(f"Percentages currently total {pct_sum:.2f}%. They should total 100%.")
-                    is_valid = False
+            drawer_handle_qty = st.number_input(
+                "Handle Quantity Override",
+                min_value=0,
+                value=int(normalized_extra.get("handle_qty", int(num_drawers))),
+                step=1,
+                key=f"{key_prefix}_drawer_handle_qty",
+                help="Default is one handle per drawer front.",
+            )
 
-        drawer_face_heights_manual = None
-        with st.expander("Advanced Options", expanded=False):
+        with st.expander("Advanced", expanded=False):
+            st.markdown("###### Drawer Face Heights")
+            stored_ratios = normalized_extra.get("drawer_face_ratios")
+            if isinstance(stored_ratios, list) and len(stored_ratios) == int(num_drawers):
+                base_ratios = [float(r) for r in stored_ratios]
+            else:
+                base_ratios = _default_drawer_face_ratios(int(num_drawers))
+
+            ratio_mode_options = ["Equal", "Custom"]
+            default_mode = "Custom" if isinstance(stored_ratios, list) else "Equal"
+            if int(num_drawers) == 3 and not isinstance(stored_ratios, list):
+                default_mode = "Custom"  # default 25/25/50 for 3-drawer units
+
+            ratio_mode = st.radio(
+                "Distribution Mode",
+                ratio_mode_options,
+                index=ratio_mode_options.index(default_mode),
+                horizontal=True,
+                key=f"{key_prefix}_drawer_ratio_mode",
+                help="Equal = all fronts same height. Custom = choose each drawer's share.",
+            )
+
+            if ratio_mode == "Equal":
+                drawer_face_ratios = [1.0 / int(num_drawers)] * int(num_drawers)
+            else:
+                st.caption("Set percentage per drawer from top to bottom. Total must equal 100%.")
+                percent_values: list[float] = []
+                for i in range(int(num_drawers)):
+                    default_pct = round(base_ratios[i] * 100.0, 2)
+                    percent_values.append(
+                        float(
+                            st.number_input(
+                                f"Drawer {i+1} face %",
+                                min_value=0.0,
+                                max_value=100.0,
+                                value=float(default_pct),
+                                step=1.0,
+                                key=f"{key_prefix}_drawer_face_pct_{i}",
+                            )
+                        )
+                    )
+
+                pct_sum = sum(percent_values)
+                if pct_sum <= 0:
+                    st.error("Drawer face percentages must add up to 100%.")
+                    is_valid = False
+                    drawer_face_ratios = _default_drawer_face_ratios(int(num_drawers))
+                else:
+                    drawer_face_ratios = [p / pct_sum for p in percent_values]
+                    if abs(pct_sum - 100.0) > 0.01:
+                        st.warning(f"Percentages currently total {pct_sum:.2f}%. They should total 100%.")
+                        is_valid = False
+
+            drawer_face_heights_manual = None
             st.caption("Optional: manually override drawer face heights in mm (top → bottom).")
             use_manual_heights = st.toggle(
                 "Manually set drawer face heights",
@@ -436,15 +453,6 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                     is_valid = False
 
                 drawer_face_heights_manual = manual_vals
-
-            drawer_handle_qty = st.number_input(
-                "Handle Quantity Override",
-                min_value=0,
-                value=int(normalized_extra.get("handle_qty", int(num_drawers))),
-                step=1,
-                key=f"{key_prefix}_drawer_handle_qty",
-                help="Default is one handle per drawer front.",
-            )
 
         preview_heights = drawer_face_heights_manual or _face_heights_from_ratios(int(h), drawer_face_ratios)
         st.caption(
@@ -513,7 +521,7 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
 
     elif ut in ("Base Door", "Wall Door", "Tall Standard"):
         st.markdown("##### Door / Shelf Options")
-        col_nd, col_ns, col_hg = st.columns(3)
+        col_nd, col_ns = st.columns(2)
         with col_nd:
             num_doors = st.selectbox(
                 "Number of Doors",
@@ -529,7 +537,49 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                 value=int(normalized_extra.get("num_shelves", default_shelves)),
                 key=f"{key_prefix}_num_shelves",
             )
-        with col_hg:
+
+        with st.expander("Overrides", expanded=False):
+            st.caption("Preset-backed defaults from the quote. Change only when this unit must differ.")
+
+            col_h, col_d = st.columns(2)
+            with col_h:
+                h = st.number_input(
+                    "Height (mm)",
+                    min_value=1,
+                    value=int(initial.get("height", default_h)),
+                    key=f"{key_prefix}_height_{ut_key_suffix}",
+                )
+            with col_d:
+                d = st.number_input(
+                    "Depth (mm)",
+                    min_value=1,
+                    value=int(initial.get("depth", default_d)),
+                    key=f"{key_prefix}_depth_{ut_key_suffix}",
+                )
+
+            st.markdown("##### Materials")
+            col_cb, col_db = st.columns(2)
+            with col_cb:
+                carcass_board_type_id = st.selectbox(
+                    "Carcass Board Type",
+                    board_ids,
+                    index=_board_index_for_id(initial_carcass_board_id),
+                    format_func=_board_option_label,
+                    key=f"{key_prefix}_carcass_board",
+                )
+            with col_db:
+                door_board_type_id = st.selectbox(
+                    "Door Board Type",
+                    board_ids,
+                    index=_board_index_for_id(initial_door_board_id),
+                    format_func=_board_option_label,
+                    key=f"{key_prefix}_door_board",
+                )
+
+            selected_carcass = board_lookup.get(carcass_board_type_id) if carcass_board_type_id is not None else None
+            bt = int(selected_carcass["thickness"]) if selected_carcass else int(initial.get("thickness", 16))
+            st.caption(f"Carcass thickness applied: **{bt} mm**")
+
             if not hinges:
                 st.warning("No hinges available. Add hinges in Hinges Library.")
                 is_valid = False
@@ -548,31 +598,15 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                     key=f"{key_prefix}_hinge_id",
                 )
 
-        extra = {"num_doors": int(num_doors), "num_shelves": int(num_shelves)}
+            handle_prefix = "base" if ut == "Base Door" else ("wall" if ut == "Wall Door" else "tall")
+            default_door_handle_payload = {
+                "name": normalized_extra.get("handle_name", ""),
+                "supplier": normalized_extra.get("handle_supplier", ""),
+                "code": normalized_extra.get("handle_code", ""),
+            }
+            if not any(str(v).strip() for v in default_door_handle_payload.values()):
+                default_door_handle_payload = _handle_from_quote(handle_prefix)
 
-        handle_prefix = "base" if ut == "Base Door" else ("wall" if ut == "Wall Door" else "tall")
-        default_door_handle_payload = {
-            "name": normalized_extra.get("handle_name", ""),
-            "supplier": normalized_extra.get("handle_supplier", ""),
-            "code": normalized_extra.get("handle_code", ""),
-        }
-        if not any(str(v).strip() for v in default_door_handle_payload.values()):
-            default_door_handle_payload = _handle_from_quote(handle_prefix)
-
-        if not handles:
-            st.warning("No handles available. Add handles in Handle Library.")
-            is_valid = False
-            selected_door_handle_id = None
-        else:
-            selected_door_handle_id = st.selectbox(
-                "Handle Type",
-                handle_ids,
-                index=(handle_ids.index(_handle_id_by_payload(default_door_handle_payload)) if _handle_id_by_payload(default_door_handle_payload) in handle_ids else 0),
-                format_func=lambda hid: _handle_label(handle_lookup[hid]),
-                key=f"{key_prefix}_door_handle_id",
-            )
-
-        with st.expander("Advanced Options", expanded=False):
             handle_qty = st.number_input(
                 "Handle Quantity Override",
                 min_value=0,
@@ -581,6 +615,24 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                 key=f"{key_prefix}_door_handle_qty",
                 help="Default is one handle per door.",
             )
+            if not handles:
+                st.warning("No handles available. Add handles in Handle Library.")
+                is_valid = False
+                selected_door_handle_id = None
+            else:
+                selected_door_handle_id = st.selectbox(
+                    "Handle Type",
+                    handle_ids,
+                    index=(handle_ids.index(_handle_id_by_payload(default_door_handle_payload)) if _handle_id_by_payload(default_door_handle_payload) in handle_ids else 0),
+                    format_func=lambda hid: _handle_label(handle_lookup[hid]),
+                    key=f"{key_prefix}_door_handle_id",
+                )
+
+        extra = {"num_doors": int(num_doors), "num_shelves": int(num_shelves)}
+
+        with st.expander("Advanced", expanded=False):
+            st.caption("Additional controls for less common adjustments.")
+
         extra["handle_qty"] = int(handle_qty)
 
         if selected_door_handle_id is not None:
@@ -616,7 +668,7 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
     }
 
 
-@st.dialog(":material/add: Add Unit", width="large")
+@st.dialog(":material/add: Add Unit", width="medium")
 def add_unit_dialog():
     payload = unit_form(key_prefix="add")
     if st.button("Add Unit to Quote", type="primary", use_container_width=True):
@@ -638,7 +690,7 @@ def add_unit_dialog():
         st.rerun()
 
 
-@st.dialog(":material/edit: Edit Unit", width="large")
+@st.dialog(":material/edit: Edit Unit", width="medium")
 def edit_unit_dialog(unit: dict):
     payload = unit_form(initial=unit, key_prefix=f"edit_{unit['id']}")
     if st.button("Save Changes", type="primary", use_container_width=True, key=f"save_edit_{unit['id']}"):
