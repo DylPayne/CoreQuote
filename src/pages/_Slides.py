@@ -1,111 +1,94 @@
 import streamlit as st
-import pandas as pd
 import sys
 import os
 
 sys.path.append(os.path.join(os.getcwd(), 'src'))
 
 from logic.database import get_all_slides, create_slide, update_slide, delete_slide
+from ui.library_engine import (
+    LibraryCallbacks,
+    LibraryConfig,
+    LibraryValidationResult,
+    render_library_page,
+)
+from ui.formatters import format_slide_label
 
-st.title(":material/view_list: Slides Library")
+COLUMNS = ["id", "brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift"]
 
-COLUMNS = ["brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift"]
 
-def load_data():
-    rows = get_all_slides()
-    if not rows:
-        return pd.DataFrame(columns=["id", *COLUMNS])
-    return pd.DataFrame(rows)[["id", *COLUMNS]]
+def _validate_slide_row(row: dict) -> LibraryValidationResult:
+    brand = str(row.get("brand", "")).strip()
+    model = str(row.get("model", "")).strip()
+    length = int(row.get("length", 0) or 0)
+    side_length = int(row.get("side_length", 0) or 0)
+    clearance = int(row.get("side_clearance_total", 0) or 0)
+    uplift = int(row.get("side_height_uplift", 0) or 0)
 
-if 'original_df' not in st.session_state:
-    st.session_state.original_df = load_data()
+    if not brand or not model:
+        return LibraryValidationResult(False, "Each row must have Brand and Model.")
+    if min(length, side_length, clearance, uplift) < 0:
+        return LibraryValidationResult(False, "Slide dimensions and uplift must be 0 or greater.")
 
-# --- 1. Define the Pop-up (Dialog) ---
-@st.dialog(":material/add: Add New Slide", width="medium")
-def add_slide_dialog():
-    # Inside the dialog, we use a standard form
-    with st.form("add_slide_form", clear_on_submit=True):
-        brand = st.text_input("Brand", placeholder="e.g. Grass")
-        model = st.text_input("Model", placeholder="e.g. Dynapro")
-        code = st.text_input("Product Code")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            length = st.number_input("Nominal Length (mm)", min_value=0, step=50, value=500)
-        with col2:
-            side_len = st.number_input("Actual Side Length (mm)", min_value=0, step=1, value=500)
-        with col3:
-            clearance = st.number_input("Side Clearance (per side, mm)", min_value=0, step=1, value=13)
-        side_uplift = st.number_input("Side Height Uplift (mm)", min_value=0, step=1, value=0)
-            
-        if st.form_submit_button("Add to Library", use_container_width=True):
-            if brand and model:
-                create_slide(
-                    brand=brand,
-                    model=model,
-                    code=code,
-                    length=int(length),
-                    side_length=int(side_len),
-                    side_clearance_total=int(clearance),
-                    side_height_uplift=int(side_uplift),
-                )
-                st.session_state.original_df = load_data()
-                st.success(f"Added {brand} {model}!")
-                st.rerun() # This closes the dialog and refreshes the table
-            else:
-                st.error("Brand and Model are required.")
+    return LibraryValidationResult(True)
 
-# --- 2. Main Page Layout ---
-col_title, col_btn = st.columns([4, 1])
-with col_title:
-    st.subheader("Current Inventory")
-with col_btn:
-    # This button triggers the pop-up
-    if st.button(":material/add: Add New Slide", use_container_width=True):
-        add_slide_dialog()
 
-# Display the Table
-df = st.session_state.original_df
-if not df.empty:
-    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="main_editor", hide_index=True)
-    
-    has_changes = not edited_df.equals(st.session_state.original_df)
+def _build_slide_payload(row: dict) -> dict:
+    return {
+        "brand": str(row.get("brand", "")).strip(),
+        "model": str(row.get("model", "")).strip(),
+        "code": str(row.get("code", "")).strip(),
+        "length": int(row.get("length", 0) or 0),
+        "side_length": int(row.get("side_length", 0) or 0),
+        "side_clearance_total": int(row.get("side_clearance_total", 0) or 0),
+        "side_height_uplift": int(row.get("side_height_uplift", 0) or 0),
+    }
 
-    if has_changes:
-        st.warning(":material/warning: **Unsaved changes detected!**")
-        if st.button(":material/save: Save All Changes", type="primary", use_container_width=True):
-            original_df = st.session_state.original_df.copy()
 
-            original_ids = set(original_df["id"].dropna().astype(int).tolist()) if not original_df.empty else set()
-            edited_ids = set(edited_df["id"].dropna().astype(int).tolist()) if "id" in edited_df.columns else set()
+def _render_add_slide_fields() -> dict:
+    brand = st.text_input("Brand", placeholder="e.g. Grass")
+    model = st.text_input("Model", placeholder="e.g. Dynapro")
+    code = st.text_input("Product Code")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        length = st.number_input("Nominal Length (mm)", min_value=0, step=50, value=500)
+    with col2:
+        side_len = st.number_input("Actual Side Length (mm)", min_value=0, step=1, value=500)
+    with col3:
+        clearance = st.number_input("Side Clearance (per side, mm)", min_value=0, step=1, value=13)
+    side_uplift = st.number_input("Side Height Uplift (mm)", min_value=0, step=1, value=0)
+    st.caption(f"Preview: {format_slide_label({'brand': brand or '—', 'model': model or '—', 'length': length})}")
+    return {
+        "brand": brand,
+        "model": model,
+        "code": code,
+        "length": int(length),
+        "side_length": int(side_len),
+        "side_clearance_total": int(clearance),
+        "side_height_uplift": int(side_uplift),
+    }
 
-            # Deletes
-            for sid in sorted(original_ids - edited_ids):
-                delete_slide(int(sid))
 
-            # Inserts / updates
-            for _, row in edited_df.iterrows():
-                sid = row.get("id")
-                payload = {
-                    "brand": str(row.get("brand", "")).strip(),
-                    "model": str(row.get("model", "")).strip(),
-                    "code": str(row.get("code", "")).strip(),
-                    "length": int(row.get("length", 0) or 0),
-                    "side_length": int(row.get("side_length", 0) or 0),
-                    "side_clearance_total": int(row.get("side_clearance_total", 0) or 0),
-                    "side_height_uplift": int(row.get("side_height_uplift", 0) or 0),
-                }
-                if not payload["brand"] or not payload["model"]:
-                    st.error("Each row must have Brand and Model.")
-                    st.stop()
+config = LibraryConfig(
+    page_title=":material/view_list: Slides Library",
+    section_title="Current Inventory",
+    add_button_label=":material/add: Add New Slide",
+    add_dialog_title=":material/add: Add New Slide",
+    id_column="id",
+    columns=COLUMNS,
+    editor_key="slides_main_editor",
+    session_df_key="original_slides_df",
+    empty_state_message="Your library is empty. Click 'Add New Slide' to begin.",
+    callbacks=LibraryCallbacks(
+        list_rows=get_all_slides,
+        create_row=create_slide,
+        update_row=update_slide,
+        delete_row=delete_slide,
+    ),
+    validate_row=_validate_slide_row,
+    render_add_dialog_fields=_render_add_slide_fields,
+    build_create_payload=_build_slide_payload,
+    build_update_payload=_build_slide_payload,
+    dialog_success_message="Added slide successfully!",
+)
 
-                if pd.isna(sid) or sid == "":
-                    create_slide(**payload)
-                else:
-                    update_slide(int(sid), **payload)
-
-            st.session_state.original_df = load_data()
-            st.success("Library updated!")
-            st.rerun()
-else:
-    st.info("Your library is empty. Click 'Add New Slide' to begin.")
+render_library_page(config)

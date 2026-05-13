@@ -13,10 +13,16 @@ from logic.database import (
     get_all_hinges,
     get_all_handles,
 )
-
-
-def _board_option_label(board: dict) -> str:
-    return f"{board['brand']} • {board['material']} • {board['thickness']}mm • {board['length_mm']}x{board['width_mm']}"
+from ui.formatters import format_board_label, format_slide_label, format_hinge_label, format_handle_label
+from ui.selectors import (
+    board_index_for_id as selector_board_index_for_id,
+    slide_payload_from_id as selector_slide_payload_from_id,
+    hinge_payload_from_id as selector_hinge_payload_from_id,
+    handle_payload_from_id as selector_handle_payload_from_id,
+    slide_id_from_quote as selector_slide_id_from_quote,
+    hinge_id_from_quote as selector_hinge_id_from_quote,
+    handle_id_from_quote as selector_handle_id_from_quote,
+)
 
 
 board_types = get_all_board_types()
@@ -41,110 +47,49 @@ UNIT_DEFAULT_LABEL_TO_KEY = {
 UNIT_DEFAULT_ITEMS = list(UNIT_DEFAULT_LABEL_TO_KEY.items())
 
 
+def _board_option_label(board: dict) -> str:
+    return format_board_label(board)
+
+
 def _slide_label(slide: dict) -> str:
-    return f"{slide['brand']} {slide['model']} ({int(slide['length'])}mm)"
-
-
-def _slide_payload_from_id(slide_id: int | None) -> dict:
-    if slide_id is None:
-        return {}
-    r = slide_lookup.get(slide_id)
-    if not r:
-        return {}
-    return {
-        "brand": str(r["brand"]),
-        "model": str(r["model"]),
-        "code": str(r["code"]),
-        "length": int(r["length"]),
-        "side_length": int(r["side_length"]),
-        "side_clearance_total": int(r["side_clearance_total"]),
-        "side_height_uplift": int(r.get("side_height_uplift", 0) or 0),
-    }
-
-
-def _slide_id_from_quote(quote: dict | None) -> int | None:
-    if not slides or not quote:
-        return slide_ids[0] if slide_ids else None
-    brand = str(quote.get("default_slide_brand") or "")
-    model = str(quote.get("default_slide_model") or "")
-    code = str(quote.get("default_slide_code") or "")
-    for s in slides:
-        if str(s["brand"]) == brand and str(s["model"]) == model and str(s["code"]) == code:
-            return int(s["id"])
-    return slide_ids[0] if slide_ids else None
+    return format_slide_label(slide)
 
 
 def _hinge_label(hinge: dict) -> str:
-    return f"{hinge['brand']} {hinge['model']} ({int(hinge['opening_angle_deg'])}°)"
-
-
-def _hinge_payload_from_id(hinge_id: int | None) -> dict:
-    if hinge_id is None:
-        return {}
-    r = hinge_lookup.get(hinge_id)
-    if not r:
-        return {}
-    return {
-        "brand": str(r["brand"]),
-        "model": str(r["model"]),
-        "code": str(r["code"]),
-        "opening_angle_deg": int(r["opening_angle_deg"]),
-    }
-
-
-def _hinge_id_from_quote(quote: dict | None) -> int | None:
-    if not hinges or not quote:
-        return hinge_ids[0] if hinge_ids else None
-    brand = str(quote.get("default_hinge_brand") or "")
-    model = str(quote.get("default_hinge_model") or "")
-    code = str(quote.get("default_hinge_code") or "")
-    for h in hinges:
-        if str(h["brand"]) == brand and str(h["model"]) == model and str(h["code"]) == code:
-            return int(h["id"])
-    return hinge_ids[0] if hinge_ids else None
-
-
-def _board_index_for_id(board_id: int | None) -> int:
-    if board_id in board_ids:
-        return board_ids.index(board_id)
-    return 0
+    return format_hinge_label(hinge)
 
 
 def _handle_label(handle: dict) -> str:
-    name = str(handle.get("name", "")).strip()
-    supplier = str(handle.get("supplier", "")).strip()
-    code = str(handle.get("code", "")).strip()
-    label = name or "Handle"
-    if supplier:
-        label += f" • {supplier}"
-    if code:
-        label += f" • {code}"
-    return label
+    return format_handle_label(handle)
+
+
+def _board_index_for_id(board_id: int | None) -> int:
+    return selector_board_index_for_id(board_ids, board_id)
+
+
+def _slide_payload_from_id(slide_id: int | None) -> dict:
+    return selector_slide_payload_from_id(slide_lookup, slide_id)
+
+
+def _hinge_payload_from_id(hinge_id: int | None) -> dict:
+    return selector_hinge_payload_from_id(hinge_lookup, hinge_id)
 
 
 def _handle_payload_from_id(handle_id: int | None) -> dict:
-    if handle_id is None:
-        return {}
-    r = handle_lookup.get(handle_id)
-    if not r:
-        return {}
-    return {
-        "name": str(r["name"]),
-        "supplier": str(r["supplier"]),
-        "code": str(r["code"]),
-    }
+    return selector_handle_payload_from_id(handle_lookup, handle_id)
+
+
+def _slide_id_from_quote(quote: dict | None) -> int | None:
+    return selector_slide_id_from_quote(slides, slide_ids, quote)
+
+
+def _hinge_id_from_quote(quote: dict | None) -> int | None:
+    return selector_hinge_id_from_quote(hinges, hinge_ids, quote)
 
 
 def _handle_id_from_quote(quote: dict | None, prefix: str) -> int | None:
-    if not handles or not quote:
-        return handle_ids[0] if handle_ids else None
-    name = str(quote.get(f"default_{prefix}_handle_name") or "")
-    supplier = str(quote.get(f"default_{prefix}_handle_supplier") or "")
-    code = str(quote.get(f"default_{prefix}_handle_code") or "")
-    for h in handles:
-        if str(h["name"]) == name and str(h["supplier"]) == supplier and str(h["code"]) == code:
-            return int(h["id"])
-    return handle_ids[0] if handle_ids else None
+    return selector_handle_id_from_quote(handles, handle_ids, quote, prefix)
+
 
 # ── Guard: must have an active project ────────────────────────────────────────
 if "active_project_id" not in st.session_state or st.session_state.active_project_id is None:
