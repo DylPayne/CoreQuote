@@ -65,7 +65,15 @@ def _board_index_for_id(board_id: int | None) -> int:
 
 # ── Unit Form + Add/Edit Dialogs ──────────────────────────────────────────────
 
-UNIT_TYPES = ["Base Drawer", "Base Door", "Wall Door", "Tall Standard", "Tall Pantry"]
+UNIT_TYPE_LABEL_TO_KEY = {
+    "Base Drawer": "Base Drawer",
+    "Base Door": "Base Door",
+    "Wall Door": "Wall Door",
+    "Tall Door": "Tall Standard",
+}
+UNIT_TYPE_KEYS = list(UNIT_TYPE_LABEL_TO_KEY.values())
+UNIT_TYPE_LABELS = list(UNIT_TYPE_LABEL_TO_KEY.keys())
+UNIT_TYPE_KEY_TO_LABEL = {v: k for k, v in UNIT_TYPE_LABEL_TO_KEY.items()}
 
 
 def _default_dims_for_unit_type(unit_type: str) -> tuple[int, int]:
@@ -76,8 +84,6 @@ def _default_dims_for_unit_type(unit_type: str) -> tuple[int, int]:
         fallback_h, fallback_d = 720, 330
     elif unit_type == "Tall Standard":
         fallback_h, fallback_d = 2100, 580
-    elif unit_type == "Tall Pantry":
-        fallback_h, fallback_d = 2400, 580
     else:
         fallback_h, fallback_d = 780, 580
 
@@ -102,6 +108,9 @@ def _normalize_unit_type_and_extra(unit_type: str, extra: dict | None = None) ->
         count = int(unit_type.split()[1])
         extra.setdefault("num_doors", count)
         return "Wall Door", extra
+
+    if unit_type == "Tall Door":
+        return "Tall Standard", extra
 
     return unit_type, extra
 
@@ -213,7 +222,7 @@ def _face_heights_from_ratios(height_mm: int, ratios: list[float], gap_mm: int =
 
 def unit_form(initial: dict | None = None, key_prefix: str = "add"):
     initial = initial or {}
-    initial_type = str(initial.get("unit_type", UNIT_TYPES[0]))
+    initial_type = str(initial.get("unit_type", UNIT_TYPE_KEYS[0]))
     initial_extra = initial.get("extra_params", {}) or {}
     normalized_type, normalized_extra = _normalize_unit_type_and_extra(initial_type, initial_extra)
 
@@ -248,32 +257,35 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
     st.caption(f"Carcass thickness applied: **{bt} mm**")
 
     st.markdown("##### Unit Setup")
-    default_type = normalized_type if normalized_type in UNIT_TYPES else UNIT_TYPES[0]
-    type_index = UNIT_TYPES.index(default_type) if default_type in UNIT_TYPES else 0
-    ut = st.selectbox("Unit Type", UNIT_TYPES, index=type_index, key=f"{key_prefix}_type")
+    default_type_key = normalized_type if normalized_type in UNIT_TYPE_KEYS else UNIT_TYPE_KEYS[0]
+    default_type_label = UNIT_TYPE_KEY_TO_LABEL.get(default_type_key, "Base Drawer")
+    type_index = UNIT_TYPE_LABELS.index(default_type_label) if default_type_label in UNIT_TYPE_LABELS else 0
+    selected_type_label = st.selectbox("Unit Type", UNIT_TYPE_LABELS, index=type_index, key=f"{key_prefix}_type")
+    ut = UNIT_TYPE_LABEL_TO_KEY[selected_type_label]
 
     default_h, default_d = _default_dims_for_unit_type(ut)
     col_h, col_w, col_d = st.columns(3)
+    ut_key_suffix = ut.lower().replace(" ", "_")
     with col_h:
         h = st.number_input(
             "Height (mm)",
             min_value=1,
             value=int(initial.get("height", default_h)),
-            key=f"{key_prefix}_height",
+            key=f"{key_prefix}_height_{ut_key_suffix}",
         )
     with col_w:
         w = st.number_input(
             "Width (mm)",
             min_value=1,
             value=int(initial.get("width", 600)),
-            key=f"{key_prefix}_width",
+            key=f"{key_prefix}_width_{ut_key_suffix}",
         )
     with col_d:
         d = st.number_input(
             "Depth (mm)",
             min_value=1,
             value=int(initial.get("depth", default_d)),
-            key=f"{key_prefix}_depth",
+            key=f"{key_prefix}_depth_{ut_key_suffix}",
         )
 
     extra = {}
@@ -499,7 +511,7 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                 }
             )
 
-    elif ut in ("Base Door", "Wall Door", "Tall Standard", "Tall Pantry"):
+    elif ut in ("Base Door", "Wall Door", "Tall Standard"):
         st.markdown("##### Door / Shelf Options")
         col_nd, col_ns, col_hg = st.columns(3)
         with col_nd:
@@ -510,7 +522,7 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                 key=f"{key_prefix}_num_doors",
             )
         with col_ns:
-            default_shelves = 4 if ut in ("Tall Standard", "Tall Pantry") else 1
+            default_shelves = 4 if ut == "Tall Standard" else 1
             num_shelves = st.number_input(
                 "Number of Shelves",
                 min_value=0,
@@ -535,13 +547,6 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                     ),
                     key=f"{key_prefix}_hinge_id",
                 )
-
-        if ut == "Wall Door":
-            d = st.number_input("Depth (mm)", min_value=1, value=int(initial.get("depth", 330)), key=f"{key_prefix}_wall_depth")
-        elif ut in ("Tall Standard", "Tall Pantry"):
-            default_tall_h = 2100 if ut == "Tall Standard" else 2400
-            h = st.number_input("Height (mm)", min_value=1, value=int(initial.get("height", default_tall_h)), key=f"{key_prefix}_tall_height")
-            d = st.number_input("Depth (mm)", min_value=1, value=int(initial.get("depth", 580)), key=f"{key_prefix}_tall_depth")
 
         extra = {"num_doors": int(num_doors), "num_shelves": int(num_shelves)}
 

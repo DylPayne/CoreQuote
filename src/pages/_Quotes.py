@@ -32,7 +32,13 @@ handles = get_all_handles()
 handle_ids = [h["id"] for h in handles]
 handle_lookup = {h["id"]: h for h in handles}
 
-UNIT_DEFAULT_KEYS = ["Base Drawer", "Base Door", "Wall Door", "Tall Standard", "Tall Pantry"]
+UNIT_DEFAULT_LABEL_TO_KEY = {
+    "Base Drawer": "Base Drawer",
+    "Base Door": "Base Door",
+    "Wall Door": "Wall Door",
+    "Tall Door": "Tall Standard",
+}
+UNIT_DEFAULT_ITEMS = list(UNIT_DEFAULT_LABEL_TO_KEY.items())
 
 
 def _slide_label(slide: dict) -> str:
@@ -180,23 +186,21 @@ def new_quote_dialog():
 
         st.markdown("##### Default Unit Dimensions")
         unit_defaults: dict[str, dict[str, int]] = {}
-        for unit_key in UNIT_DEFAULT_KEYS:
+        for unit_label, unit_key in UNIT_DEFAULT_ITEMS:
             if unit_key == "Wall Door":
                 default_h, default_d = 720, 330
             elif unit_key == "Tall Standard":
                 default_h, default_d = 2100, 580
-            elif unit_key == "Tall Pantry":
-                default_h, default_d = 2400, 580
             else:
                 default_h, default_d = 780, 580
 
             c1, c2, c3 = st.columns([2, 1, 1])
             with c1:
-                st.caption(unit_key)
+                st.caption(unit_label)
             with c2:
-                h = st.number_input(f"{unit_key} Height", min_value=1, value=default_h, key=f"new_{unit_key}_h", label_visibility="collapsed")
+                h = st.number_input(f"{unit_label} Height", min_value=1, value=default_h, key=f"new_{unit_key}_h", label_visibility="collapsed")
             with c3:
-                d = st.number_input(f"{unit_key} Depth", min_value=1, value=default_d, key=f"new_{unit_key}_d", label_visibility="collapsed")
+                d = st.number_input(f"{unit_label} Depth", min_value=1, value=default_d, key=f"new_{unit_key}_d", label_visibility="collapsed")
             unit_defaults[unit_key] = {"height": int(h), "depth": int(d)}
 
         st.markdown("##### Default Drawer Slide")
@@ -315,17 +319,17 @@ def edit_quote_dialog(quote: dict):
         st.markdown("##### Default Unit Dimensions")
         existing_defaults = quote.get("unit_defaults", {}) or {}
         unit_defaults: dict[str, dict[str, int]] = {}
-        for unit_key in UNIT_DEFAULT_KEYS:
-            fallback_h = 720 if unit_key == "Wall Door" else (2100 if unit_key == "Tall Standard" else (2400 if unit_key == "Tall Pantry" else 780))
+        for unit_label, unit_key in UNIT_DEFAULT_ITEMS:
+            fallback_h = 720 if unit_key == "Wall Door" else (2100 if unit_key == "Tall Standard" else 780)
             fallback_d = 330 if unit_key == "Wall Door" else 580
             current = existing_defaults.get(unit_key, {})
 
             c1, c2, c3 = st.columns([2, 1, 1])
             with c1:
-                st.caption(unit_key)
+                st.caption(unit_label)
             with c2:
                 h = st.number_input(
-                    f"{unit_key} Height",
+                    f"{unit_label} Height",
                     min_value=1,
                     value=int(current.get("height", fallback_h)),
                     key=f"edit_{quote['id']}_{unit_key}_h",
@@ -333,7 +337,7 @@ def edit_quote_dialog(quote: dict):
                 )
             with c3:
                 d = st.number_input(
-                    f"{unit_key} Depth",
+                    f"{unit_label} Depth",
                     min_value=1,
                     value=int(current.get("depth", fallback_d)),
                     key=f"edit_{quote['id']}_{unit_key}_d",
