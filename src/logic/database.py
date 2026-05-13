@@ -94,7 +94,18 @@ def init_db():
                 length                INTEGER NOT NULL,
                 side_length           INTEGER NOT NULL,
                 side_clearance_total  INTEGER NOT NULL,
+                side_height_uplift    INTEGER NOT NULL DEFAULT 0,
                 created_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (brand, model, code)
+            );
+
+            CREATE TABLE IF NOT EXISTS hinges (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                brand              TEXT    NOT NULL,
+                model              TEXT    NOT NULL,
+                code               TEXT    NOT NULL DEFAULT '',
+                opening_angle_deg  INTEGER NOT NULL,
+                created_at         TEXT    NOT NULL DEFAULT (datetime('now')),
                 UNIQUE (brand, model, code)
             );
         """)
@@ -119,12 +130,28 @@ def init_db():
             conn.execute("ALTER TABLE quotes ADD COLUMN default_slide_side_length INTEGER")
         if "default_slide_side_clearance_total" not in quote_cols:
             conn.execute("ALTER TABLE quotes ADD COLUMN default_slide_side_clearance_total INTEGER")
+        if "default_hinge_brand" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_hinge_brand TEXT")
+        if "default_hinge_model" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_hinge_model TEXT")
+        if "default_hinge_code" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_hinge_code TEXT")
+        if "default_hinge_opening_angle_deg" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_hinge_opening_angle_deg INTEGER")
 
         unit_cols = {r["name"] for r in conn.execute("PRAGMA table_info(units)").fetchall()}
         if "carcass_board_type_id" not in unit_cols:
             conn.execute("ALTER TABLE units ADD COLUMN carcass_board_type_id INTEGER")
         if "door_board_type_id" not in unit_cols:
             conn.execute("ALTER TABLE units ADD COLUMN door_board_type_id INTEGER")
+
+        slide_cols = {r["name"] for r in conn.execute("PRAGMA table_info(slides)").fetchall()}
+        if "side_height_uplift" not in slide_cols:
+            conn.execute("ALTER TABLE slides ADD COLUMN side_height_uplift INTEGER NOT NULL DEFAULT 0")
+
+        hinge_cols = {r["name"] for r in conn.execute("PRAGMA table_info(hinges)").fetchall()}
+        if "opening_angle_deg" not in hinge_cols:
+            conn.execute("ALTER TABLE hinges ADD COLUMN opening_angle_deg INTEGER NOT NULL DEFAULT 110")
 
         _migrate_slides_csv_to_db(conn)
 
@@ -144,8 +171,8 @@ def _migrate_slides_csv_to_db(conn: sqlite3.Connection):
             try:
                 conn.execute(
                     """INSERT OR IGNORE INTO slides
-                       (brand, model, code, length, side_length, side_clearance_total)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                       (brand, model, code, length, side_length, side_clearance_total, side_height_uplift)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (
                         str(row.get("brand", "")).strip(),
                         str(row.get("model", "")).strip(),
@@ -153,6 +180,7 @@ def _migrate_slides_csv_to_db(conn: sqlite3.Connection):
                         int(row.get("length", 0) or 0),
                         int(row.get("side_length", 0) or 0),
                         int(row.get("side_clearance_total", 0) or 0),
+                        int(row.get("side_height_uplift", 0) or 0),
                     ),
                 )
             except Exception:
@@ -210,16 +238,19 @@ def create_quote(
     default_door_board_type_id: int | None = None,
     unit_defaults: dict | None = None,
     default_slide: dict | None = None,
+    default_hinge: dict | None = None,
 ) -> int:
     unit_defaults = _json_safe(unit_defaults or {})
     default_slide = _json_safe(default_slide or {})
+    default_hinge = _json_safe(default_hinge or {})
     with get_connection() as conn:
         cur = conn.execute(
             """INSERT INTO quotes
                (project_id, name, notes, default_carcass_board_type_id, default_door_board_type_id,
                 unit_defaults_json, default_slide_brand, default_slide_model, default_slide_code,
-                default_slide_length, default_slide_side_length, default_slide_side_clearance_total)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                default_slide_length, default_slide_side_length, default_slide_side_clearance_total,
+                default_hinge_brand, default_hinge_model, default_hinge_code, default_hinge_opening_angle_deg)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 project_id,
                 name,
@@ -233,6 +264,10 @@ def create_quote(
                 default_slide.get("length"),
                 default_slide.get("side_length"),
                 default_slide.get("side_clearance_total"),
+                default_hinge.get("brand"),
+                default_hinge.get("model"),
+                default_hinge.get("code"),
+                default_hinge.get("opening_angle_deg"),
             )
         )
         return cur.lastrowid
@@ -272,16 +307,19 @@ def update_quote(
     default_door_board_type_id: int | None = None,
     unit_defaults: dict | None = None,
     default_slide: dict | None = None,
+    default_hinge: dict | None = None,
 ):
     unit_defaults = _json_safe(unit_defaults or {})
     default_slide = _json_safe(default_slide or {})
+    default_hinge = _json_safe(default_hinge or {})
     with get_connection() as conn:
         conn.execute(
             """UPDATE quotes
                SET name=?, notes=?, default_carcass_board_type_id=?, default_door_board_type_id=?,
                    unit_defaults_json=?,
                    default_slide_brand=?, default_slide_model=?, default_slide_code=?,
-                   default_slide_length=?, default_slide_side_length=?, default_slide_side_clearance_total=?
+                   default_slide_length=?, default_slide_side_length=?, default_slide_side_clearance_total=?,
+                   default_hinge_brand=?, default_hinge_model=?, default_hinge_code=?, default_hinge_opening_angle_deg=?
                WHERE id=?""",
             (
                 name,
@@ -295,6 +333,10 @@ def update_quote(
                 default_slide.get("length"),
                 default_slide.get("side_length"),
                 default_slide.get("side_clearance_total"),
+                default_hinge.get("brand"),
+                default_hinge.get("model"),
+                default_hinge.get("code"),
+                default_hinge.get("opening_angle_deg"),
                 quote_id,
             )
         )
@@ -457,13 +499,22 @@ def create_slide(
     length: int,
     side_length: int,
     side_clearance_total: int,
+    side_height_uplift: int = 0,
 ) -> int:
     with get_connection() as conn:
         cur = conn.execute(
             """INSERT INTO slides
-               (brand, model, code, length, side_length, side_clearance_total)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (brand.strip(), model.strip(), code.strip(), int(length), int(side_length), int(side_clearance_total)),
+               (brand, model, code, length, side_length, side_clearance_total, side_height_uplift)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                brand.strip(),
+                model.strip(),
+                code.strip(),
+                int(length),
+                int(side_length),
+                int(side_clearance_total),
+                int(side_height_uplift),
+            ),
         )
         return cur.lastrowid
 
@@ -485,19 +536,88 @@ def update_slide(
     length: int,
     side_length: int,
     side_clearance_total: int,
+    side_height_uplift: int = 0,
 ):
     with get_connection() as conn:
         conn.execute(
             """UPDATE slides
-               SET brand=?, model=?, code=?, length=?, side_length=?, side_clearance_total=?
+               SET brand=?, model=?, code=?, length=?, side_length=?, side_clearance_total=?, side_height_uplift=?
                WHERE id=?""",
-            (brand.strip(), model.strip(), code.strip(), int(length), int(side_length), int(side_clearance_total), slide_id),
+            (
+                brand.strip(),
+                model.strip(),
+                code.strip(),
+                int(length),
+                int(side_length),
+                int(side_clearance_total),
+                int(side_height_uplift),
+                slide_id,
+            ),
         )
 
 
 def delete_slide(slide_id: int):
     with get_connection() as conn:
         conn.execute("DELETE FROM slides WHERE id = ?", (slide_id,))
+
+
+# ── Hinges ─────────────────────────────────────────────────────────────────────
+
+def create_hinge(
+    brand: str,
+    model: str,
+    code: str,
+    opening_angle_deg: int,
+) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO hinges
+               (brand, model, code, opening_angle_deg)
+               VALUES (?, ?, ?, ?)""",
+            (
+                brand.strip(),
+                model.strip(),
+                code.strip(),
+                int(opening_angle_deg),
+            ),
+        )
+        return cur.lastrowid
+
+
+def get_all_hinges() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM hinges
+               ORDER BY brand ASC, model ASC, opening_angle_deg ASC, code ASC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_hinge(
+    hinge_id: int,
+    brand: str,
+    model: str,
+    code: str,
+    opening_angle_deg: int,
+):
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE hinges
+               SET brand=?, model=?, code=?, opening_angle_deg=?
+               WHERE id=?""",
+            (
+                brand.strip(),
+                model.strip(),
+                code.strip(),
+                int(opening_angle_deg),
+                hinge_id,
+            ),
+        )
+
+
+def delete_hinge(hinge_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM hinges WHERE id = ?", (hinge_id,))
 
 
 def delete_unit(unit_id: int):

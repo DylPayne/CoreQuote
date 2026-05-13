@@ -12,7 +12,7 @@ from logic.models import Slide
 from logic.pdf_gen import generate_pdf
 from logic.database import get_all_slides
 
-st.title("🔧 Cutlist Generator")
+st.title(":material/build: Cutlist Generator")
 
 slides = get_all_slides()
 
@@ -58,7 +58,8 @@ if ut == "Base 3 Draw":
         code=row['code'],
         length=int(row['length']),
         side_length=int(row['side_length']),
-        side_clearance_total=int(row['side_clearance_total'])
+        side_clearance_total=int(row['side_clearance_total']),
+        side_height_uplift=int(row.get('side_height_uplift', 0) or 0),
     )
 
     unit = DrawerUnit(

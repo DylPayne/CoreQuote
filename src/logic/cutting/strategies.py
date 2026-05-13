@@ -37,12 +37,46 @@ DIMENSION CONVENTIONS (all measurements in mm)
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import Counter
+import math
 from typing import TYPE_CHECKING
 
 from logic.models import Board
 
 if TYPE_CHECKING:
     from logic.units.base import CabinetUnit
+
+
+def _drawer_face_heights(unit: "CabinetUnit", num_drawers: int, gap_mm: int = 3) -> list[int]:
+    """Return per-drawer face heights in mm with sane defaults and rounding-safe totals."""
+    manual = getattr(unit, "drawer_face_heights", None)
+    if isinstance(manual, list) and len(manual) == num_drawers and all(int(v) > 0 for v in manual):
+        return [int(v) for v in manual]
+
+    ratios = getattr(unit, "drawer_face_ratios", None)
+
+    if isinstance(ratios, list) and len(ratios) == num_drawers and sum(ratios) > 0:
+        use_ratios = [float(r) for r in ratios]
+    elif num_drawers == 3:
+        # Default for 3-drawer units: 25 / 25 / 50 (bottom larger)
+        use_ratios = [0.25, 0.25, 0.50]
+    else:
+        use_ratios = [1.0 / num_drawers] * num_drawers
+
+    ratio_sum = sum(use_ratios)
+    use_ratios = [r / ratio_sum for r in use_ratios]
+
+    total_face_height = max(0, int(unit.h) - (gap_mm * num_drawers))
+    raw = [r * total_face_height for r in use_ratios]
+    floors = [int(math.floor(v)) for v in raw]
+    remainder = total_face_height - sum(floors)
+
+    # Distribute remaining mm to the largest fractional parts.
+    frac_order = sorted(range(num_drawers), key=lambda i: (raw[i] - floors[i]), reverse=True)
+    for i in range(remainder):
+        floors[frac_order[i % num_drawers]] += 1
+
+    return floors
 
 
 # ── Abstract base strategy ─────────────────────────────────────────────────────
@@ -151,12 +185,13 @@ class DrawerUnitStrategy(CuttingStrategy):
     │  DRAWER BOXES  (per drawer, qty = num_drawers)                      │
     │  ─────────────────────────────────────────────────────────────────  │
     │  drawer_depth = slide.side_length = 490 mm                         │
-    │  drawer_width = w - slide.side_clearance_total = 600 - 10 = 590 mm │
-    │  side_rebate  = 10 mm  (drawer base sits in a 10 mm rebate)        │
+    │  carcass_internal_w = w - (2 × t) = 600 - 32 = 568 mm              │
+    │  drawer_width      = carcass_internal_w - (2 × side_clearance)      │
+    │                    = 568 - (2 × 10) = 548 mm                        │
     │                                                                     │
     │  Drawer Side      : 490 × 200 mm  qty 6  (2 per drawer)            │
-    │  Drawer Front/Back: 590 × 174 mm  qty 6  (2 per drawer)            │
-    │  Drawer Base      : (590 + 10) × 490 = 600 × 490 mm  qty 3        │
+    │  Drawer Front/Back: 548 × 174 mm  qty 6  (2 per drawer)            │
+    │  Drawer Base      : 548 × (490 - 32) = 548 × 458 mm  qty 3        │
     │                                                                     │
     │  PANELS (drawer fronts)                                             │
     │  ─────────────────────────────────────────────────────────────────  │
@@ -173,12 +208,12 @@ class DrawerUnitStrategy(CuttingStrategy):
         Drawer-box dimensions are derived from the slide specification:
           - drawer_depth  = slide.side_length
                             (the actual running length of the drawer box)
-          - drawer_width  = cabinet_width - slide.side_clearance_total
-                            (internal box width after accounting for slide bodies)
-          - side_rebate   = 10 mm
-                            (the drawer base sits in a 10 mm groove in the sides)
-          - drawer_base_w = drawer_width + side_rebate
-                            (base is wider than the box interior to fill the groove)
+          - drawer_width  = (cabinet_width - 2×thickness) - (2 × side_clearance)
+                            (carcass internal width minus left+right slide clearances)
+          - drawer_base_w = drawer_width
+                            (base fits inside side panels)
+          - drawer_base_d = drawer_depth - (2 × thickness)
+                            (base sits between drawer front and back panels)
           - drawer_side_h = 200 mm (standard Grass/Blum box height)
           - drawer_front_back_h = 174 mm (box height minus top/bottom material)
         """
@@ -187,33 +222,48 @@ class DrawerUnitStrategy(CuttingStrategy):
         slide        = unit.slide                          # type: ignore[attr-defined]
         num_drawers  = unit.num_drawers                    # type: ignore[attr-defined]
 
-        drawer_depth  = slide.side_length
-        drawer_width  = unit.w - slide.side_clearance_total
-        side_rebate   = 10   # mm — drawer base sits in a 10 mm groove
+        drawer_depth       = slide.side_length
+        carcass_internal_w = unit.w - (2 * unit.t)
+        drawer_width       = carcass_internal_w - (2 * slide.side_clearance_total)
 
-        drawer_side_h          = 200   # mm — standard box side height
-        drawer_front_back_h    = 174   # mm — box height minus top/bottom material
+        # Drawer front/back (box carcass) is always 100 mm shorter than drawer face.
+        gap_mm = 3
+        face_heights = _drawer_face_heights(unit, num_drawers, gap_mm=gap_mm)
+        front_back_heights = [max(0, h - 100) for h in face_heights]
 
-        boards += [
-            Board(
-                name   = "Drawer Side",
-                length = drawer_depth,
-                width  = drawer_side_h,
-                qty    = 2 * num_drawers,   # 2 sides per drawer
-            ),
-            Board(
-                name   = "Drawer Front/Back",
-                length = drawer_width,
-                width  = drawer_front_back_h,
-                qty    = 2 * num_drawers,   # front + back per drawer
-            ),
+        # Some slide systems require slightly taller drawer sides.
+        side_uplift_mm = int(getattr(slide, "side_height_uplift", 0) or 0)
+        side_heights = [max(0, h + side_uplift_mm) for h in front_back_heights]
+
+        # Group identical heights so cutlist remains compact.
+        for fb_h, count in Counter(front_back_heights).items():
+            boards.append(
+                Board(
+                    name="Drawer Front/Back",
+                    length=drawer_width,
+                    width=fb_h,
+                    qty=2 * count,
+                )
+            )
+
+        for side_h, count in Counter(side_heights).items():
+            boards.append(
+                Board(
+                    name="Drawer Side",
+                    length=drawer_depth,
+                    width=side_h,
+                    qty=2 * count,
+                )
+            )
+
+        boards.append(
             Board(
                 name   = "Drawer Base",
-                length = drawer_width + side_rebate,
-                width  = drawer_depth,
+                length = max(0, drawer_width),
+                width  = max(0, drawer_depth - (2 * unit.t)),
                 qty    = num_drawers,
-            ),
-        ]
+            )
+        )
         return boards
 
     def get_panel_boards(self, unit: "CabinetUnit") -> list[Board]:
@@ -228,17 +278,12 @@ class DrawerUnitStrategy(CuttingStrategy):
         """
         num_drawers = unit.num_drawers   # type: ignore[attr-defined]
         gap_mm      = 3
-
-        panel_height = (unit.h / num_drawers) - gap_mm
-        panel_width  = unit.w - gap_mm
+        panel_width = int(unit.w - gap_mm)
+        face_heights = _drawer_face_heights(unit, num_drawers, gap_mm=gap_mm)
 
         return [
-            Board(
-                name   = "Drawer Front",
-                length = int(panel_height),
-                width  = int(panel_width),
-                qty    = num_drawers,
-            )
+            Board(name="Drawer Front", length=int(h), width=panel_width, qty=int(count))
+            for h, count in Counter(face_heights).items()
         ]
 
 

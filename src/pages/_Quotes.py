@@ -10,6 +10,7 @@ from logic.database import (
     get_units_for_quote,
     get_all_board_types,
     get_all_slides,
+    get_all_hinges,
 )
 
 
@@ -23,6 +24,9 @@ board_lookup = {b["id"]: b for b in board_types}
 slides = get_all_slides()
 slide_ids = [s["id"] for s in slides]
 slide_lookup = {s["id"]: s for s in slides}
+hinges = get_all_hinges()
+hinge_ids = [h["id"] for h in hinges]
+hinge_lookup = {h["id"]: h for h in hinges}
 
 UNIT_DEFAULT_KEYS = ["Base Drawer", "Base Door", "Wall Door", "Tall Standard", "Tall Pantry"]
 
@@ -44,6 +48,7 @@ def _slide_payload_from_id(slide_id: int | None) -> dict:
         "length": int(r["length"]),
         "side_length": int(r["side_length"]),
         "side_clearance_total": int(r["side_clearance_total"]),
+        "side_height_uplift": int(r.get("side_height_uplift", 0) or 0),
     }
 
 
@@ -57,6 +62,36 @@ def _slide_id_from_quote(quote: dict | None) -> int | None:
         if str(s["brand"]) == brand and str(s["model"]) == model and str(s["code"]) == code:
             return int(s["id"])
     return slide_ids[0] if slide_ids else None
+
+
+def _hinge_label(hinge: dict) -> str:
+    return f"{hinge['brand']} {hinge['model']} ({int(hinge['opening_angle_deg'])}°)"
+
+
+def _hinge_payload_from_id(hinge_id: int | None) -> dict:
+    if hinge_id is None:
+        return {}
+    r = hinge_lookup.get(hinge_id)
+    if not r:
+        return {}
+    return {
+        "brand": str(r["brand"]),
+        "model": str(r["model"]),
+        "code": str(r["code"]),
+        "opening_angle_deg": int(r["opening_angle_deg"]),
+    }
+
+
+def _hinge_id_from_quote(quote: dict | None) -> int | None:
+    if not hinges or not quote:
+        return hinge_ids[0] if hinge_ids else None
+    brand = str(quote.get("default_hinge_brand") or "")
+    model = str(quote.get("default_hinge_model") or "")
+    code = str(quote.get("default_hinge_code") or "")
+    for h in hinges:
+        if str(h["brand"]) == brand and str(h["model"]) == model and str(h["code"]) == code:
+            return int(h["id"])
+    return hinge_ids[0] if hinge_ids else None
 
 
 def _board_index_for_id(board_id: int | None) -> int:
@@ -79,7 +114,7 @@ if project is None:
 
 # ── Dialogs ────────────────────────────────────────────────────────────────────
 
-@st.dialog("➕ New Quote", width="medium")
+@st.dialog(":material/add: New Quote", width="medium")
 def new_quote_dialog():
     with st.form("new_quote_form", clear_on_submit=True):
         name = st.text_input("Quote Name *", placeholder="e.g. Kitchen Quote v1")
@@ -136,6 +171,19 @@ def new_quote_dialog():
                 key="new_quote_default_slide",
             )
 
+        st.markdown("##### Default Door Hinge")
+        default_hinge_id = hinge_ids[0] if hinge_ids else None
+        if not hinges:
+            st.info("No hinges available yet. Add hinges in Hinges Library to set a default.")
+        else:
+            default_hinge_id = st.selectbox(
+                "Default Hinge",
+                hinge_ids,
+                index=0,
+                format_func=lambda hid: _hinge_label(hinge_lookup[hid]),
+                key="new_quote_default_hinge",
+            )
+
         if st.form_submit_button("Create Quote", use_container_width=True):
             if name.strip():
                 create_quote(
@@ -146,6 +194,7 @@ def new_quote_dialog():
                     default_door_board_type_id=default_door_board_type_id,
                     unit_defaults=unit_defaults,
                     default_slide=_slide_payload_from_id(default_slide_id),
+                    default_hinge=_hinge_payload_from_id(default_hinge_id),
                 )
                 st.success(f"Quote '{name}' created!")
                 st.rerun()
@@ -153,7 +202,7 @@ def new_quote_dialog():
                 st.error("Quote name is required.")
 
 
-@st.dialog("✏️ Edit Quote", width="medium")
+@st.dialog(":material/edit: Edit Quote", width="medium")
 def edit_quote_dialog(quote: dict):
     with st.form("edit_quote_form"):
         name = st.text_input("Quote Name *", value=quote["name"])
@@ -222,9 +271,24 @@ def edit_quote_dialog(quote: dict):
                 key=f"edit_quote_default_slide_{quote['id']}",
             )
 
+        st.markdown("##### Default Door Hinge")
+        default_hinge_id = hinge_ids[0] if hinge_ids else None
+        if not hinges:
+            st.info("No hinges available yet. Add hinges in Hinges Library to set a default.")
+        else:
+            resolved_hinge_id = _hinge_id_from_quote(quote)
+            default_hinge_index = hinge_ids.index(resolved_hinge_id) if resolved_hinge_id in hinge_ids else 0
+            default_hinge_id = st.selectbox(
+                "Default Hinge",
+                hinge_ids,
+                index=default_hinge_index,
+                format_func=lambda hid: _hinge_label(hinge_lookup[hid]),
+                key=f"edit_quote_default_hinge_{quote['id']}",
+            )
+
         col_save, col_del = st.columns(2)
         with col_save:
-            if st.form_submit_button("💾 Save Changes", use_container_width=True):
+            if st.form_submit_button(":material/save: Save Changes", use_container_width=True):
                 if name.strip():
                     update_quote(
                         quote["id"],
@@ -234,13 +298,14 @@ def edit_quote_dialog(quote: dict):
                         default_door_board_type_id=default_door_board_type_id,
                         unit_defaults=unit_defaults,
                         default_slide=_slide_payload_from_id(default_slide_id),
+                        default_hinge=_hinge_payload_from_id(default_hinge_id),
                     )
                     st.success("Quote updated!")
                     st.rerun()
                 else:
                     st.error("Quote name is required.")
         with col_del:
-            if st.form_submit_button("🗑️ Delete Quote", use_container_width=True,
+            if st.form_submit_button(":material/delete: Delete Quote", use_container_width=True,
                                      type="secondary"):
                 delete_quote(quote["id"])
                 if st.session_state.get("active_quote_id") == quote["id"]:
@@ -255,12 +320,12 @@ with col_back:
     if st.button("← Projects"):
         st.switch_page("pages/_Projects.py")
 with col_title:
-    st.title(f"📁 {project['name']}")
+    st.title(f":material/folder: {project['name']}")
 
 if project["client"]:
-    st.caption(f"👤 {project['client']}")
+    st.caption(f":material/person: {project['client']}")
 if project.get("address"):
-    st.caption(f"📍 {project['address']}")
+    st.caption(f":material/location_on: {project['address']}")
 if project["description"]:
     st.caption(project["description"])
 
@@ -270,7 +335,7 @@ col_sub, col_btn = st.columns([4, 1])
 with col_sub:
     st.subheader("Quotes")
 with col_btn:
-    if st.button("➕ New Quote", use_container_width=True, type="primary"):
+    if st.button(":material/add: New Quote", use_container_width=True, type="primary"):
         new_quote_dialog()
 
 # ── Quote list ─────────────────────────────────────────────────────────────────
@@ -278,7 +343,7 @@ with col_btn:
 quotes = get_quotes_for_project(project["id"])
 
 if not quotes:
-    st.info("No quotes yet. Click **➕ New Quote** to get started.")
+    st.info("No quotes yet. Click **:material/add: New Quote** to get started.")
 else:
     for q in quotes:
         units = get_units_for_quote(q["id"])
@@ -291,7 +356,7 @@ else:
                 if q["notes"]:
                     st.caption(q["notes"])
                 st.caption(
-                    f"🔧 {unit_count} unit{'s' if unit_count != 1 else ''}  •  Created {q['created_at'][:10]}"
+                    f":material/build: {unit_count} unit{'s' if unit_count != 1 else ''}  •  Created {q['created_at'][:10]}"
                 )
             with col_open:
                 if st.button("Open", key=f"open_q_{q['id']}", use_container_width=True,

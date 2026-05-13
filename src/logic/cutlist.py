@@ -35,6 +35,7 @@ def _slide_from_params(extra: dict) -> Slide:
         length               = int(extra.get("slide_length", 0)),
         side_length          = int(extra.get("slide_side_length", 0)),
         side_clearance_total = int(extra.get("slide_side_clearance_total", 0)),
+        side_height_uplift   = int(extra.get("slide_side_height_uplift", 0)),
     )
 
 
@@ -61,8 +62,15 @@ def _build_unit_from_dict(u: dict):
             default_drawers = int(utype.split()[1])
         num_drawers = int(extra.get("num_drawers", default_drawers))
         slide       = _slide_from_params(extra)
+        ratios_raw  = extra.get("drawer_face_ratios")
+        drawer_face_ratios = ratios_raw if isinstance(ratios_raw, list) else None
+        heights_raw = extra.get("drawer_face_heights")
+        drawer_face_heights = heights_raw if isinstance(heights_raw, list) else None
         return DrawerUnit(h=h, w=w, d=d, slide=slide,
-                          num_drawers=num_drawers, thickness=t)
+                          num_drawers=num_drawers,
+                          drawer_face_ratios=drawer_face_ratios,
+                          drawer_face_heights=drawer_face_heights,
+                          thickness=t)
 
     elif utype in ("Base Door", "Base 1 Door", "Base 2 Door"):
         default_doors = int(utype.split()[1]) if utype in ("Base 1 Door", "Base 2 Door") else 2

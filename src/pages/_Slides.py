@@ -7,9 +7,9 @@ sys.path.append(os.path.join(os.getcwd(), 'src'))
 
 from logic.database import get_all_slides, create_slide, update_slide, delete_slide
 
-st.title("🗂️ Slides Library")
+st.title(":material/view_list: Slides Library")
 
-COLUMNS = ["brand", "model", "code", "length", "side_length", "side_clearance_total"]
+COLUMNS = ["brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift"]
 
 def load_data():
     rows = get_all_slides()
@@ -21,7 +21,7 @@ if 'original_df' not in st.session_state:
     st.session_state.original_df = load_data()
 
 # --- 1. Define the Pop-up (Dialog) ---
-@st.dialog("➕ Add New Slide", width="medium")
+@st.dialog(":material/add: Add New Slide", width="medium")
 def add_slide_dialog():
     # Inside the dialog, we use a standard form
     with st.form("add_slide_form", clear_on_submit=True):
@@ -35,7 +35,8 @@ def add_slide_dialog():
         with col2:
             side_len = st.number_input("Actual Side Length (mm)", min_value=0, step=1, value=500)
         with col3:
-            clearance = st.number_input("Total Clearance (mm)", min_value=0, step=1, value=13)
+            clearance = st.number_input("Side Clearance (per side, mm)", min_value=0, step=1, value=13)
+        side_uplift = st.number_input("Side Height Uplift (mm)", min_value=0, step=1, value=0)
             
         if st.form_submit_button("Add to Library", use_container_width=True):
             if brand and model:
@@ -46,6 +47,7 @@ def add_slide_dialog():
                     length=int(length),
                     side_length=int(side_len),
                     side_clearance_total=int(clearance),
+                    side_height_uplift=int(side_uplift),
                 )
                 st.session_state.original_df = load_data()
                 st.success(f"Added {brand} {model}!")
@@ -59,7 +61,7 @@ with col_title:
     st.subheader("Current Inventory")
 with col_btn:
     # This button triggers the pop-up
-    if st.button("➕ Add New Slide", use_container_width=True):
+    if st.button(":material/add: Add New Slide", use_container_width=True):
         add_slide_dialog()
 
 # Display the Table
@@ -70,8 +72,8 @@ if not df.empty:
     has_changes = not edited_df.equals(st.session_state.original_df)
 
     if has_changes:
-        st.warning("⚠️ **Unsaved changes detected!**")
-        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
+        st.warning(":material/warning: **Unsaved changes detected!**")
+        if st.button(":material/save: Save All Changes", type="primary", use_container_width=True):
             original_df = st.session_state.original_df.copy()
 
             original_ids = set(original_df["id"].dropna().astype(int).tolist()) if not original_df.empty else set()
@@ -91,6 +93,7 @@ if not df.empty:
                     "length": int(row.get("length", 0) or 0),
                     "side_length": int(row.get("side_length", 0) or 0),
                     "side_clearance_total": int(row.get("side_clearance_total", 0) or 0),
+                    "side_height_uplift": int(row.get("side_height_uplift", 0) or 0),
                 }
                 if not payload["brand"] or not payload["model"]:
                     st.error("Each row must have Brand and Model.")

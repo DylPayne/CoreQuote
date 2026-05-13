@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from logic.models import Board, Slide
 from logic.units.base import CabinetUnit
+from typing import Sequence
 
 
 # ── Base Units ─────────────────────────────────────────────────────────────────
@@ -40,11 +41,15 @@ class DrawerUnit(CabinetUnit):
         d: int,
         slide: Slide,
         num_drawers: int = 3,
+        drawer_face_ratios: Sequence[float] | None = None,
+        drawer_face_heights: Sequence[int] | None = None,
         thickness: int = 16,
     ) -> None:
         super().__init__(h, w, d, thickness)
         self.num_drawers = num_drawers
         self.slide = slide
+        self.drawer_face_ratios = list(drawer_face_ratios) if drawer_face_ratios is not None else None
+        self.drawer_face_heights = [int(v) for v in drawer_face_heights] if drawer_face_heights is not None else None
 
     @property
     def unit_type_key(self) -> str:

@@ -9,7 +9,7 @@ from logic.database import (
 )
 
 
-st.title("🪵 Board Library")
+st.title(":material/grid_view: Board Library")
 
 COLUMNS = ["id", "brand", "material", "thickness", "length_mm", "width_mm"]
 
@@ -21,7 +21,7 @@ def load_data() -> pd.DataFrame:
     return pd.DataFrame(rows)[COLUMNS]
 
 
-@st.dialog("➕ Add New Board", width="medium")
+@st.dialog(":material/add: Add New Board", width="medium")
 def add_board_dialog():
     with st.form("add_board_form", clear_on_submit=True):
         brand = st.text_input("Brand *")
@@ -57,7 +57,7 @@ col_title, col_btn = st.columns([4, 1])
 with col_title:
     st.subheader("Current Inventory")
 with col_btn:
-    if st.button("➕ Add New Board", use_container_width=True):
+    if st.button(":material/add: Add New Board", use_container_width=True):
         add_board_dialog()
 
 df = st.session_state.original_boards_df
@@ -81,8 +81,8 @@ if not df.empty:
     has_changes = not edited_df.equals(st.session_state.original_boards_df)
 
     if has_changes:
-        st.warning("⚠️ **Unsaved changes detected!**")
-        if st.button("💾 Save All Changes", type="primary", use_container_width=True):
+        st.warning(":material/warning: **Unsaved changes detected!**")
+        if st.button(":material/save: Save All Changes", type="primary", use_container_width=True):
             original_ids = set(
                 st.session_state.original_boards_df["id"].dropna().astype(int).tolist()
             )

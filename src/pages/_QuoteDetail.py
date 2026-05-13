@@ -1,6 +1,7 @@
 import streamlit as st
 import sys
 import os
+import math
 
 sys.path.append(os.path.join(os.getcwd(), 'src'))
 
@@ -9,6 +10,7 @@ from logic.database import (
     get_units_for_quote, add_unit, update_unit, delete_unit_and_renumber,
     get_all_board_types,
     get_all_slides,
+    get_all_hinges,
 )
 from logic.models import Slide
 from logic.cutlist import build_cutlist
@@ -35,6 +37,9 @@ project = get_project(quote["project_id"])
 slides = get_all_slides()
 slide_ids = [s["id"] for s in slides]
 slide_lookup = {s["id"]: s for s in slides}
+hinges = get_all_hinges()
+hinge_ids = [h["id"] for h in hinges]
+hinge_lookup = {h["id"]: h for h in hinges}
 board_types = get_all_board_types()
 board_lookup = {b["id"]: b for b in board_types}
 board_ids = [None] + [b["id"] for b in board_types]
@@ -116,6 +121,44 @@ def _get_slide_id(extra: dict) -> int | None:
             return int(s["id"])
 
     return slide_ids[0] if slide_ids else None
+
+
+def _get_hinge_id(extra: dict) -> int | None:
+    if not hinges:
+        return None
+    brand = str(extra.get("hinge_brand", ""))
+    model = str(extra.get("hinge_model", ""))
+    code = str(extra.get("hinge_code", ""))
+    for h in hinges:
+        if str(h["brand"]) == brand and str(h["model"]) == model and str(h["code"]) == code:
+            return int(h["id"])
+
+    # Fall back to quote default hinge if available.
+    q_brand = str(quote.get("default_hinge_brand", "") or "")
+    q_model = str(quote.get("default_hinge_model", "") or "")
+    q_code = str(quote.get("default_hinge_code", "") or "")
+    for h in hinges:
+        if str(h["brand"]) == q_brand and str(h["model"]) == q_model and str(h["code"]) == q_code:
+            return int(h["id"])
+
+    return hinge_ids[0] if hinge_ids else None
+
+
+def _default_drawer_face_ratios(num_drawers: int) -> list[float]:
+    if num_drawers == 3:
+        return [0.25, 0.25, 0.50]
+    return [1.0 / num_drawers] * num_drawers
+
+
+def _face_heights_from_ratios(height_mm: int, ratios: list[float], gap_mm: int = 3) -> list[int]:
+    total_face_height = max(0, int(height_mm) - (gap_mm * len(ratios)))
+    raw = [r * total_face_height for r in ratios]
+    floors = [int(math.floor(v)) for v in raw]
+    remainder = total_face_height - sum(floors)
+    frac_order = sorted(range(len(ratios)), key=lambda i: (raw[i] - floors[i]), reverse=True)
+    for i in range(remainder):
+        floors[frac_order[i % len(ratios)]] += 1
+    return floors
 
 
 def unit_form(initial: dict | None = None, key_prefix: str = "add"):
@@ -215,6 +258,111 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                     key=f"{key_prefix}_slide_id",
                 )
 
+        st.markdown("###### Drawer Face Heights")
+        stored_ratios = normalized_extra.get("drawer_face_ratios")
+        if isinstance(stored_ratios, list) and len(stored_ratios) == int(num_drawers):
+            base_ratios = [float(r) for r in stored_ratios]
+        else:
+            base_ratios = _default_drawer_face_ratios(int(num_drawers))
+
+        ratio_mode_options = ["Equal", "Custom"]
+        default_mode = "Custom" if isinstance(stored_ratios, list) else "Equal"
+        if int(num_drawers) == 3 and not isinstance(stored_ratios, list):
+            default_mode = "Custom"  # default 25/25/50 for 3-drawer units
+
+        ratio_mode = st.radio(
+            "Distribution Mode",
+            ratio_mode_options,
+            index=ratio_mode_options.index(default_mode),
+            horizontal=True,
+            key=f"{key_prefix}_drawer_ratio_mode",
+            help="Equal = all fronts same height. Custom = choose each drawer's share.",
+        )
+
+        if ratio_mode == "Equal":
+            drawer_face_ratios = [1.0 / int(num_drawers)] * int(num_drawers)
+        else:
+            st.caption("Set percentage per drawer from top to bottom. Total must equal 100%.")
+            percent_values: list[float] = []
+            for i in range(int(num_drawers)):
+                default_pct = round(base_ratios[i] * 100.0, 2)
+                percent_values.append(
+                    float(
+                        st.number_input(
+                            f"Drawer {i+1} face %",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(default_pct),
+                            step=1.0,
+                            key=f"{key_prefix}_drawer_face_pct_{i}",
+                        )
+                    )
+                )
+
+            pct_sum = sum(percent_values)
+            if pct_sum <= 0:
+                st.error("Drawer face percentages must add up to 100%.")
+                is_valid = False
+                drawer_face_ratios = _default_drawer_face_ratios(int(num_drawers))
+            else:
+                drawer_face_ratios = [p / pct_sum for p in percent_values]
+                if abs(pct_sum - 100.0) > 0.01:
+                    st.warning(f"Percentages currently total {pct_sum:.2f}%. They should total 100%.")
+                    is_valid = False
+
+        drawer_face_heights_manual = None
+        with st.expander("Advanced Options", expanded=False):
+            st.caption("Optional: manually override drawer face heights in mm (top → bottom).")
+            use_manual_heights = st.toggle(
+                "Manually set drawer face heights",
+                value=isinstance(normalized_extra.get("drawer_face_heights"), list),
+                key=f"{key_prefix}_manual_face_heights_toggle",
+            )
+
+            if use_manual_heights:
+                defaults = normalized_extra.get("drawer_face_heights")
+                if not (isinstance(defaults, list) and len(defaults) == int(num_drawers)):
+                    defaults = _face_heights_from_ratios(int(h), drawer_face_ratios)
+
+                manual_vals: list[int] = []
+                for i in range(int(num_drawers)):
+                    manual_vals.append(
+                        int(
+                            st.number_input(
+                                f"Drawer {i+1} face height (mm)",
+                                min_value=1,
+                                value=int(defaults[i]),
+                                step=1,
+                                key=f"{key_prefix}_drawer_face_mm_{i}",
+                            )
+                        )
+                    )
+
+                target_total = int(h) - (3 * int(num_drawers))
+                manual_total = sum(manual_vals)
+                if manual_total != target_total:
+                    st.error(
+                        f"Manual drawer face heights must total {target_total} mm (height minus 3mm gap per drawer). "
+                        f"Current total: {manual_total} mm."
+                    )
+                    is_valid = False
+
+                if any(v < 101 for v in manual_vals):
+                    st.error("Each manual drawer face height must be at least 101mm.")
+                    is_valid = False
+
+                drawer_face_heights_manual = manual_vals
+
+        preview_heights = drawer_face_heights_manual or _face_heights_from_ratios(int(h), drawer_face_ratios)
+        st.caption(
+            "Drawer face heights preview (top → bottom): "
+            + " / ".join(f"{v}mm" for v in preview_heights)
+        )
+
+        if any(v < 101 for v in preview_heights):
+            st.error("Each drawer face must be at least 101mm so carcass front/back can be face height - 100mm.")
+            is_valid = False
+
         if selected_slide_id is None:
             return {
                 "unit_type": ut,
@@ -232,12 +380,16 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
         slide = Slide(
             brand=row["brand"], model=row["model"], code=row["code"],
             length=int(row["length"]), side_length=int(row["side_length"]),
-            side_clearance_total=int(row["side_clearance_total"])
+            side_clearance_total=int(row["side_clearance_total"]),
+            side_height_uplift=int(row.get("side_height_uplift", 0) or 0),
         )
 
         from logic.units import DrawerUnit
         test_unit = DrawerUnit(h=h, w=w, d=d, slide=slide,
-                               num_drawers=num_drawers, thickness=bt)
+                               num_drawers=num_drawers,
+                               drawer_face_ratios=drawer_face_ratios,
+                               drawer_face_heights=drawer_face_heights_manual,
+                               thickness=bt)
         valid, err = test_unit.validate_slide()
         if not valid:
             st.error(err)
@@ -245,17 +397,20 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
 
         extra = {
             "num_drawers": int(num_drawers),
+            "drawer_face_ratios": [float(r) for r in drawer_face_ratios],
+            "drawer_face_heights": drawer_face_heights_manual,
             "slide_brand": slide.brand,
             "slide_model": slide.model,
             "slide_code": str(slide.code),
             "slide_length": int(slide.length),
             "slide_side_length": int(slide.side_length),
             "slide_side_clearance_total": int(slide.side_clearance_total),
+            "slide_side_height_uplift": int(slide.side_height_uplift),
         }
 
     elif ut in ("Base Door", "Wall Door", "Tall Standard", "Tall Pantry"):
         st.markdown("##### Door / Shelf Options")
-        col_nd, col_ns = st.columns(2)
+        col_nd, col_ns, col_hg = st.columns(3)
         with col_nd:
             num_doors = st.selectbox(
                 "Number of Doors",
@@ -271,6 +426,24 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
                 value=int(normalized_extra.get("num_shelves", default_shelves)),
                 key=f"{key_prefix}_num_shelves",
             )
+        with col_hg:
+            if not hinges:
+                st.warning("No hinges available. Add hinges in Hinges Library.")
+                is_valid = False
+                selected_hinge_id = None
+            else:
+                default_hinge_id = _get_hinge_id(normalized_extra)
+                default_hinge_index = hinge_ids.index(default_hinge_id) if default_hinge_id in hinge_ids else 0
+                selected_hinge_id = st.selectbox(
+                    "Door Hinge",
+                    hinge_ids,
+                    index=default_hinge_index,
+                    format_func=lambda hid: (
+                        f'{hinge_lookup[hid]["brand"]} {hinge_lookup[hid]["model"]} '
+                        f'({hinge_lookup[hid]["opening_angle_deg"]}°)'
+                    ),
+                    key=f"{key_prefix}_hinge_id",
+                )
 
         if ut == "Wall Door":
             d = st.number_input("Depth (mm)", min_value=1, value=int(initial.get("depth", 330)), key=f"{key_prefix}_wall_depth")
@@ -280,6 +453,16 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
             d = st.number_input("Depth (mm)", min_value=1, value=int(initial.get("depth", 580)), key=f"{key_prefix}_tall_depth")
 
         extra = {"num_doors": int(num_doors), "num_shelves": int(num_shelves)}
+        if selected_hinge_id is not None:
+            hinge_row = hinge_lookup[selected_hinge_id]
+            extra.update(
+                {
+                    "hinge_brand": str(hinge_row["brand"]),
+                    "hinge_model": str(hinge_row["model"]),
+                    "hinge_code": str(hinge_row["code"]),
+                    "hinge_opening_angle_deg": int(hinge_row["opening_angle_deg"]),
+                }
+            )
 
     return {
         "unit_type": ut,
@@ -294,7 +477,7 @@ def unit_form(initial: dict | None = None, key_prefix: str = "add"):
     }
 
 
-@st.dialog("➕ Add Unit", width="large")
+@st.dialog(":material/add: Add Unit", width="large")
 def add_unit_dialog():
     payload = unit_form(key_prefix="add")
     if st.button("Add Unit to Quote", type="primary", use_container_width=True):
@@ -316,7 +499,7 @@ def add_unit_dialog():
         st.rerun()
 
 
-@st.dialog("✏️ Edit Unit", width="large")
+@st.dialog(":material/edit: Edit Unit", width="large")
 def edit_unit_dialog(unit: dict):
     payload = unit_form(initial=unit, key_prefix=f"edit_{unit['id']}")
     if st.button("Save Changes", type="primary", use_container_width=True, key=f"save_edit_{unit['id']}"):
@@ -338,6 +521,63 @@ def edit_unit_dialog(unit: dict):
         st.rerun()
 
 
+def _compute_component_counts(units: list[dict]) -> list[dict]:
+    """Aggregate hardware counts for the quote.
+
+    Rules:
+    - Slides: record as pairs (one pair per drawer)
+    - Hinges: per door, one hinge for every 600mm of unit height, minimum 2 hinges per door
+    """
+    counts: dict[str, dict] = {}
+
+    def _add_component(key: str, label: str, qty: int, unit_label: str):
+        if qty <= 0:
+            return
+        if key not in counts:
+            counts[key] = {"component": label, "qty": 0, "unit": unit_label}
+        counts[key]["qty"] += int(qty)
+
+    for u in units:
+        extra = u.get("extra_params", {}) or {}
+        utype = str(u.get("unit_type", ""))
+
+        if "Draw" in utype:
+            num_drawers = int(extra.get("num_drawers", 0) or 0)
+            slide_brand = str(extra.get("slide_brand", "")).strip()
+            slide_model = str(extra.get("slide_model", "")).strip()
+            slide_code = str(extra.get("slide_code", "")).strip()
+            slide_length = extra.get("slide_length")
+            slide_label = " ".join(p for p in [slide_brand, slide_model] if p).strip() or "Slide"
+            if slide_length:
+                slide_label += f" ({slide_length}mm)"
+            if slide_code:
+                slide_label += f" • {slide_code}"
+            slide_key = f"slide::{slide_brand}::{slide_model}::{slide_code}::{slide_length}"
+            _add_component(slide_key, slide_label, num_drawers, "pairs")
+
+        if ("Door" in utype) or ("Tall" in utype):
+            num_doors = int(extra.get("num_doors", 0) or 0)
+            height_mm = int(u.get("height", 0) or 0)
+            hinges_per_door = max(2, math.ceil(height_mm / 600)) if height_mm > 0 else 2
+            total_hinges = num_doors * hinges_per_door
+
+            hinge_brand = str(extra.get("hinge_brand", "")).strip()
+            hinge_model = str(extra.get("hinge_model", "")).strip()
+            hinge_code = str(extra.get("hinge_code", "")).strip()
+            hinge_angle = extra.get("hinge_opening_angle_deg")
+            hinge_label = " ".join(p for p in [hinge_brand, hinge_model] if p).strip() or "Hinge"
+            if hinge_angle:
+                hinge_label += f" ({hinge_angle}°)"
+            if hinge_code:
+                hinge_label += f" • {hinge_code}"
+            hinge_key = f"hinge::{hinge_brand}::{hinge_model}::{hinge_code}::{hinge_angle}"
+            _add_component(hinge_key, hinge_label, total_hinges, "pcs")
+
+    rows = list(counts.values())
+    rows.sort(key=lambda r: r["component"])
+    return rows
+
+
 # ── Page header ────────────────────────────────────────────────────────────────
 
 col_back, col_title = st.columns([1, 6])
@@ -346,92 +586,110 @@ with col_back:
         st.switch_page("pages/_Quotes.py")
 with col_title:
     proj_label = f"{project['name']} › " if project else ""
-    st.title(f"📋 {proj_label}{quote['name']}")
+    st.title(f":material/description: {proj_label}{quote['name']}")
 
 if quote["notes"]:
     st.caption(quote["notes"])
 
 st.divider()
 
-# ── Units list ─────────────────────────────────────────────────────────────────
-
-col_sub, col_add = st.columns([4, 1])
-with col_sub:
-    st.subheader("Units")
-with col_add:
-    if st.button("➕ Add Unit", use_container_width=True, type="primary"):
-        add_unit_dialog()
-
 units = get_units_for_quote(quote["id"])
 
-if not units:
-    st.info("No units yet. Click **➕ Add Unit** to begin building this quote.")
-else:
-    for u in units:
-        extra = u.get("extra_params", {})
-        with st.container(border=True):
-            col_info, col_actions = st.columns([6, 2])
-            with col_info:
-                st.markdown(
-                    f"**Unit {u['unit_number']}** — {u['unit_type']}  "
-                    f"&nbsp;&nbsp; H: {u['height']} × W: {u['width']} × D: {u['depth']} mm  "
-                    f"&nbsp;&nbsp; Thickness: {u['thickness']} mm"
-                )
-                carcass_label = _board_option_label(u.get("carcass_board_type_id"))
-                door_label = _board_option_label(u.get("door_board_type_id"))
-                st.caption(f"Carcass Board: {carcass_label}  •  Door Board: {door_label}")
-                if "Draw" in u["unit_type"]:
-                    slide_label = (
-                        f"{extra.get('slide_brand', '')} {extra.get('slide_model', '')} "
-                        f"({extra.get('slide_length', '')}mm)"
+tab_units, tab_cutting, tab_components = st.tabs(["Units", "Cutting List", "Component Count"])
+
+with tab_units:
+    col_sub, col_add = st.columns([4, 1])
+    with col_sub:
+        st.subheader("Units")
+    with col_add:
+        if st.button(":material/add: Add Unit", use_container_width=True, type="primary"):
+            add_unit_dialog()
+
+    if not units:
+        st.info("No units yet. Click **:material/add: Add Unit** to begin building this quote.")
+    else:
+        for u in units:
+            extra = u.get("extra_params", {})
+            with st.container(border=True):
+                col_info, col_actions = st.columns([6, 2])
+                with col_info:
+                    st.markdown(
+                        f"**Unit {u['unit_number']}** — {u['unit_type']}  "
+                        f"&nbsp;&nbsp; H: {u['height']} × W: {u['width']} × D: {u['depth']} mm  "
+                        f"&nbsp;&nbsp; Thickness: {u['thickness']} mm"
                     )
-                    st.caption(
-                        f"Drawers: {extra.get('num_drawers', '?')}  •  Slide: {slide_label}"
-                    )
-                elif ("Door" in u["unit_type"]) or ("Tall" in u["unit_type"]):
-                    st.caption(
-                        f"Doors: {extra.get('num_doors', '?')}  •  "
-                        f"Shelves: {extra.get('num_shelves', '?')}"
-                    )
-            with col_actions:
-                act_edit, act_del = st.columns(2)
-                with act_edit:
-                    if st.button("✏️", key=f"edit_unit_{u['id']}", help="Edit this unit", use_container_width=True):
-                        edit_unit_dialog(u)
-                with act_del:
-                    if st.button("🗑️", key=f"del_unit_{u['id']}", help="Remove this unit",
-                                 use_container_width=True):
-                        delete_unit_and_renumber(u["id"])
-                        st.rerun()
+                    carcass_label = _board_option_label(u.get("carcass_board_type_id"))
+                    door_label = _board_option_label(u.get("door_board_type_id"))
+                    st.caption(f"Carcass Board: {carcass_label}  •  Door Board: {door_label}")
+                    if "Draw" in u["unit_type"]:
+                        slide_label = (
+                            f"{extra.get('slide_brand', '')} {extra.get('slide_model', '')} "
+                            f"({extra.get('slide_length', '')}mm)"
+                        )
+                        st.caption(
+                            f"Drawers: {extra.get('num_drawers', '?')}  •  Slide: {slide_label}"
+                        )
+                    elif ("Door" in u["unit_type"]) or ("Tall" in u["unit_type"]):
+                        hinge_label = (
+                            f"{extra.get('hinge_brand', '')} {extra.get('hinge_model', '')} "
+                            f"({extra.get('hinge_opening_angle_deg', '')}°)"
+                        )
+                        st.caption(
+                            f"Doors: {extra.get('num_doors', '?')}  •  "
+                            f"Shelves: {extra.get('num_shelves', '?')}  •  "
+                            f"Hinge: {hinge_label}"
+                        )
+                with col_actions:
+                    act_edit, act_del = st.columns(2)
+                    with act_edit:
+                        if st.button(":material/edit:", key=f"edit_unit_{u['id']}", help="Edit this unit", use_container_width=True):
+                            edit_unit_dialog(u)
+                    with act_del:
+                        if st.button(":material/delete:", key=f"del_unit_{u['id']}", help="Remove this unit",
+                                     use_container_width=True):
+                            delete_unit_and_renumber(u["id"])
+                            st.rerun()
 
-    # ── Cutting List Preview & Export ──────────────────────────────────────────
+with tab_cutting:
+    st.subheader(":material/straighten: Cutting List")
+    if not units:
+        st.info("Add units to generate a cutting list.")
+    else:
+        carcass_df, panels_df = build_cutlist(units)
 
-    st.divider()
-    st.subheader("📐 Cutting List")
+        col_c, col_p = st.columns(2)
+        with col_c:
+            st.write("**Carcass Boards**")
+            st.dataframe(carcass_df, use_container_width=True, hide_index=True)
+        with col_p:
+            st.write("**Panels (Doors / Drawer Fronts)**")
+            st.dataframe(panels_df, use_container_width=True, hide_index=True)
 
-    carcass_df, panels_df = build_cutlist(units)
+        # PDF export
+        proj_name = project["name"] if project else ""
+        pdf_bytes = generate_pdf(
+            carcass_df, panels_df,
+            project_name=proj_name,
+            quote_name=quote["name"]
+        )
+        safe_name = quote["name"].replace(" ", "_").lower()
+        st.download_button(
+            label=":material/download: Download Cutting List PDF",
+            data=bytes(pdf_bytes),
+            file_name=f"cutlist_{safe_name}.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+        )
 
-    col_c, col_p = st.columns(2)
-    with col_c:
-        st.write("**Carcass Boards**")
-        st.dataframe(carcass_df, use_container_width=True, hide_index=True)
-    with col_p:
-        st.write("**Panels (Doors / Drawer Fronts)**")
-        st.dataframe(panels_df, use_container_width=True, hide_index=True)
-
-    # PDF export
-    proj_name = project["name"] if project else ""
-    pdf_bytes = generate_pdf(
-        carcass_df, panels_df,
-        project_name=proj_name,
-        quote_name=quote["name"]
-    )
-    safe_name = quote["name"].replace(" ", "_").lower()
-    st.download_button(
-        label="⬇️ Download Cutting List PDF",
-        data=bytes(pdf_bytes),
-        file_name=f"cutlist_{safe_name}.pdf",
-        mime="application/pdf",
-        type="primary",
-        use_container_width=True,
-    )
+with tab_components:
+    st.subheader(":material/hardware: Component Count")
+    if not units:
+        st.info("Add units to calculate component counts.")
+    else:
+        component_rows = _compute_component_counts(units)
+        if not component_rows:
+            st.info("No slide or hinge data found for the units in this quote.")
+        else:
+            st.dataframe(component_rows, use_container_width=True, hide_index=True)
+        st.caption("Slides are recorded as pairs. Hinges are calculated per door at 1 per 600mm of height (minimum 2 per door).")

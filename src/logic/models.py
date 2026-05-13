@@ -40,9 +40,9 @@ class Slide:
         length               (int): Nominal slide length in mm (e.g. 500).
         side_length          (int): Actual drawer-box running depth in mm.
                                     Usually slightly less than `length`.
-        side_clearance_total (int): Total width consumed by both slide bodies
-                                    (left + right combined) in mm.
-                                    drawer_box_width = cabinet_width - side_clearance_total
+        side_clearance_total (int): Required clearance per side (left OR right)
+                                    in mm between drawer box and cabinet interior.
+                                    drawer_box_width = cabinet_width - (2 × side_clearance_total)
     """
     brand:                str
     model:                str
@@ -50,3 +50,4 @@ class Slide:
     length:               int
     side_length:          int
     side_clearance_total: int
+    side_height_uplift:   int = 0
