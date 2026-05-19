@@ -398,12 +398,10 @@ def edit_quote_dialog(quote: dict):
 
 # ── Page header ────────────────────────────────────────────────────────────────
 
-col_back, col_title = st.columns([1, 6])
-with col_back:
-    if st.button("← Projects"):
-        st.switch_page("pages/_Projects.py")
-with col_title:
-    st.title(f":material/folder: {project['name']}")
+if st.button("← Projects"):
+    st.switch_page("pages/_Projects.py")
+
+st.title(f":material/folder: {project['name']}")
 
 if project["client"]:
     st.caption(f":material/person: {project['client']}")

@@ -791,13 +791,11 @@ def _compute_component_counts(units: list[dict]) -> list[dict]:
 
 # ── Page header ────────────────────────────────────────────────────────────────
 
-col_back, col_title = st.columns([1, 6])
-with col_back:
-    if st.button("← Quotes"):
-        st.switch_page("pages/_Quotes.py")
-with col_title:
-    proj_label = f"{project['name']} › " if project else ""
-    st.title(f":material/description: {proj_label}{quote['name']}")
+if st.button("← Quotes"):
+    st.switch_page("pages/_Quotes.py")
+
+proj_label = f"{project['name']} › " if project else ""
+st.title(f":material/description: {proj_label}{quote['name']}")
 
 if quote["notes"]:
     st.caption(quote["notes"])
