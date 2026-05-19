@@ -113,7 +113,7 @@ def new_quote_dialog():
         notes = st.text_area("Notes", placeholder="Optional notes…")
 
         st.markdown("##### Default Boards")
-        col_carcass, col_door = st.columns(2)
+        col_carcass, col_door, col_panel = st.columns(3)
         with col_carcass:
             default_carcass_board_type_id = st.selectbox(
                 "Default Carcass Board",
@@ -124,6 +124,13 @@ def new_quote_dialog():
         with col_door:
             default_door_board_type_id = st.selectbox(
                 "Default Door Board",
+                board_ids,
+                index=0,
+                format_func=lambda bid: "— None —" if bid is None else _board_option_label(board_lookup[bid]),
+            )
+        with col_panel:
+            default_panel_board_type_id = st.selectbox(
+                "Default Panel Board",
                 board_ids,
                 index=0,
                 format_func=lambda bid: "— None —" if bid is None else _board_option_label(board_lookup[bid]),
@@ -222,6 +229,7 @@ def new_quote_dialog():
                     notes.strip(),
                     default_carcass_board_type_id=default_carcass_board_type_id,
                     default_door_board_type_id=default_door_board_type_id,
+                    default_panel_board_type_id=default_panel_board_type_id,
                     unit_defaults=unit_defaults,
                     default_slide=_slide_payload_from_id(default_slide_id),
                     default_hinge=_hinge_payload_from_id(default_hinge_id),
@@ -243,7 +251,7 @@ def edit_quote_dialog(quote: dict):
         notes = st.text_area("Notes", value=quote["notes"])
 
         st.markdown("##### Default Boards")
-        col_carcass, col_door = st.columns(2)
+        col_carcass, col_door, col_panel = st.columns(3)
         with col_carcass:
             default_carcass_board_type_id = st.selectbox(
                 "Default Carcass Board",
@@ -259,6 +267,14 @@ def edit_quote_dialog(quote: dict):
                 index=_board_index_for_id(quote.get("default_door_board_type_id")),
                 format_func=lambda bid: "— None —" if bid is None else _board_option_label(board_lookup[bid]),
                 key=f"edit_quote_door_{quote['id']}",
+            )
+        with col_panel:
+            default_panel_board_type_id = st.selectbox(
+                "Default Panel Board",
+                board_ids,
+                index=_board_index_for_id(quote.get("default_panel_board_type_id")),
+                format_func=lambda bid: "— None —" if bid is None else _board_option_label(board_lookup[bid]),
+                key=f"edit_quote_panel_{quote['id']}",
             )
 
         st.markdown("##### Default Unit Dimensions")
@@ -375,6 +391,7 @@ def edit_quote_dialog(quote: dict):
                         notes.strip(),
                         default_carcass_board_type_id=default_carcass_board_type_id,
                         default_door_board_type_id=default_door_board_type_id,
+                        default_panel_board_type_id=default_panel_board_type_id,
                         unit_defaults=unit_defaults,
                         default_slide=_slide_payload_from_id(default_slide_id),
                         default_hinge=_hinge_payload_from_id(default_hinge_id),

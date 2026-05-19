@@ -125,8 +125,12 @@ def init_db():
             conn.execute("ALTER TABLE quotes ADD COLUMN default_carcass_board_type_id INTEGER")
         if "default_door_board_type_id" not in quote_cols:
             conn.execute("ALTER TABLE quotes ADD COLUMN default_door_board_type_id INTEGER")
+        if "default_panel_board_type_id" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN default_panel_board_type_id INTEGER")
         if "unit_defaults_json" not in quote_cols:
             conn.execute("ALTER TABLE quotes ADD COLUMN unit_defaults_json TEXT NOT NULL DEFAULT '{}' ")
+        if "custom_panels_json" not in quote_cols:
+            conn.execute("ALTER TABLE quotes ADD COLUMN custom_panels_json TEXT NOT NULL DEFAULT '{}' ")
         if "default_slide_brand" not in quote_cols:
             conn.execute("ALTER TABLE quotes ADD COLUMN default_slide_brand TEXT")
         if "default_slide_model" not in quote_cols:
@@ -269,6 +273,7 @@ def create_quote(
     notes: str = "",
     default_carcass_board_type_id: int | None = None,
     default_door_board_type_id: int | None = None,
+    default_panel_board_type_id: int | None = None,
     unit_defaults: dict | None = None,
     default_slide: dict | None = None,
     default_hinge: dict | None = None,
@@ -288,21 +293,24 @@ def create_quote(
         cur = conn.execute(
             """INSERT INTO quotes
                (project_id, name, notes, default_carcass_board_type_id, default_door_board_type_id,
-                unit_defaults_json, default_slide_brand, default_slide_model, default_slide_code,
+                default_panel_board_type_id, unit_defaults_json, custom_panels_json,
+                default_slide_brand, default_slide_model, default_slide_code,
                 default_slide_length, default_slide_side_length, default_slide_side_clearance_total,
                  default_hinge_brand, default_hinge_model, default_hinge_code, default_hinge_opening_angle_deg,
                  default_base_handle_name, default_base_handle_supplier, default_base_handle_code,
                  default_wall_handle_name, default_wall_handle_supplier, default_wall_handle_code,
                  default_tall_handle_name, default_tall_handle_supplier, default_tall_handle_code,
                  default_drawer_handle_name, default_drawer_handle_supplier, default_drawer_handle_code)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 project_id,
                 name,
                 notes,
                 default_carcass_board_type_id,
                 default_door_board_type_id,
+                default_panel_board_type_id,
                 json.dumps(unit_defaults),
+                json.dumps({}),
                 default_slide.get("brand"),
                 default_slide.get("model"),
                 default_slide.get("code"),
@@ -340,6 +348,7 @@ def get_quotes_for_project(project_id: int) -> list[dict]:
         for r in rows:
             d = dict(r)
             d["unit_defaults"] = json.loads(d.get("unit_defaults_json") or "{}")
+            d["custom_panels"] = json.loads(d.get("custom_panels_json") or "{}")
             result.append(d)
         return result
 
@@ -353,6 +362,7 @@ def get_quote(quote_id: int) -> Optional[dict]:
             return None
         d = dict(row)
         d["unit_defaults"] = json.loads(d.get("unit_defaults_json") or "{}")
+        d["custom_panels"] = json.loads(d.get("custom_panels_json") or "{}")
         return d
 
 
@@ -362,6 +372,7 @@ def update_quote(
     notes: str,
     default_carcass_board_type_id: int | None = None,
     default_door_board_type_id: int | None = None,
+    default_panel_board_type_id: int | None = None,
     unit_defaults: dict | None = None,
     default_slide: dict | None = None,
     default_hinge: dict | None = None,
@@ -381,7 +392,7 @@ def update_quote(
         conn.execute(
             """UPDATE quotes
                SET name=?, notes=?, default_carcass_board_type_id=?, default_door_board_type_id=?,
-                   unit_defaults_json=?,
+                   default_panel_board_type_id=?, unit_defaults_json=?,
                    default_slide_brand=?, default_slide_model=?, default_slide_code=?,
                    default_slide_length=?, default_slide_side_length=?, default_slide_side_clearance_total=?,
                    default_hinge_brand=?, default_hinge_model=?, default_hinge_code=?, default_hinge_opening_angle_deg=?,
@@ -395,6 +406,7 @@ def update_quote(
                 notes,
                 default_carcass_board_type_id,
                 default_door_board_type_id,
+                default_panel_board_type_id,
                 json.dumps(unit_defaults),
                 default_slide.get("brand"),
                 default_slide.get("model"),
@@ -420,6 +432,25 @@ def update_quote(
                 default_drawer_handle.get("code"),
                 quote_id,
             )
+        )
+
+
+def get_quote_panels(quote_id: int) -> dict:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT custom_panels_json FROM quotes WHERE id = ?", (quote_id,)
+        ).fetchone()
+        if not row:
+            return {}
+        return json.loads(row["custom_panels_json"] or "{}")
+
+
+def update_quote_panels(quote_id: int, payload: dict):
+    payload = _json_safe(payload or {})
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE quotes SET custom_panels_json = ? WHERE id = ?",
+            (json.dumps(payload), quote_id),
         )
 
 

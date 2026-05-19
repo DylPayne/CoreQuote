@@ -8,6 +8,7 @@ sys.path.append(os.path.join(os.getcwd(), 'src'))
 from logic.database import (
     get_project, get_quote,
     get_units_for_quote, add_unit, update_unit, delete_unit_and_renumber,
+    update_quote_panels,
     get_all_board_types,
     get_all_slides,
     get_all_hinges,
@@ -48,6 +49,23 @@ board_types = get_all_board_types()
 board_lookup = {b["id"]: b for b in board_types}
 board_ids = [None] + [b["id"] for b in board_types]
 
+PANEL_PRESET_KEYS = [
+    "base_side_panel",
+    "base_side_filler",
+    "wall_side_panel",
+    "wall_side_filler",
+    "tall_side_panel",
+    "tall_side_filler",
+]
+PANEL_PRESET_LABELS = {
+    "base_side_panel": "Base Side Panel",
+    "base_side_filler": "Base Side Filler",
+    "wall_side_panel": "Wall Side Panel",
+    "wall_side_filler": "Wall Side Filler",
+    "tall_side_panel": "Tall Side Panel",
+    "tall_side_filler": "Tall Side Filler",
+}
+
 
 def _board_option_label(board_id: int | None) -> str:
     if board_id is None:
@@ -62,6 +80,100 @@ def _board_index_for_id(board_id: int | None) -> int:
     if board_id in board_ids:
         return board_ids.index(board_id)
     return 0
+
+
+def _panel_state() -> dict:
+    payload = quote.get("custom_panels", {}) or {}
+    if not isinstance(payload, dict):
+        payload = {}
+    payload.setdefault("presets", {})
+    payload.setdefault("manual", [])
+    payload.setdefault("auto", {})
+    return payload
+
+
+def _default_dims_for_panel_preset(key: str) -> tuple[int, int]:
+    base_h, base_d = _default_dims_for_unit_type("Base Door")
+    wall_h, wall_d = _default_dims_for_unit_type("Wall Door")
+    tall_h, tall_d = _default_dims_for_unit_type("Tall Standard")
+
+    if key == "base_side_panel":
+        return int(base_h), int(base_d)
+    if key == "base_side_filler":
+        return int(base_h), 100
+    if key == "wall_side_panel":
+        return int(wall_h), int(wall_d)
+    if key == "wall_side_filler":
+        return int(wall_h), 100
+    if key == "tall_side_panel":
+        return int(tall_h), int(tall_d)
+    if key == "tall_side_filler":
+        return int(tall_h), 100
+    return 0, 0
+
+
+def _split_run_into_rows(desc: str, run_length: int, width: int, board_type_id: int | None) -> list[dict]:
+    if run_length <= 0 or width <= 0:
+        return []
+    board = board_lookup.get(board_type_id) if board_type_id is not None else None
+    max_len = int(board.get("length_mm", 0)) if board else 0
+    if max_len <= 0:
+        return [{"Desc": desc, "L": int(run_length), "W": int(width), "Qty": 1, "board_type_id": board_type_id}]
+
+    full = run_length // max_len
+    rem = run_length % max_len
+    rows: list[dict] = []
+    if full > 0:
+        rows.append({"Desc": desc, "L": int(max_len), "W": int(width), "Qty": int(full), "board_type_id": board_type_id})
+    if rem > 0:
+        rows.append({"Desc": desc, "L": int(rem), "W": int(width), "Qty": 1, "board_type_id": board_type_id})
+    return rows
+
+
+def _computed_panel_rows(units: list[dict], state: dict) -> list[dict]:
+    rows: list[dict] = []
+    presets = state.get("presets", {}) or {}
+    default_panel_board_type_id = quote.get("default_panel_board_type_id")
+
+    for key in PANEL_PRESET_KEYS:
+        conf = presets.get(key, {}) if isinstance(presets.get(key, {}), dict) else {}
+        qty = int(conf.get("qty", 1) or 0)
+        board_type_id = conf.get("board_type_id", default_panel_board_type_id)
+        l_mm, w_mm = _default_dims_for_panel_preset(key)
+        rows.append({"Desc": PANEL_PRESET_LABELS[key], "L": l_mm, "W": w_mm, "Qty": qty, "board_type_id": board_type_id})
+
+    for manual in state.get("manual", []) or []:
+        if not isinstance(manual, dict):
+            continue
+        rows.append(
+            {
+                "Desc": str(manual.get("name", "Custom Panel") or "Custom Panel"),
+                "L": int(manual.get("length", 0) or 0),
+                "W": int(manual.get("width", 0) or 0),
+                "Qty": int(manual.get("qty", 0) or 0),
+                "board_type_id": manual.get("board_type_id", default_panel_board_type_id),
+            }
+        )
+
+    auto = state.get("auto", {}) or {}
+    base_total = sum(int(u.get("width", 0) or 0) for u in units if "Base" in str(u.get("unit_type", "")))
+    wall_total = sum(int(u.get("width", 0) or 0) for u in units if "Wall" in str(u.get("unit_type", "")))
+    _, wall_d = _default_dims_for_unit_type("Wall Door")
+
+    rows.extend(_split_run_into_rows(
+        "Kicker",
+        run_length=base_total,
+        width=100,
+        board_type_id=auto.get("kicker_board_type_id", default_panel_board_type_id),
+    ))
+    rows.extend(_split_run_into_rows(
+        "Wall Pelmet",
+        run_length=wall_total,
+        width=int(wall_d),
+        board_type_id=auto.get("pelmet_board_type_id", default_panel_board_type_id),
+    ))
+
+    return [r for r in rows if int(r.get("L", 0)) > 0 and int(r.get("W", 0)) > 0 and int(r.get("Qty", 0)) > 0]
 
 # ── Unit Form + Add/Edit Dialogs ──────────────────────────────────────────────
 
@@ -804,7 +916,7 @@ st.divider()
 
 units = get_units_for_quote(quote["id"])
 
-tab_units, tab_cutting, tab_components = st.tabs(["Units", "Cutting List", "Component Count"])
+tab_units, tab_panels, tab_cutting, tab_components = st.tabs(["Units", "Panels", "Cutting List", "Component Count"])
 
 with tab_units:
     col_sub, col_add = st.columns([4, 1])
@@ -881,17 +993,34 @@ with tab_cutting:
         st.info("Add units to generate a cutting list.")
     else:
         carcass_df, panels_df = build_cutlist(units)
+        panel_rows = _computed_panel_rows(units, _panel_state())
+        custom_panels_df = None
+        if panel_rows:
+            import pandas as pd
+            custom_panels_df = pd.DataFrame(panel_rows, columns=["Desc", "L", "W", "Qty", "board_type_id"])
+            custom_panels_df = custom_panels_df[["Desc", "L", "W", "Qty"]]
 
         col_c, col_p = st.columns(2)
         with col_c:
             st.write("**Carcass Boards**")
             st.dataframe(carcass_df, use_container_width=True, hide_index=True)
         with col_p:
-            st.write("**Panels (Doors / Drawer Fronts)**")
+            st.write("**Doors / Drawer Fronts**")
             st.dataframe(panels_df, use_container_width=True, hide_index=True)
+
+        st.write("**Panels (Side Panels, Fillers, Kickers, Pelmets, Custom Panels)**")
+        if custom_panels_df is not None and not custom_panels_df.empty:
+            st.dataframe(custom_panels_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No panel rows configured yet.")
 
         # PDF export
         proj_name = project["name"] if project else ""
+        pdf_panels_df = panels_df
+        if custom_panels_df is not None and not custom_panels_df.empty:
+            import pandas as pd
+            pdf_panels_df = pd.concat([panels_df, custom_panels_df], ignore_index=True)
+
         pdf_bytes = generate_pdf(
             carcass_df, panels_df,
             project_name=proj_name,
@@ -918,3 +1047,125 @@ with tab_components:
         else:
             st.dataframe(component_rows, use_container_width=True, hide_index=True)
         st.caption("Slides are recorded as pairs. Hinges are calculated per door at 1 per 600mm of height (minimum 2 per door). Handles use each unit's stored handle quantity.")
+
+with tab_panels:
+    st.subheader(":material/view_in_ar: Panels")
+    panel_state = _panel_state()
+    panel_presets = panel_state.get("presets", {}) or {}
+    panel_auto = panel_state.get("auto", {}) or {}
+    panel_manual = panel_state.get("manual", []) or []
+    default_panel_board_type_id = quote.get("default_panel_board_type_id")
+
+    st.caption("Preset panel rows are included in all quotes. Side fillers default to 100mm wide.")
+    for key in PANEL_PRESET_KEYS:
+        current = panel_presets.get(key, {}) if isinstance(panel_presets.get(key, {}), dict) else {}
+        l_mm, w_mm = _default_dims_for_panel_preset(key)
+        c1, c2, c3, c4 = st.columns([3, 1, 1, 3])
+        with c1:
+            st.write(PANEL_PRESET_LABELS[key])
+        with c2:
+            qty = st.number_input(f"{key}_qty", min_value=0, value=int(current.get("qty", 1) or 1), step=1, key=f"panel_preset_qty_{key}")
+        with c3:
+            st.caption(f"{l_mm} × {w_mm}")
+        with c4:
+            bid = st.selectbox(
+                f"{key}_board",
+                board_ids,
+                index=_board_index_for_id(current.get("board_type_id", default_panel_board_type_id)),
+                format_func=_board_option_label,
+                key=f"panel_preset_board_{key}",
+                label_visibility="collapsed",
+            )
+        panel_presets[key] = {"qty": int(qty), "board_type_id": bid}
+
+    st.divider()
+    st.markdown("##### Auto Panels")
+    c1, c2 = st.columns(2)
+    with c1:
+        kicker_board_type_id = st.selectbox(
+            "Kicker Board Type",
+            board_ids,
+            index=_board_index_for_id(panel_auto.get("kicker_board_type_id", default_panel_board_type_id)),
+            format_func=_board_option_label,
+            key="panel_auto_kicker_board",
+        )
+    with c2:
+        pelmet_board_type_id = st.selectbox(
+            "Wall Pelmet Board Type",
+            board_ids,
+            index=_board_index_for_id(panel_auto.get("pelmet_board_type_id", default_panel_board_type_id)),
+            format_func=_board_option_label,
+            key="panel_auto_pelmet_board",
+        )
+    panel_auto["kicker_board_type_id"] = kicker_board_type_id
+    panel_auto["pelmet_board_type_id"] = pelmet_board_type_id
+
+    st.divider()
+    st.markdown("##### Custom Panels")
+
+    manual_state_key = f"panel_manual_edit_{quote['id']}"
+    if manual_state_key not in st.session_state:
+        st.session_state[manual_state_key] = [dict(r) for r in panel_manual if isinstance(r, dict)]
+    if st.button(":material/add: Add Custom Panel Row", key="add_custom_panel_row"):
+        st.session_state[manual_state_key].append(
+            {"name": "Custom Panel", "length": 0, "width": 0, "qty": 1, "board_type_id": default_panel_board_type_id}
+        )
+        st.rerun()
+
+    manual_rows: list[dict] = st.session_state[manual_state_key]
+    delete_idx: int | None = None
+    updated_manual: list[dict] = []
+
+    if not manual_rows:
+        st.info("No custom rows yet. Click Add Custom Panel Row.")
+
+    for i, row in enumerate(manual_rows):
+        c1, c2, c3, c4, c5, c6 = st.columns([3, 1, 1, 1, 3, 1])
+        with c1:
+            name = st.text_input(f"Name (Row {i+1})", value=str(row.get("name", "Custom Panel")), key=f"manual_panel_name_{i}")
+        with c2:
+            l_mm = st.number_input(f"Length (mm) #{i+1}", min_value=0, value=int(row.get("length", 0) or 0), key=f"manual_panel_l_{i}")
+        with c3:
+            w_mm = st.number_input(f"Width (mm) #{i+1}", min_value=0, value=int(row.get("width", 0) or 0), key=f"manual_panel_w_{i}")
+        with c4:
+            qty = st.number_input(f"Qty #{i+1}", min_value=0, value=int(row.get("qty", 1) or 1), key=f"manual_panel_qty_{i}")
+        with c5:
+            bid = st.selectbox(
+                f"Board Type #{i+1}",
+                board_ids,
+                index=_board_index_for_id(row.get("board_type_id", default_panel_board_type_id)),
+                format_func=_board_option_label,
+                key=f"manual_panel_board_{i}",
+            )
+        with c6:
+            st.write("")
+            if st.button(":material/delete:", key=f"del_manual_panel_{i}", help="Delete this row"):
+                delete_idx = i
+
+        updated_manual.append({"name": name, "length": int(l_mm), "width": int(w_mm), "qty": int(qty), "board_type_id": bid})
+
+    if delete_idx is not None:
+        if 0 <= delete_idx < len(updated_manual):
+            updated_manual.pop(delete_idx)
+        st.session_state[manual_state_key] = updated_manual
+        st.rerun()
+
+    st.session_state[manual_state_key] = updated_manual
+
+    preview_rows = _computed_panel_rows(units, {"presets": panel_presets, "auto": panel_auto, "manual": updated_manual})
+    if preview_rows:
+        import pandas as pd
+        st.dataframe(pd.DataFrame(preview_rows, columns=["Desc", "L", "W", "Qty", "board_type_id"]), use_container_width=True, hide_index=True)
+    else:
+        st.info("No panel rows currently active.")
+
+    if st.button(":material/save: Save Panels", type="primary", use_container_width=True):
+        payload = {
+            "presets": panel_presets,
+            "auto": panel_auto,
+            "manual": [r for r in updated_manual if int(r.get("length", 0)) > 0 and int(r.get("width", 0)) > 0 and int(r.get("qty", 0)) > 0],
+        }
+        update_quote_panels(quote["id"], payload)
+        st.session_state[manual_state_key] = payload["manual"]
+        st.success("Panels saved.")
+        st.rerun()
