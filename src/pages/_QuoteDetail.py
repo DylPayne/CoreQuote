@@ -65,6 +65,14 @@ PANEL_PRESET_LABELS = {
     "tall_side_panel": "Tall Side Panel",
     "tall_side_filler": "Tall Side Filler",
 }
+PANEL_PRESET_UNIT_FAMILY = {
+    "base_side_panel": "base",
+    "base_side_filler": "base",
+    "wall_side_panel": "wall",
+    "wall_side_filler": "wall",
+    "tall_side_panel": "tall",
+    "tall_side_filler": "tall",
+}
 
 
 def _board_option_label(board_id: int | None) -> str:
@@ -157,21 +165,57 @@ def _computed_panel_rows(units: list[dict], state: dict) -> list[dict]:
 
     auto = state.get("auto", {}) or {}
     base_total = sum(int(u.get("width", 0) or 0) for u in units if "Base" in str(u.get("unit_type", "")))
+    # Kicker run also includes wall-side end treatment widths (wall side panel + wall side filler)
+    wall_side_panel_qty = int((presets.get("wall_side_panel", {}) or {}).get("qty", 0) or 0)
+    wall_side_filler_qty = int((presets.get("wall_side_filler", {}) or {}).get("qty", 0) or 0)
+    _, wall_side_w = _default_dims_for_panel_preset("wall_side_panel")
+    _, wall_filler_w = _default_dims_for_panel_preset("wall_side_filler")
+    kicker_extra = (wall_side_panel_qty * int(wall_side_w)) + (wall_side_filler_qty * int(wall_filler_w))
+    kicker_run_total = int(base_total) + int(kicker_extra)
     wall_total = sum(int(u.get("width", 0) or 0) for u in units if "Wall" in str(u.get("unit_type", "")))
     _, wall_d = _default_dims_for_unit_type("Wall Door")
 
-    rows.extend(_split_run_into_rows(
-        "Kicker",
-        run_length=base_total,
-        width=100,
-        board_type_id=auto.get("kicker_board_type_id", default_panel_board_type_id),
-    ))
-    rows.extend(_split_run_into_rows(
-        "Wall Pelmet",
-        run_length=wall_total,
-        width=int(wall_d),
-        board_type_id=auto.get("pelmet_board_type_id", default_panel_board_type_id),
-    ))
+    kicker_board_type_id = auto.get("kicker_board_type_id", default_panel_board_type_id)
+    pelmet_board_type_id = auto.get("pelmet_board_type_id", default_panel_board_type_id)
+
+    kicker_override_on = bool(auto.get("kicker_override_on", False))
+    pelmet_override_on = bool(auto.get("pelmet_override_on", False))
+
+    if kicker_override_on:
+        rows.append(
+            {
+                "Desc": "Kicker",
+                "L": int(auto.get("kicker_override_length", 0) or 0),
+                "W": int(auto.get("kicker_override_width", 100) or 100),
+                "Qty": int(auto.get("kicker_override_qty", 0) or 0),
+                "board_type_id": kicker_board_type_id,
+            }
+        )
+    else:
+        rows.extend(_split_run_into_rows(
+            "Kicker",
+            run_length=kicker_run_total,
+            width=100,
+            board_type_id=kicker_board_type_id,
+        ))
+
+    if pelmet_override_on:
+        rows.append(
+            {
+                "Desc": "Wall Pelmet",
+                "L": int(auto.get("pelmet_override_length", 0) or 0),
+                "W": int(auto.get("pelmet_override_width", wall_d) or wall_d),
+                "Qty": int(auto.get("pelmet_override_qty", 0) or 0),
+                "board_type_id": pelmet_board_type_id,
+            }
+        )
+    else:
+        rows.extend(_split_run_into_rows(
+            "Wall Pelmet",
+            run_length=wall_total,
+            width=int(wall_d),
+            board_type_id=pelmet_board_type_id,
+        ))
 
     return [r for r in rows if int(r.get("L", 0)) > 0 and int(r.get("W", 0)) > 0 and int(r.get("Qty", 0)) > 0]
 
@@ -1022,7 +1066,7 @@ with tab_cutting:
             pdf_panels_df = pd.concat([panels_df, custom_panels_df], ignore_index=True)
 
         pdf_bytes = generate_pdf(
-            carcass_df, panels_df,
+            carcass_df, pdf_panels_df,
             project_name=proj_name,
             quote_name=quote["name"]
         )
@@ -1055,16 +1099,28 @@ with tab_panels:
     panel_auto = panel_state.get("auto", {}) or {}
     panel_manual = panel_state.get("manual", []) or []
     default_panel_board_type_id = quote.get("default_panel_board_type_id")
+    base_unit_count = sum(1 for u in units if "Base" in str(u.get("unit_type", "")))
+    wall_unit_count = sum(1 for u in units if "Wall" in str(u.get("unit_type", "")))
+    tall_unit_count = sum(1 for u in units if "Tall" in str(u.get("unit_type", "")))
+    family_counts = {"base": base_unit_count, "wall": wall_unit_count, "tall": tall_unit_count}
 
     st.caption("Preset panel rows are included in all quotes. Side fillers default to 100mm wide.")
     for key in PANEL_PRESET_KEYS:
         current = panel_presets.get(key, {}) if isinstance(panel_presets.get(key, {}), dict) else {}
         l_mm, w_mm = _default_dims_for_panel_preset(key)
+        family = PANEL_PRESET_UNIT_FAMILY.get(key, "base")
+        auto_qty = 1 if family_counts.get(family, 0) > 0 else 0
         c1, c2, c3, c4 = st.columns([3, 1, 1, 3])
         with c1:
             st.write(PANEL_PRESET_LABELS[key])
         with c2:
-            qty = st.number_input(f"{key}_qty", min_value=0, value=int(current.get("qty", 1) or 1), step=1, key=f"panel_preset_qty_{key}")
+            qty = st.number_input(
+                f"{PANEL_PRESET_LABELS[key]} Quantity",
+                min_value=0,
+                value=int(current.get("qty", auto_qty) if current.get("qty") is not None else auto_qty),
+                step=1,
+                key=f"panel_preset_qty_{key}",
+            )
         with c3:
             st.caption(f"{l_mm} × {w_mm}")
         with c4:
@@ -1099,6 +1155,50 @@ with tab_panels:
         )
     panel_auto["kicker_board_type_id"] = kicker_board_type_id
     panel_auto["pelmet_board_type_id"] = pelmet_board_type_id
+
+    k1, p1 = st.columns(2)
+    with k1:
+        kicker_override_on = st.toggle("Override Kicker", value=bool(panel_auto.get("kicker_override_on", False)), key="panel_kicker_override_on")
+    with p1:
+        pelmet_override_on = st.toggle("Override Wall Pelmet", value=bool(panel_auto.get("pelmet_override_on", False)), key="panel_pelmet_override_on")
+
+    kicker_override_qty = int(panel_auto.get("kicker_override_qty", 1) or 1)
+    kicker_override_length = int(panel_auto.get("kicker_override_length", 0) or 0)
+    kicker_override_width = int(panel_auto.get("kicker_override_width", 100) or 100)
+    if kicker_override_on:
+        k2, k3, k4 = st.columns(3)
+        with k2:
+            kicker_override_qty = st.number_input("Kicker Qty", min_value=0, value=kicker_override_qty, key="panel_kicker_override_qty")
+        with k3:
+            kicker_override_length = st.number_input("Kicker Length (mm)", min_value=0, value=kicker_override_length, key="panel_kicker_override_length")
+        with k4:
+            kicker_override_width = st.number_input("Kicker Width (mm)", min_value=0, value=kicker_override_width, key="panel_kicker_override_width")
+
+    pelmet_default_w = _default_dims_for_unit_type("Wall Door")[1]
+    pelmet_override_qty = int(panel_auto.get("pelmet_override_qty", 1) or 1)
+    pelmet_override_length = int(panel_auto.get("pelmet_override_length", 0) or 0)
+    pelmet_override_width = int(panel_auto.get("pelmet_override_width", pelmet_default_w) or pelmet_default_w)
+    if pelmet_override_on:
+        p2, p3, p4 = st.columns(3)
+        with p2:
+            pelmet_override_qty = st.number_input("Wall Pelmet Qty", min_value=0, value=pelmet_override_qty, key="panel_pelmet_override_qty")
+        with p3:
+            pelmet_override_length = st.number_input("Wall Pelmet Length (mm)", min_value=0, value=pelmet_override_length, key="panel_pelmet_override_length")
+        with p4:
+            pelmet_override_width = st.number_input("Wall Pelmet Width (mm)", min_value=0, value=pelmet_override_width, key="panel_pelmet_override_width")
+
+    panel_auto.update(
+        {
+            "kicker_override_on": bool(kicker_override_on),
+            "kicker_override_qty": int(kicker_override_qty),
+            "kicker_override_length": int(kicker_override_length),
+            "kicker_override_width": int(kicker_override_width),
+            "pelmet_override_on": bool(pelmet_override_on),
+            "pelmet_override_qty": int(pelmet_override_qty),
+            "pelmet_override_length": int(pelmet_override_length),
+            "pelmet_override_width": int(pelmet_override_width),
+        }
+    )
 
     st.divider()
     st.markdown("##### Custom Panels")
@@ -1155,7 +1255,9 @@ with tab_panels:
     preview_rows = _computed_panel_rows(units, {"presets": panel_presets, "auto": panel_auto, "manual": updated_manual})
     if preview_rows:
         import pandas as pd
-        st.dataframe(pd.DataFrame(preview_rows, columns=["Desc", "L", "W", "Qty", "board_type_id"]), use_container_width=True, hide_index=True)
+        preview_df = pd.DataFrame(preview_rows, columns=["Desc", "L", "W", "Qty", "board_type_id"])
+        preview_df["Board"] = preview_df["board_type_id"].apply(_board_option_label)
+        st.dataframe(preview_df[["Desc", "L", "W", "Qty", "Board"]], use_container_width=True, hide_index=True)
     else:
         st.info("No panel rows currently active.")
 
