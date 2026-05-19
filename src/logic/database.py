@@ -301,7 +301,7 @@ def create_quote(
                  default_wall_handle_name, default_wall_handle_supplier, default_wall_handle_code,
                  default_tall_handle_name, default_tall_handle_supplier, default_tall_handle_code,
                  default_drawer_handle_name, default_drawer_handle_supplier, default_drawer_handle_code)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 project_id,
                 name,
