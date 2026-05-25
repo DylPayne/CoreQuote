@@ -17,6 +17,12 @@ from logic.database import (
 from logic.models import Slide
 from logic.cutlist import build_cutlist
 from logic.pdf_gen import generate_pdf
+from logic.panels import (
+    PANEL_PRESET_KEYS,
+    PANEL_PRESET_LABELS,
+    PANEL_PRESET_UNIT_FAMILY,
+    compute_panel_rows,
+)
 
 # ── Guards ─────────────────────────────────────────────────────────────────────
 
@@ -48,32 +54,6 @@ handle_lookup = {h["id"]: h for h in handles}
 board_types = get_all_board_types()
 board_lookup = {b["id"]: b for b in board_types}
 board_ids = [None] + [b["id"] for b in board_types]
-
-PANEL_PRESET_KEYS = [
-    "base_side_panel",
-    "base_side_filler",
-    "wall_side_panel",
-    "wall_side_filler",
-    "tall_side_panel",
-    "tall_side_filler",
-]
-PANEL_PRESET_LABELS = {
-    "base_side_panel": "Base Side Panel",
-    "base_side_filler": "Base Side Filler",
-    "wall_side_panel": "Wall Side Panel",
-    "wall_side_filler": "Wall Side Filler",
-    "tall_side_panel": "Tall Side Panel",
-    "tall_side_filler": "Tall Side Filler",
-}
-PANEL_PRESET_UNIT_FAMILY = {
-    "base_side_panel": "base",
-    "base_side_filler": "base",
-    "wall_side_panel": "wall",
-    "wall_side_filler": "wall",
-    "tall_side_panel": "tall",
-    "tall_side_filler": "tall",
-}
-
 
 def _board_option_label(board_id: int | None) -> str:
     if board_id is None:
@@ -120,104 +100,17 @@ def _default_dims_for_panel_preset(key: str) -> tuple[int, int]:
     return 0, 0
 
 
-def _split_run_into_rows(desc: str, run_length: int, width: int, board_type_id: int | None) -> list[dict]:
-    if run_length <= 0 or width <= 0:
-        return []
-    board = board_lookup.get(board_type_id) if board_type_id is not None else None
-    max_len = int(board.get("length_mm", 0)) if board else 0
-    if max_len <= 0:
-        return [{"Desc": desc, "L": int(run_length), "W": int(width), "Qty": 1, "board_type_id": board_type_id}]
-
-    full = run_length // max_len
-    rem = run_length % max_len
-    rows: list[dict] = []
-    if full > 0:
-        rows.append({"Desc": desc, "L": int(max_len), "W": int(width), "Qty": int(full), "board_type_id": board_type_id})
-    if rem > 0:
-        rows.append({"Desc": desc, "L": int(rem), "W": int(width), "Qty": 1, "board_type_id": board_type_id})
-    return rows
-
-
 def _computed_panel_rows(units: list[dict], state: dict) -> list[dict]:
-    rows: list[dict] = []
-    presets = state.get("presets", {}) or {}
-    default_panel_board_type_id = quote.get("default_panel_board_type_id")
-
-    for key in PANEL_PRESET_KEYS:
-        conf = presets.get(key, {}) if isinstance(presets.get(key, {}), dict) else {}
-        qty = int(conf.get("qty", 1) or 0)
-        board_type_id = conf.get("board_type_id", default_panel_board_type_id)
-        l_mm, w_mm = _default_dims_for_panel_preset(key)
-        rows.append({"Desc": PANEL_PRESET_LABELS[key], "L": l_mm, "W": w_mm, "Qty": qty, "board_type_id": board_type_id})
-
-    for manual in state.get("manual", []) or []:
-        if not isinstance(manual, dict):
-            continue
-        rows.append(
-            {
-                "Desc": str(manual.get("name", "Custom Panel") or "Custom Panel"),
-                "L": int(manual.get("length", 0) or 0),
-                "W": int(manual.get("width", 0) or 0),
-                "Qty": int(manual.get("qty", 0) or 0),
-                "board_type_id": manual.get("board_type_id", default_panel_board_type_id),
-            }
-        )
-
-    auto = state.get("auto", {}) or {}
-    base_total = sum(int(u.get("width", 0) or 0) for u in units if "Base" in str(u.get("unit_type", "")))
-    # Kicker run also includes wall-side end treatment widths (wall side panel + wall side filler)
-    wall_side_panel_qty = int((presets.get("wall_side_panel", {}) or {}).get("qty", 0) or 0)
-    wall_side_filler_qty = int((presets.get("wall_side_filler", {}) or {}).get("qty", 0) or 0)
-    _, wall_side_w = _default_dims_for_panel_preset("wall_side_panel")
-    _, wall_filler_w = _default_dims_for_panel_preset("wall_side_filler")
-    kicker_extra = (wall_side_panel_qty * int(wall_side_w)) + (wall_side_filler_qty * int(wall_filler_w))
-    kicker_run_total = int(base_total) + int(kicker_extra)
-    wall_total = sum(int(u.get("width", 0) or 0) for u in units if "Wall" in str(u.get("unit_type", "")))
-    _, wall_d = _default_dims_for_unit_type("Wall Door")
-
-    kicker_board_type_id = auto.get("kicker_board_type_id", default_panel_board_type_id)
-    pelmet_board_type_id = auto.get("pelmet_board_type_id", default_panel_board_type_id)
-
-    kicker_override_on = bool(auto.get("kicker_override_on", False))
-    pelmet_override_on = bool(auto.get("pelmet_override_on", False))
-
-    if kicker_override_on:
-        rows.append(
-            {
-                "Desc": "Kicker",
-                "L": int(auto.get("kicker_override_length", 0) or 0),
-                "W": int(auto.get("kicker_override_width", 100) or 100),
-                "Qty": int(auto.get("kicker_override_qty", 0) or 0),
-                "board_type_id": kicker_board_type_id,
-            }
-        )
-    else:
-        rows.extend(_split_run_into_rows(
-            "Kicker",
-            run_length=kicker_run_total,
-            width=100,
-            board_type_id=kicker_board_type_id,
-        ))
-
-    if pelmet_override_on:
-        rows.append(
-            {
-                "Desc": "Wall Pelmet",
-                "L": int(auto.get("pelmet_override_length", 0) or 0),
-                "W": int(auto.get("pelmet_override_width", wall_d) or wall_d),
-                "Qty": int(auto.get("pelmet_override_qty", 0) or 0),
-                "board_type_id": pelmet_board_type_id,
-            }
-        )
-    else:
-        rows.extend(_split_run_into_rows(
-            "Wall Pelmet",
-            run_length=wall_total,
-            width=int(wall_d),
-            board_type_id=pelmet_board_type_id,
-        ))
-
-    return [r for r in rows if int(r.get("L", 0)) > 0 and int(r.get("W", 0)) > 0 and int(r.get("Qty", 0)) > 0]
+    return compute_panel_rows(
+        units=units,
+        state=state,
+        default_panel_board_type_id=quote.get("default_panel_board_type_id"),
+        panel_preset_keys=PANEL_PRESET_KEYS,
+        panel_preset_labels=PANEL_PRESET_LABELS,
+        default_dims_for_panel_preset=_default_dims_for_panel_preset,
+        default_dims_for_unit_type=_default_dims_for_unit_type,
+        board_length_for=lambda board_type_id: int((board_lookup.get(board_type_id) or {}).get("length_mm", 0)),
+    )
 
 # ── Unit Form + Add/Edit Dialogs ──────────────────────────────────────────────
 
