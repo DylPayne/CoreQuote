@@ -47,11 +47,21 @@ slides_page   = st.Page("pages/_Slides.py",      title="Slides Library",    icon
 hinges_page   = st.Page("pages/_Hinges.py",      title="Hinges Library",    icon=":material/hardware:")
 boards_page   = st.Page("pages/_Boards.py",      title="Board Library",     icon=":material/grid_view:")
 handles_page  = st.Page("pages/_Handles.py",     title="Handle Library",    icon=":material/touch_app:")
+extra_categories_page = st.Page("pages/_ExtraCategories.py", title="Extras Categories", icon=":material/category:")
+extras_page   = st.Page("pages/_Extras.py",      title="Extras Library",    icon=":material/inventory_2:")
 
 pg = st.navigation(
     {
         "Projects": [projects_page, quotes_page, detail_page],
-        "Tools":    [calc_page, slides_page, hinges_page, boards_page, handles_page],
+        "Tools":    [
+            calc_page,
+            slides_page,
+            hinges_page,
+            boards_page,
+            handles_page,
+            extra_categories_page,
+            extras_page,
+        ],
     }
 )
 

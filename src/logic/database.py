@@ -117,6 +117,32 @@ def init_db():
                 created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
                 UNIQUE (name, supplier, code)
             );
+
+            CREATE TABLE IF NOT EXISTS extra_categories (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL UNIQUE,
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS extras (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT    NOT NULL,
+                category_id  INTEGER NOT NULL REFERENCES extra_categories(id) ON DELETE RESTRICT,
+                supplier     TEXT    NOT NULL DEFAULT '',
+                code         TEXT    NOT NULL DEFAULT '',
+                notes        TEXT    NOT NULL DEFAULT '',
+                created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (name, category_id, supplier, code)
+            );
+
+            CREATE TABLE IF NOT EXISTS quote_extras (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                quote_id    INTEGER NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+                extra_id    INTEGER NOT NULL REFERENCES extras(id) ON DELETE RESTRICT,
+                qty         INTEGER NOT NULL DEFAULT 1,
+                notes       TEXT    NOT NULL DEFAULT '',
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            );
         """)
 
         # Lightweight migrations for existing DBs.
@@ -765,6 +791,119 @@ def update_handle(handle_id: int, name: str, supplier: str, code: str):
 def delete_handle(handle_id: int):
     with get_connection() as conn:
         conn.execute("DELETE FROM handles WHERE id = ?", (int(handle_id),))
+
+
+# ── Extra Categories ───────────────────────────────────────────────────────────
+
+def create_extra_category(name: str) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO extra_categories (name) VALUES (?)",
+            (name.strip(),),
+        )
+        return cur.lastrowid
+
+
+def get_all_extra_categories() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM extra_categories ORDER BY name ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_extra_category(category_id: int, name: str):
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE extra_categories SET name = ? WHERE id = ?",
+            (name.strip(), int(category_id)),
+        )
+
+
+def delete_extra_category(category_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM extra_categories WHERE id = ?", (int(category_id),))
+
+
+# ── Extras ─────────────────────────────────────────────────────────────────────
+
+def create_extra(name: str, category_id: int, supplier: str, code: str, notes: str = "") -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO extras (name, category_id, supplier, code, notes)
+               VALUES (?, ?, ?, ?, ?)""",
+            (name.strip(), int(category_id), supplier.strip(), code.strip(), notes.strip()),
+        )
+        return cur.lastrowid
+
+
+def get_all_extras() -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT e.*, c.name AS category_name
+               FROM extras e
+               JOIN extra_categories c ON c.id = e.category_id
+               ORDER BY c.name ASC, e.name ASC, e.supplier ASC, e.code ASC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_extra(extra_id: int, name: str, category_id: int, supplier: str, code: str, notes: str = ""):
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE extras
+               SET name=?, category_id=?, supplier=?, code=?, notes=?
+               WHERE id=?""",
+            (name.strip(), int(category_id), supplier.strip(), code.strip(), notes.strip(), int(extra_id)),
+        )
+
+
+def delete_extra(extra_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM extras WHERE id = ?", (int(extra_id),))
+
+
+# ── Quote Extras ───────────────────────────────────────────────────────────────
+
+def add_quote_extra(quote_id: int, extra_id: int, qty: int, notes: str = "") -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO quote_extras (quote_id, extra_id, qty, notes)
+               VALUES (?, ?, ?, ?)""",
+            (int(quote_id), int(extra_id), max(1, int(qty)), notes.strip()),
+        )
+        return cur.lastrowid
+
+
+def get_quote_extras(quote_id: int) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """SELECT qe.id, qe.quote_id, qe.extra_id, qe.qty, qe.notes, qe.created_at,
+                      e.name AS extra_name, e.supplier AS extra_supplier, e.code AS extra_code,
+                      c.id AS category_id, c.name AS category_name
+               FROM quote_extras qe
+               JOIN extras e ON e.id = qe.extra_id
+               JOIN extra_categories c ON c.id = e.category_id
+               WHERE qe.quote_id = ?
+               ORDER BY c.name ASC, e.name ASC, qe.created_at ASC""",
+            (int(quote_id),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_quote_extra(quote_extra_id: int, extra_id: int, qty: int, notes: str = ""):
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE quote_extras
+               SET extra_id=?, qty=?, notes=?
+               WHERE id=?""",
+            (int(extra_id), max(1, int(qty)), notes.strip(), int(quote_extra_id)),
+        )
+
+
+def delete_quote_extra(quote_extra_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM quote_extras WHERE id = ?", (int(quote_extra_id),))
 
 
 def delete_unit(unit_id: int):

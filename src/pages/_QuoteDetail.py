@@ -13,6 +13,11 @@ from logic.database import (
     get_all_slides,
     get_all_hinges,
     get_all_handles,
+    get_all_extras,
+    add_quote_extra,
+    get_quote_extras,
+    update_quote_extra,
+    delete_quote_extra,
 )
 from logic.models import Slide
 from logic.cutlist import build_cutlist
@@ -51,6 +56,9 @@ hinge_lookup = {h["id"]: h for h in hinges}
 handles = get_all_handles()
 handle_ids = [h["id"] for h in handles]
 handle_lookup = {h["id"]: h for h in handles}
+extras = get_all_extras()
+extra_ids = [e["id"] for e in extras]
+extra_lookup = {e["id"]: e for e in extras}
 board_types = get_all_board_types()
 board_lookup = {b["id"]: b for b in board_types}
 board_ids = [None] + [b["id"] for b in board_types]
@@ -216,6 +224,39 @@ def _handle_label(row: dict) -> str:
     if code:
         label += f" • {code}"
     return label
+
+
+def _extra_label(row: dict) -> str:
+    name = str(row.get("name", "")).strip()
+    category = str(row.get("category_name", "")).strip()
+    supplier = str(row.get("supplier", "")).strip()
+    code = str(row.get("code", "")).strip()
+    label = name or "Extra"
+    if category:
+        label += f" • {category}"
+    if supplier:
+        label += f" • {supplier}"
+    if code:
+        label += f" • {code}"
+    return label
+
+
+def _quote_extra_editor_df(quote_extra_rows: list[dict]):
+    import pandas as pd
+
+    rows = []
+    for r in quote_extra_rows:
+        rows.append(
+            {
+                "id": int(r["id"]),
+                "extra_id": int(r["extra_id"]),
+                "category": str(r.get("category_name", "")),
+                "extra": str(r.get("extra_name", "")),
+                "qty": int(r.get("qty", 1) or 1),
+                "notes": str(r.get("notes", "") or ""),
+            }
+        )
+    return pd.DataFrame(rows, columns=["id", "extra_id", "category", "extra", "qty", "notes"])
 
 
 def _handle_from_quote(prefix: str) -> dict:
@@ -853,7 +894,13 @@ st.divider()
 
 units = get_units_for_quote(quote["id"])
 
-tab_units, tab_panels, tab_cutting, tab_components = st.tabs(["Units", "Panels", "Cutting List", "Component Count"])
+tab_units, tab_panels, tab_cutting, tab_components, tab_extras = st.tabs([
+    "Units",
+    "Panels",
+    "Cutting List",
+    "Component Count",
+    "Extras",
+])
 
 with tab_units:
     col_sub, col_add = st.columns([4, 1])
@@ -1164,3 +1211,73 @@ with tab_panels:
         st.session_state[manual_state_key] = payload["manual"]
         st.success("Panels saved.")
         st.rerun()
+
+
+with tab_extras:
+    st.subheader(":material/inventory_2: Extras")
+
+    if not extra_ids:
+        st.info("No extras available yet. Add categories and extras in the library first.")
+    else:
+        with st.expander(":material/add: Add Extra to Quote", expanded=False):
+            with st.form("add_quote_extra_form", clear_on_submit=True):
+                new_extra_id = st.selectbox(
+                    "Extra",
+                    extra_ids,
+                    index=0,
+                    format_func=lambda eid: _extra_label(extra_lookup[eid]),
+                )
+                new_qty = st.number_input("Quantity", min_value=1, value=1, step=1)
+                new_notes = st.text_area("Line Notes", placeholder="Optional note for this quote line")
+                if st.form_submit_button("Add Extra", use_container_width=True, type="primary"):
+                    add_quote_extra(quote_id=int(quote["id"]), extra_id=int(new_extra_id), qty=int(new_qty), notes=str(new_notes))
+                    st.success("Extra added to quote.")
+                    st.rerun()
+
+    quote_extra_rows = get_quote_extras(int(quote["id"]))
+    if not quote_extra_rows:
+        st.info("No extras on this quote yet.")
+    else:
+        quote_extra_df = _quote_extra_editor_df(quote_extra_rows)
+
+        edited_df = st.data_editor(
+            quote_extra_df,
+            num_rows="fixed",
+            use_container_width=True,
+            hide_index=True,
+            key=f"quote_extras_editor_{quote['id']}",
+            column_config={
+                "id": st.column_config.NumberColumn("Line ID", disabled=True),
+                "extra_id": st.column_config.SelectboxColumn("Extra", options=extra_ids, required=True, format_func=lambda eid: _extra_label(extra_lookup[eid])),
+                "category": st.column_config.TextColumn("Category", disabled=True),
+                "extra": st.column_config.TextColumn("Extra Name", disabled=True),
+                "qty": st.column_config.NumberColumn("Qty", min_value=1, required=True),
+                "notes": st.column_config.TextColumn("Notes"),
+            },
+        )
+
+        # keep category/name columns in sync with selected extra
+        for i, row in edited_df.iterrows():
+            eid = int(row["extra_id"])
+            edited_df.at[i, "category"] = str(extra_lookup[eid].get("category_name", ""))
+            edited_df.at[i, "extra"] = str(extra_lookup[eid].get("name", ""))
+
+        if not edited_df.equals(quote_extra_df):
+            st.warning(":material/warning: **Unsaved changes detected!**")
+            if st.button(":material/save: Save Extras Changes", type="primary", use_container_width=True):
+                original_ids = set(quote_extra_df["id"].astype(int).tolist())
+                edited_ids = set(edited_df["id"].astype(int).tolist())
+
+                for deleted_id in sorted(original_ids - edited_ids):
+                    delete_quote_extra(int(deleted_id))
+
+                for _, row in edited_df.iterrows():
+                    update_quote_extra(
+                        quote_extra_id=int(row["id"]),
+                        extra_id=int(row["extra_id"]),
+                        qty=max(1, int(row["qty"])),
+                        notes=str(row.get("notes", "") or ""),
+                    )
+
+                st.success("Quote extras updated!")
+                st.rerun()

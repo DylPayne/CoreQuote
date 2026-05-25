@@ -23,3 +23,22 @@ def format_handle_label(handle: dict) -> str:
     if code:
         label += f" • {code}"
     return label
+
+
+def format_extra_category_label(category: dict) -> str:
+    return str(category.get("name", "")).strip() or "Category"
+
+
+def format_extra_label(extra: dict) -> str:
+    name = str(extra.get("name", "")).strip()
+    category = str(extra.get("category_name", extra.get("category", ""))).strip()
+    supplier = str(extra.get("supplier", "")).strip()
+    code = str(extra.get("code", "")).strip()
+    label = name or "Extra"
+    if category:
+        label += f" • {category}"
+    if supplier:
+        label += f" • {supplier}"
+    if code:
+        label += f" • {code}"
+    return label
