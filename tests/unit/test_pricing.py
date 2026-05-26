@@ -3,7 +3,7 @@ import pytest
 
 
 def _setup_isolated_db(tmp_path, monkeypatch):
-    import logic.database as db
+    import corequote_core.database as db
 
     db_file = tmp_path / "test_corequote.db"
     monkeypatch.setattr(db, "DB_PATH", str(db_file), raising=False)
@@ -13,7 +13,7 @@ def _setup_isolated_db(tmp_path, monkeypatch):
 
 def test_pricing_run_snapshot_immutable_after_price_change(tmp_path, monkeypatch):
     db = _setup_isolated_db(tmp_path, monkeypatch)
-    pricing = importlib.import_module("logic.pricing")
+    pricing = importlib.import_module("corequote_core.pricing")
 
     project_id = db.create_project("P1")
     quote_id = db.create_quote(project_id=project_id, name="Q1")
@@ -62,7 +62,7 @@ def test_pricing_run_snapshot_immutable_after_price_change(tmp_path, monkeypatch
 
 def test_pricing_markup_and_margin_modes(tmp_path, monkeypatch):
     db = _setup_isolated_db(tmp_path, monkeypatch)
-    pricing = importlib.import_module("logic.pricing")
+    pricing = importlib.import_module("corequote_core.pricing")
 
     project_id = db.create_project("P2")
     quote_id = db.create_quote(project_id=project_id, name="Q2")
@@ -88,7 +88,7 @@ def test_pricing_markup_and_margin_modes(tmp_path, monkeypatch):
 
 def test_vat_rate_is_snapshotted_per_run(tmp_path, monkeypatch):
     db = _setup_isolated_db(tmp_path, monkeypatch)
-    pricing = importlib.import_module("logic.pricing")
+    pricing = importlib.import_module("corequote_core.pricing")
 
     project_id = db.create_project("P3")
     quote_id = db.create_quote(project_id=project_id, name="Q3")
@@ -114,7 +114,7 @@ def test_vat_rate_is_snapshotted_per_run(tmp_path, monkeypatch):
 
 def test_board_items_are_required_and_priced_in_quote(tmp_path, monkeypatch):
     db = _setup_isolated_db(tmp_path, monkeypatch)
-    pricing = importlib.import_module("logic.pricing")
+    pricing = importlib.import_module("corequote_core.pricing")
 
     board_id = db.create_board_type(
         "PG",
@@ -193,7 +193,7 @@ def test_board_items_are_required_and_priced_in_quote(tmp_path, monkeypatch):
 
 def test_board_sqm_mode_prices_by_area_without_price_list_item(tmp_path, monkeypatch):
     db = _setup_isolated_db(tmp_path, monkeypatch)
-    pricing = importlib.import_module("logic.pricing")
+    pricing = importlib.import_module("corequote_core.pricing")
 
     board_id = db.create_board_type(
         "Niemann",

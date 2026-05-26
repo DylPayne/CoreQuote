@@ -1,4 +1,4 @@
-from src.ui.formatters import (
+from ui.formatters import (
     format_board_label,
     format_handle_label,
     format_hinge_label,

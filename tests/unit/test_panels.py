@@ -1,4 +1,4 @@
-from src.logic.panels import (
+from corequote_core.panels import (
     PANEL_PRESET_KEYS,
     PANEL_PRESET_LABELS,
     compute_panel_rows,

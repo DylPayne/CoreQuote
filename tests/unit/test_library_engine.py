@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.ui.library_engine import (
+from ui.library_engine import (
     LibraryValidationResult,
     apply_library_mutations,
     compute_id_diff,
@@ -72,7 +72,7 @@ def test_apply_library_mutations_stops_on_validation_error(monkeypatch):
     class StopCalled(Exception):
         pass
 
-    import src.ui.library_engine as engine
+    import ui.library_engine as engine
 
     errors = []
     monkeypatch.setattr(engine.st, "error", lambda msg: errors.append(msg))

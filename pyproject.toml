@@ -9,3 +9,20 @@ dependencies = [
     "pandas>=2.3.3",
     "streamlit>=1.55.0",
 ]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "packages/corequote-core"}
+
+[tool.setuptools.packages.find]
+where = ["packages/corequote-core"]
+include = ["corequote_core*"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "packages/corequote-core",
+    "apps/streamlit",
+]

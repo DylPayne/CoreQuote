@@ -1,4 +1,4 @@
-from src.ui.selectors import (
+from ui.selectors import (
     board_index_for_id,
     handle_id_from_quote,
     handle_payload_from_id,

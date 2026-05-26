@@ -108,7 +108,7 @@ wheels = [
 [[package]]
 name = "corequote"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "fpdf2" },
     { name = "pandas" },

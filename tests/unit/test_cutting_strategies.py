@@ -1,6 +1,6 @@
-from src.logic.cutting.engine import CuttingEngine
-from src.logic.models import Slide
-from src.logic.units.types import DrawerUnit, TallUnit
+from corequote_core.cutting.engine import CuttingEngine
+from corequote_core.models import Slide
+from corequote_core.units.types import DrawerUnit, TallUnit
 
 
 def _board_map(result_rows):

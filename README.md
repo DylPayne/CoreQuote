@@ -65,20 +65,23 @@ CoreQuote helps convert design intent into shop-floor output.
 
 CoreQuote is split into clear layers:
 
-- **UI layer (`src/pages`, `src/ui`)**
+- **Streamlit app (`apps/streamlit`)**
   - Streamlit multipage app, forms, dialogs, list/edit screens.
   - Reusable library-page engine (`ui/library_engine.py`) for CRUD-style inventory pages.
 
-- **Logic layer (`src/logic`)**
+- **Reusable logic package (`packages/corequote-core/corequote_core`)**
   - Datamodels (`models.py`) for typed entities such as `Board` and `Slide`.
   - Unit model definitions (`units/`) and a **strategy-based cutting engine** (`cutting/`).
   - Cutlist integration (`cutlist.py`) to transform units → DataFrames.
   - PDF generation (`pdf_gen.py`) for downloadable schedules.
 
-- **Persistence layer (`logic/database.py`)**
+- **Persistence layer (`corequote_core/database.py`)**
   - SQLite-backed storage for projects, quotes, units, board types, slides, hinges, handles.
   - Lightweight schema migrations at startup.
   - Legacy CSV-to-DB seeding for slides.
+
+- **Future apps (`apps/api`, `apps/web`)**
+  - Reserved for the FastAPI backend and Next.js frontend.
 
 ### Cutting engine design
 
@@ -106,16 +109,23 @@ This keeps calculation logic modular and easier to extend/test.
 
 ```text
 CoreQuote/
+├── apps/
+│   ├── api/                    # FastAPI backend placeholder
+│   ├── streamlit/              # existing Streamlit app
+│   │   ├── main.py             # Streamlit app entry + navigation
+│   │   ├── pages/              # Projects, Quotes, Quote Detail, Calculator, libraries
+│   │   ├── ui/                 # shared Streamlit UI helpers
+│   │   └── components/         # Streamlit visual assets
+│   └── web/                    # future Next.js frontend placeholder
 ├── data/
 │   ├── corequote.db            # runtime SQLite database
 │   └── slides.csv              # legacy slide seed source
-├── src/
-│   ├── main.py                 # Streamlit app entry + navigation
-│   ├── pages/                  # Projects, Quotes, Quote Detail, Calculator, libraries
-│   ├── logic/                  # DB, models, units, cutting engine, PDF, cutlist builder
-│   └── ui/                     # shared UI helpers/formatters/selectors/library engine
+├── infra/                      # future Docker/Alembic/deployment config
+├── packages/
+│   └── corequote-core/
+│       └── corequote_core/     # reusable Python logic package
 ├── tests/
-│   └── unit/                   # unit tests for UI helper logic
+│   └── unit/                   # unit tests for core logic and UI helpers
 ├── pyproject.toml
 └── README.md
 ```
@@ -155,7 +165,7 @@ uv sync
 ### 4) Run the app
 
 ```bash
-streamlit run src/main.py
+streamlit run apps/streamlit/main.py
 ```
 
 Open the URL shown in your terminal (typically `http://localhost:8501`).
