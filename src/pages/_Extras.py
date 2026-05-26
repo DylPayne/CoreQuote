@@ -18,6 +18,12 @@ from ui.library_engine import (
     render_library_page,
 )
 from ui.formatters import format_extra_label
+from ui.library_pricing import (
+    cents_to_amount,
+    get_active_pricing_lookup,
+    render_read_only_pricing_header,
+)
+from ui.library_tabs import render_inventory_pricing_tabs
 
 COLUMNS = ["id", "name", "category_id", "supplier", "code", "notes"]
 
@@ -122,8 +128,47 @@ config = LibraryConfig(
     },
 )
 
-if not _category_ids:
-    st.title(config.page_title)
-    st.info("No extra categories found. Please add categories in **Extras Categories** first.")
-else:
+
+def _render_inventory_tab() -> None:
+    if not _category_ids:
+        st.title(config.page_title)
+        st.info("No extra categories found. Please add categories in **Extras Categories** first.")
+        return
     render_library_page(config)
+
+
+def _render_pricing_tab() -> None:
+    render_read_only_pricing_header("Extra Pricing (Read-only)")
+    active_price_list, lookup = get_active_pricing_lookup()
+    if not active_price_list:
+        st.info("No active price list found.")
+        return
+
+    extras = get_all_extras()
+    rows = [
+        {
+            "extra": format_extra_label(e),
+            "cost_price": cents_to_amount((lookup.get(("extra", f"extra::{int(e['id'])}")) or {}).get("unit_price_cents", 0)),
+            "uom": "pcs",
+        }
+        for e in extras
+    ]
+    if not rows:
+        st.info("No extras found.")
+        return
+
+    import pandas as pd
+
+    st.dataframe(
+        pd.DataFrame(rows),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "extra": st.column_config.TextColumn("Extra"),
+            "cost_price": st.column_config.NumberColumn("Cost Price (R)", format="%.2f"),
+            "uom": st.column_config.TextColumn("UOM"),
+        },
+    )
+
+
+render_inventory_pricing_tabs(render_inventory=_render_inventory_tab, render_pricing=_render_pricing_tab)

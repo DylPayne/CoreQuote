@@ -18,10 +18,20 @@ from logic.database import (
     get_quote_extras,
     update_quote_extra,
     delete_quote_extra,
+    get_active_price_list,
+    get_price_list_items,
+    upsert_price_list_item,
+    get_pricing_settings,
+    update_vat_rate_bps,
+    update_default_markup_bps,
+    update_quote_default_markup_bps,
+    get_current_quote_pricing_run,
+    get_quote_pricing_runs,
 )
 from logic.models import Slide
 from logic.cutlist import build_cutlist
 from logic.pdf_gen import generate_pdf
+from logic.pricing import price_quote, get_required_price_items
 from logic.panels import (
     PANEL_PRESET_KEYS,
     PANEL_PRESET_LABELS,
@@ -894,11 +904,12 @@ st.divider()
 
 units = get_units_for_quote(quote["id"])
 
-tab_units, tab_panels, tab_cutting, tab_components, tab_extras = st.tabs([
+tab_units, tab_panels, tab_cutting, tab_components, tab_pricing, tab_extras = st.tabs([
     "Units",
     "Panels",
     "Cutting List",
     "Component Count",
+    "Pricing",
     "Extras",
 ])
 
@@ -1211,6 +1222,174 @@ with tab_panels:
         st.session_state[manual_state_key] = payload["manual"]
         st.success("Panels saved.")
         st.rerun()
+
+
+with tab_pricing:
+    st.subheader(":material/payments: Pricing")
+
+    active_price_list = get_active_price_list()
+    if not active_price_list:
+        st.error("No active price list available. Please create one first.")
+    else:
+        st.caption(f"Using active price list: **{active_price_list['name']}**")
+
+        settings = get_pricing_settings()
+        vat_pct_default = float(int(settings.get("vat_rate_bps", 1500) or 1500) / 100.0)
+
+        global_markup_pct_default = float(int(settings.get("default_markup_bps", 2500) or 2500) / 100.0)
+        quote_markup_pct_default = float(
+            int(quote.get("default_markup_bps", settings.get("default_markup_bps", 2500)) or settings.get("default_markup_bps", 2500)) / 100.0
+        )
+
+        c_vat, c_global_markup, c_quote_markup = st.columns(3)
+        with c_vat:
+            vat_pct = st.number_input("VAT %", min_value=0.0, max_value=100.0, value=vat_pct_default, step=0.1)
+            if st.button("Save VAT", use_container_width=True):
+                update_vat_rate_bps(int(round(vat_pct * 100.0)))
+                st.success("VAT updated.")
+                st.rerun()
+        with c_global_markup:
+            global_markup_pct = st.number_input(
+                "Global Default Markup %",
+                min_value=0.0,
+                max_value=500.0,
+                value=global_markup_pct_default,
+                step=0.5,
+                help="Applied by default to new/updated quotes unless quote override is set.",
+            )
+            if st.button("Save Global Markup", use_container_width=True):
+                update_default_markup_bps(int(round(global_markup_pct * 100.0)))
+                st.success("Global default markup updated.")
+                st.rerun()
+        with c_quote_markup:
+            quote_markup_pct = st.number_input(
+                "This Quote Markup %",
+                min_value=0.0,
+                max_value=500.0,
+                value=quote_markup_pct_default,
+                step=0.5,
+                help="This quote's default markup. Used when you click Price Quote.",
+            )
+            if st.button("Save Quote Markup", use_container_width=True):
+                update_quote_default_markup_bps(int(quote["id"]), int(round(quote_markup_pct * 100.0)))
+                st.success("Quote default markup updated.")
+                st.rerun()
+
+        required_items = get_required_price_items(int(quote["id"]))
+        missing_items = [r for r in required_items if r.unit_price_cents is None]
+
+        st.markdown("##### Missing Prices")
+        if not missing_items:
+            st.success("All required quote items have cost prices.")
+        else:
+            st.warning(f"{len(missing_items)} required item(s) still need pricing.")
+            st.dataframe(
+                [
+                    {
+                        "Type": r.item_type,
+                        "Description": r.description,
+                        "Item Key": r.item_key,
+                        "UOM": r.uom,
+                        "Qty Required": r.qty_required,
+                    }
+                    for r in missing_items
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.markdown("##### Cost Price Editor")
+        if not required_items:
+            st.info("No pricing-relevant items found yet. Add units/extras first.")
+        else:
+            import pandas as pd
+
+            price_df = pd.DataFrame(
+                [
+                    {
+                        "item_type": r.item_type,
+                        "description": r.description,
+                        "item_key": r.item_key,
+                        "uom": r.uom,
+                        "qty_required": float(r.qty_required),
+                        "unit_price": (float(r.unit_price_cents) / 100.0) if r.unit_price_cents is not None else 0.0,
+                    }
+                    for r in required_items
+                ]
+            )
+
+            edited_prices = st.data_editor(
+                price_df,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                key=f"pricing_editor_{quote['id']}",
+                column_config={
+                    "item_type": st.column_config.TextColumn("Type", disabled=True),
+                    "description": st.column_config.TextColumn("Description", disabled=True),
+                    "item_key": st.column_config.TextColumn("Item Key", disabled=True),
+                    "uom": st.column_config.TextColumn("UOM", disabled=True),
+                    "qty_required": st.column_config.NumberColumn("Qty Required", disabled=True),
+                    "unit_price": st.column_config.NumberColumn("Cost Price", min_value=0.0, step=1.0, format="%.2f"),
+                },
+            )
+
+            if st.button("Save Cost Prices", type="primary", use_container_width=True):
+                for _, row in edited_prices.iterrows():
+                    upsert_price_list_item(
+                        price_list_id=int(active_price_list["id"]),
+                        item_type=str(row["item_type"]),
+                        item_key=str(row["item_key"]),
+                        uom=str(row["uom"]),
+                        unit_price_cents=int(round(float(row["unit_price"]) * 100.0)),
+                    )
+                st.success("Cost prices saved.")
+                st.rerun()
+
+        st.divider()
+        st.markdown("##### Quote Pricing")
+        st.caption("Pricing uses global cost prices and applies this quote's default markup.")
+        if st.button(":material/calculate: Price Quote", type="primary", use_container_width=True):
+            try:
+                result = price_quote(
+                    quote_id=int(quote["id"]),
+                    pricing_mode="markup",
+                    pricing_value_percent=float(quote_markup_pct),
+                )
+                st.success(f"Pricing run saved (Run #{result.run_id}).")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+
+        current_run = get_current_quote_pricing_run(int(quote["id"]))
+        if current_run:
+            st.markdown("##### Current Totals")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Subtotal", f"R {int(current_run['subtotal_cents']) / 100:,.2f}")
+            c2.metric("Sell Ex VAT", f"R {int(current_run['sell_before_vat_cents']) / 100:,.2f}")
+            c3.metric("VAT", f"R {int(current_run['vat_cents']) / 100:,.2f}")
+            c4.metric("Grand Total", f"R {int(current_run['grand_total_cents']) / 100:,.2f}")
+
+        history = get_quote_pricing_runs(int(quote["id"]))
+        if history:
+            st.markdown("##### Pricing History")
+            st.dataframe(
+                [
+                    {
+                        "Run ID": int(r["id"]),
+                        "Created": r.get("created_at", ""),
+                        "Mode": r.get("pricing_mode", ""),
+                        "Value %": float(int(r.get("pricing_value_bps", 0) or 0) / 100.0),
+                        "VAT %": float(int(r.get("vat_rate_bps_snapshot", 0) or 0) / 100.0),
+                        "Subtotal": float(int(r.get("subtotal_cents", 0) or 0) / 100.0),
+                        "Grand Total": float(int(r.get("grand_total_cents", 0) or 0) / 100.0),
+                        "Current": bool(int(r.get("is_current", 0) or 0)),
+                    }
+                    for r in history
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 with tab_extras:

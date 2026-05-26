@@ -49,6 +49,7 @@ boards_page   = st.Page("pages/_Boards.py",      title="Board Library",     icon
 handles_page  = st.Page("pages/_Handles.py",     title="Handle Library",    icon=":material/touch_app:")
 extra_categories_page = st.Page("pages/_ExtraCategories.py", title="Extras Categories", icon=":material/category:")
 extras_page   = st.Page("pages/_Extras.py",      title="Extras Library",    icon=":material/inventory_2:")
+pricing_admin_page = st.Page("pages/_PricingAdmin.py", title="Pricing Admin", icon=":material/payments:")
 
 pg = st.navigation(
     {
@@ -61,6 +62,7 @@ pg = st.navigation(
             handles_page,
             extra_categories_page,
             extras_page,
+            pricing_admin_page,
         ],
     }
 )

@@ -12,6 +12,12 @@ from ui.library_engine import (
     render_library_page,
 )
 from ui.formatters import format_handle_label
+from ui.library_pricing import (
+    cents_to_amount,
+    get_active_pricing_lookup,
+    render_read_only_pricing_header,
+)
+from ui.library_tabs import render_inventory_pricing_tabs
 
 COLUMNS = ["id", "name", "supplier", "code"]
 
@@ -66,4 +72,47 @@ config = LibraryConfig(
     dialog_success_message="Added handle successfully!",
 )
 
-render_library_page(config)
+
+def _handle_key(h: dict) -> str:
+    return f"handle::{h.get('name','')}::{h.get('supplier','')}::{h.get('code','')}"
+
+
+def _render_inventory_tab() -> None:
+    render_library_page(config)
+
+
+def _render_pricing_tab() -> None:
+    render_read_only_pricing_header("Handle Pricing (Read-only)")
+    active_price_list, lookup = get_active_pricing_lookup()
+    if not active_price_list:
+        st.info("No active price list found.")
+        return
+
+    handles = get_all_handles()
+    rows = [
+        {
+            "handle": format_handle_label(h),
+            "cost_price": cents_to_amount((lookup.get(("handle", _handle_key(h))) or {}).get("unit_price_cents", 0)),
+            "uom": "pcs",
+        }
+        for h in handles
+    ]
+    if not rows:
+        st.info("No handles found.")
+        return
+
+    import pandas as pd
+
+    st.dataframe(
+        pd.DataFrame(rows),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "handle": st.column_config.TextColumn("Handle"),
+            "cost_price": st.column_config.NumberColumn("Cost Price (R)", format="%.2f"),
+            "uom": st.column_config.TextColumn("UOM"),
+        },
+    )
+
+
+render_inventory_pricing_tabs(render_inventory=_render_inventory_tab, render_pricing=_render_pricing_tab)
