@@ -1,0 +1,122 @@
+# AGENTS.md
+
+Guidance for AI agents working in this repository.
+
+## Project Overview
+
+CoreQuote is a Streamlit-based cabinetry quoting and cutlist system for kitchen, built-in, and board-based joinery workflows. It combines project and quote management, cabinet unit configuration, board and hardware libraries, cutting list generation, component counting, and PDF output.
+
+The current codebase is a Python project with:
+
+- Streamlit UI in `apps/streamlit`.
+- FastAPI API layer in `apps/api`.
+- Reusable business logic in `packages/corequote-core/corequote_core`.
+- SQLite persistence in `packages/corequote-core/corequote_core/database.py`.
+- Runtime local data in `data/corequote.db` and `data/slides.csv`.
+- Tests in `tests/unit` and `tests/api`.
+
+## Setup Commands
+
+Preferred setup with uv:
+
+```bash
+uv sync
+```
+
+Alternative setup with venv and pip:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+Run the Streamlit app:
+
+```bash
+uv run streamlit run apps/streamlit/main.py
+```
+
+TODO: Confirm the intended local FastAPI run command before relying on it for development workflows.
+
+## Testing Commands
+
+Run the full test suite:
+
+```bash
+uv run pytest
+```
+
+Alternative when using an activated virtual environment:
+
+```bash
+pytest
+```
+
+Run focused tests while developing:
+
+```bash
+uv run pytest tests/unit
+uv run pytest tests/api
+```
+
+Always run the relevant tests before finishing. For changes to shared business logic, run the full suite unless there is a clear reason not to.
+
+## Code Style
+
+- Follow the existing Python style in the touched files.
+- Keep functions small and behavior explicit.
+- Prefer typed datamodels and existing helper functions over ad hoc dictionaries or string manipulation.
+- Keep UI code in `apps/streamlit`, API code in `apps/api`, and reusable business logic in `packages/corequote-core/corequote_core`.
+- Do not introduce a new formatter, linter, framework, or architectural pattern without approval.
+- TODO: Add the canonical formatter/linter command if the project adopts one.
+
+## Database and Migration Rules
+
+- The app uses SQLite, with the default database at `data/corequote.db`.
+- Database schema creation and lightweight migrations currently live in `packages/corequote-core/corequote_core/database.py`.
+- Use `COREQUOTE_DB_PATH` for isolated local or test databases when appropriate.
+- Do not hand-edit `data/corequote.db` unless the user explicitly asks for it.
+- Do not run destructive database commands, data wipes, bulk updates, or migration rewrites without explicit confirmation.
+- Keep schema changes small, backwards-compatible where possible, and covered by tests when they affect business behavior.
+- Explain any migration strategy before implementing it.
+
+## Git Workflow
+
+- Always run `git status --short --branch` before editing.
+- Never work directly on `main` or `master`.
+- Create a focused feature branch for each task.
+- Keep commits and file changes small, coherent, and reviewable.
+- Do not revert, overwrite, or clean up user changes unless explicitly asked.
+- Review diffs before finishing.
+- If generated files or local data change unexpectedly, investigate before including them.
+
+## Change Management
+
+- Keep changes scoped to the user request.
+- Do not add dependencies without explicit approval.
+- Do not change architecture, persistence strategy, deployment strategy, or public interfaces without explaining the plan first.
+- Add or update tests for business logic changes.
+- Prefer focused tests for narrow changes and broader regression tests for shared calculation, pricing, persistence, or API behavior.
+- Never hardcode secrets, tokens, credentials, private keys, or environment-specific values.
+- Use environment variables or existing configuration patterns for sensitive or machine-specific settings.
+
+## Deployment Safety
+
+- Do not run deployment commands without explicit confirmation.
+- Do not run AWS, cloud, production, or remote infrastructure commands without explicit confirmation.
+- Do not run destructive commands without explicit confirmation. This includes commands that delete files, reset Git state, wipe databases, modify production data, or alter deployed infrastructure.
+- Treat commands involving `rm`, `git reset`, `git clean`, database deletion, AWS CLI, Terraform, Docker deployment, or production credentials as confirmation-required.
+- If a command could affect data or infrastructure outside the local working tree, stop and ask first.
+
+## Final Response Format
+
+When finishing a task, respond with:
+
+- A short summary of what changed.
+- The tests or checks run, with results.
+- Any commands intentionally not run and why.
+- Any remaining TODOs, risks, or follow-up recommendations.
+- Relevant file paths using absolute paths when possible.
+
+Keep the final response concise and focused on what the reviewer needs to know.
