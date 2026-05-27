@@ -27,6 +27,10 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class DatabaseHealthResponse(HealthResponse):
+    database: str
+
+
 class CutlistUnitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -56,4 +60,3 @@ class CutlistRowResponse(BaseModel):
 class CutlistPreviewResponse(BaseModel):
     carcass: list[CutlistRowResponse]
     panels: list[CutlistRowResponse]
-
