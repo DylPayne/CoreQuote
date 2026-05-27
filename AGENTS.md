@@ -71,6 +71,12 @@ Always run the relevant tests before finishing. For changes to shared business l
 - Do not introduce a new formatter, linter, framework, or architectural pattern without approval.
 - TODO: Add the canonical formatter/linter command if the project adopts one.
 
+## Frontend Styling
+
+- Keep frontend styling global and token-driven. Colours, typography, spacing density, radii, shadows, and shared control sizing should come from global theme/style variables and shared primitives.
+- Do not hardcode one-off visual styling inside individual components when the same decision belongs in the app-wide design system.
+- Local component classes should be limited to layout, responsive placement, and content-specific structure unless there is a clear reason to extend the shared primitives.
+
 ## Database and Migration Rules
 
 - The app uses SQLite, with the default database at `data/corequote.db`.
