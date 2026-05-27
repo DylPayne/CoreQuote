@@ -178,6 +178,36 @@ Open the URL shown in your terminal (typically `http://localhost:8501`).
 - On startup, the app ensures schema/table availability and applies lightweight migrations.
 - If `slides` table is empty, data can be imported from `data/slides.csv` once.
 
+### Local Postgres
+
+The repo includes a Docker Compose service for a local Postgres database. The existing app still uses SQLite until the persistence layer is migrated, but new API/auth work should target Postgres.
+
+1. Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+2. Start Postgres:
+
+```bash
+docker compose up -d postgres
+```
+
+3. Check that it is healthy:
+
+```bash
+docker compose ps
+```
+
+The default local connection string is:
+
+```text
+postgresql://corequote:corequote_dev_password@localhost:5433/corequote_dev
+```
+
+The database is stored in the `corequote-postgres-data` Docker volume so it survives container restarts.
+
 ---
 
 ## Current scope and intent
