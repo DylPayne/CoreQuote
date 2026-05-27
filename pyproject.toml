@@ -5,9 +5,15 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi[standard]>=0.116.0",
     "fpdf2>=2.8.7",
     "pandas>=2.3.3",
     "streamlit>=1.55.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
 ]
 
 [build-system]
@@ -15,14 +21,21 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-dir = {"" = "packages/corequote-core"}
+package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
-where = ["packages/corequote-core"]
-include = ["corequote_core*"]
+where = [
+    "apps/api",
+    "packages/corequote-core",
+]
+include = [
+    "corequote_api*",
+    "corequote_core*",
+]
 
 [tool.pytest.ini_options]
 pythonpath = [
     "packages/corequote-core",
+    "apps/api",
     "apps/streamlit",
 ]
