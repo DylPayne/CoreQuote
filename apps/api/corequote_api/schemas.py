@@ -116,6 +116,34 @@ class AuthLogoutResponse(BaseModel):
     status: Literal["ok"]
 
 
+class CompanyCreateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"examples": [{"name": "Core Cabinets"}]},
+    )
+
+    name: str = Field(min_length=2, max_length=120, description="Company display name.")
+
+
+class CompanyUpdateRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"examples": [{"name": "Core Cabinets Ltd"}]},
+    )
+
+    name: str = Field(min_length=2, max_length=120, description="Updated company display name.")
+
+
+class CompanyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = Field(description="Company UUID.")
+    name: str = Field(description="Company display name.")
+    slug: str = Field(description="URL-safe company slug.")
+    created_at: datetime = Field(description="UTC timestamp when the company was created.")
+    updated_at: datetime = Field(description="UTC timestamp when the company was last updated.")
+
+
 class CutlistUnitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
