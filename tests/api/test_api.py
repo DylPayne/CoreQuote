@@ -13,6 +13,20 @@ def test_health_endpoints():
     assert client.get("/health/ready").json() == {"status": "ok", "service": "corequote-api"}
 
 
+def test_api_allows_local_frontend_cors_preflight():
+    response = client.options(
+        "/api/v1/auth/me",
+        headers={
+            "Access-Control-Request-Headers": "authorization",
+            "Access-Control-Request-Method": "GET",
+            "Origin": "http://127.0.0.1:5174",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5174"
+
+
 def test_database_health_endpoint_checks_connection():
     def checker() -> DatabaseHealth:
         return DatabaseHealth(ok=True, database="corequote_dev")

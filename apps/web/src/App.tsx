@@ -1,30 +1,19 @@
 import {
-  Archive,
-  Boxes,
+  Building2,
   Calculator,
-  ChevronDown,
-  CircleDollarSign,
+  CheckCircle2,
   ClipboardList,
-  DoorOpen,
-  FileDown,
-  FolderKanban,
-  Grid2X2,
-  Hammer,
   HardHat,
-  Library,
-  Menu,
-  MoreHorizontal,
+  LoaderCircle,
+  LogOut,
   Moon,
-  PanelTop,
   Palette,
-  Plus,
-  Search,
-  Settings,
-  Sheet,
-  SlidersHorizontal,
+  Play,
+  ShieldCheck,
   Sun,
+  UserRound,
 } from 'lucide-react'
-import { useMemo, useState, type ComponentType, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,6 +21,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChoiceCard, ChoiceCardContent } from '@/components/ui/choice-card'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
+const AUTH_TOKEN_KEY = 'corequote.authToken'
+
+type AuthMode = 'login' | 'register'
+type AuthStatus = 'checking' | 'signed-in' | 'signed-out'
+type AppPage = 'workspace' | 'cutlist' | 'appearance'
 type ColourTheme =
   | 'neutral'
   | 'slate'
@@ -57,6 +52,9 @@ type ColourTheme =
   | 'fuchsia'
   | 'pink'
   | 'rose'
+type ThemeMode = 'light' | 'dark'
+type UiStyle = 'vega' | 'nova' | 'maia' | 'lyra' | 'mira' | 'luma' | 'sera'
+type UnitType = 'Base Drawer' | 'Base Door' | 'Wall Door' | 'Tall Standard'
 
 type ThemeSpec = {
   chroma: number
@@ -66,9 +64,50 @@ type ThemeSpec = {
 }
 
 type ThemeVars = CSSProperties & Record<`--${string}`, string>
-type ThemeMode = 'light' | 'dark'
-type AppPage = 'projects' | 'appearance'
-type UiStyle = 'vega' | 'nova' | 'maia' | 'lyra' | 'mira' | 'luma' | 'sera'
+
+type AuthUser = {
+  id: string
+  company_id: string
+  company_name: string
+  name: string
+  email: string
+  role: 'owner' | 'admin' | 'member'
+}
+
+type AuthTokenResponse = {
+  access_token: string
+  token_type: 'bearer'
+  expires_at: string
+  user: AuthUser
+}
+
+type CutlistRow = {
+  unit_number: number
+  desc: string
+  length: number
+  width: number
+  qty: number
+}
+
+type CutlistPreviewResponse = {
+  carcass: CutlistRow[]
+  panels: CutlistRow[]
+}
+
+type AuthFormState = {
+  companyName: string
+  name: string
+  email: string
+  password: string
+}
+
+type CutlistFormState = {
+  unitType: UnitType
+  height: number
+  width: number
+  depth: number
+  thickness: number
+}
 
 const colourThemes: ThemeSpec[] = [
   { label: 'Neutral', value: 'neutral', chroma: 0.004, hue: 247 },
@@ -112,59 +151,197 @@ const uiStyles: {
   { label: 'Sera', value: 'sera', description: 'Structured editorial feel with crisp surfaces.', radius: 'locked' },
 ]
 
+const initialAuthForm: AuthFormState = {
+  companyName: '',
+  email: '',
+  name: '',
+  password: '',
+}
+
+const initialCutlistForm: CutlistFormState = {
+  depth: 580,
+  height: 780,
+  thickness: 16,
+  unitType: 'Base Drawer',
+  width: 900,
+}
+
 function App() {
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
+  const [authForm, setAuthForm] = useState<AuthFormState>(initialAuthForm)
+  const [authToken, setAuthToken] = useState<string | null>(getStoredAuthToken)
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(() => (getStoredAuthToken() ? 'checking' : 'signed-out'))
+  const [authError, setAuthError] = useState<string | null>(null)
   const [colourTheme, setColourTheme] = useState<ColourTheme>('neutral')
-  const [currentPage, setCurrentPage] = useState<AppPage>('projects')
+  const [currentPage, setCurrentPage] = useState<AppPage>('workspace')
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [themeMode, setThemeMode] = useState<ThemeMode>('light')
   const [uiStyle, setUiStyle] = useState<UiStyle>('lyra')
+  const [user, setUser] = useState<AuthUser | null>(null)
   const selectedTheme = colourThemes.find((theme) => theme.value === colourTheme) ?? colourThemes[0]
   const selectedStyle = uiStyles.find((style) => style.value === uiStyle) ?? uiStyles[3]
   const themeVars = useMemo(() => createThemeVars(selectedTheme, themeMode, uiStyle), [selectedTheme, themeMode, uiStyle])
 
-  const navItems = [
-    { label: 'Projects', icon: FolderKanban, page: 'projects' as const },
-    { label: 'Quotes', icon: ClipboardList },
-    { label: 'Cutlists', icon: Calculator },
-    { label: 'Boards', icon: Grid2X2 },
-    { label: 'Hardware', icon: DoorOpen },
-    { label: 'Pricing', icon: CircleDollarSign },
-    { label: 'Appearance', icon: Palette, page: 'appearance' as const },
-    { label: 'Settings', icon: Settings },
-  ]
+  const clearSession = useCallback(() => {
+    localStorage.removeItem(AUTH_TOKEN_KEY)
+    setAuthToken(null)
+    setUser(null)
+    setAuthStatus('signed-out')
+  }, [])
 
-  const quoteRows = [
-    {
-      unit: 'U01',
-      type: 'Base drawer',
-      dims: '780 x 900 x 580',
-      board: 'PG Bison Melawood 16mm',
-      hardware: 'Tandem 500mm',
-      status: 'Ready',
-    },
-    {
-      unit: 'U02',
-      type: 'Base door',
-      dims: '780 x 600 x 580',
-      board: 'PG Bison Melawood 16mm',
-      hardware: 'Blum 110 deg',
-      status: 'Review',
-    },
-    {
-      unit: 'U03',
-      type: 'Wall door',
-      dims: '720 x 800 x 330',
-      board: 'PG Bison Melawood 16mm',
-      hardware: 'Blum 110 deg',
-      status: 'Ready',
-    },
-  ]
+  const storeSession = useCallback((session: AuthTokenResponse) => {
+    localStorage.setItem(AUTH_TOKEN_KEY, session.access_token)
+    setAuthToken(session.access_token)
+    setUser(session.user)
+    setAuthStatus('signed-in')
+  }, [])
 
-  const projectCards = [
-    { name: 'Smith Kitchen', client: 'John Smith', quotes: 3, value: 'R 84,250' },
-    { name: 'Oak Avenue Built-in', client: 'Nandi Meyer', quotes: 1, value: 'R 31,780' },
-    { name: 'Workshop Display', client: 'Internal', quotes: 2, value: 'R 52,410' },
-  ]
+  useEffect(() => {
+    if (!authToken) {
+      return
+    }
 
+    const token = authToken
+    let isCurrent = true
+
+    async function restoreSession() {
+      try {
+        const currentUser = await apiRequest<AuthUser>('/api/v1/auth/me', {
+          token,
+        })
+
+        if (!isCurrent) return
+        setUser(currentUser)
+        setAuthStatus('signed-in')
+      } catch (error) {
+        if (!isCurrent) return
+        clearSession()
+        setAuthError(error instanceof Error ? error.message : 'Your session expired. Please sign in again.')
+      }
+    }
+
+    restoreSession()
+
+    return () => {
+      isCurrent = false
+    }
+  }, [authToken, clearSession])
+
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setAuthError(null)
+    setIsSubmittingAuth(true)
+
+    try {
+      const endpoint = authMode === 'register' ? '/api/v1/auth/register' : '/api/v1/auth/login'
+      const payload =
+        authMode === 'register'
+          ? {
+              company_name: authForm.companyName.trim(),
+              email: authForm.email.trim(),
+              name: authForm.name.trim(),
+              password: authForm.password,
+            }
+          : {
+              email: authForm.email.trim(),
+              password: authForm.password,
+            }
+
+      const session = await apiRequest<AuthTokenResponse>(endpoint, {
+        body: payload,
+        method: 'POST',
+      })
+      storeSession(session)
+      setAuthForm(initialAuthForm)
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Authentication failed.')
+    } finally {
+      setIsSubmittingAuth(false)
+    }
+  }
+
+  async function handleLogout() {
+    if (!authToken) {
+      clearSession()
+      return
+    }
+
+    setIsLoggingOut(true)
+    try {
+      await apiRequest('/api/v1/auth/logout', {
+        method: 'POST',
+        token: authToken,
+      })
+    } catch {
+      // A failed logout still leaves the local session unusable from the user's perspective.
+    } finally {
+      setIsLoggingOut(false)
+      clearSession()
+    }
+  }
+
+  if (authStatus === 'checking') {
+    return (
+      <AppTheme colourTheme={colourTheme} themeMode={themeMode} themeVars={themeVars} uiStyle={uiStyle}>
+        <LoadingScreen />
+      </AppTheme>
+    )
+  }
+
+  if (authStatus === 'signed-out' || !user || !authToken) {
+    return (
+      <AppTheme colourTheme={colourTheme} themeMode={themeMode} themeVars={themeVars} uiStyle={uiStyle}>
+        <AuthScreen
+          authError={authError}
+          authForm={authForm}
+          authMode={authMode}
+          isSubmitting={isSubmittingAuth}
+          onModeChange={(mode) => {
+            setAuthMode(mode)
+            setAuthError(null)
+          }}
+          onSubmit={handleAuthSubmit}
+          setAuthForm={setAuthForm}
+        />
+      </AppTheme>
+    )
+  }
+
+  return (
+    <AppTheme colourTheme={colourTheme} themeMode={themeMode} themeVars={themeVars} uiStyle={uiStyle}>
+      <Workspace
+        authToken={authToken}
+        colourTheme={colourTheme}
+        currentPage={currentPage}
+        isLoggingOut={isLoggingOut}
+        onLogout={handleLogout}
+        selectedStyle={selectedStyle}
+        setColourTheme={setColourTheme}
+        setCurrentPage={setCurrentPage}
+        setThemeMode={setThemeMode}
+        setUiStyle={setUiStyle}
+        themeMode={themeMode}
+        uiStyle={uiStyle}
+        user={user}
+      />
+    </AppTheme>
+  )
+}
+
+function AppTheme({
+  children,
+  colourTheme,
+  themeMode,
+  themeVars,
+  uiStyle,
+}: {
+  children: React.ReactNode
+  colourTheme: ColourTheme
+  themeMode: ThemeMode
+  themeVars: ThemeVars
+  uiStyle: UiStyle
+}) {
   return (
     <div
       className="min-h-screen bg-background text-foreground"
@@ -173,6 +350,205 @@ function App() {
       data-theme={colourTheme}
       style={themeVars}
     >
+      {children}
+    </div>
+  )
+}
+
+function LoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+        <LoaderCircle className="h-5 w-5 animate-spin text-primary" aria-hidden="true" />
+        Restoring your CoreQuote session
+      </div>
+    </div>
+  )
+}
+
+function AuthScreen({
+  authError,
+  authForm,
+  authMode,
+  isSubmitting,
+  onModeChange,
+  onSubmit,
+  setAuthForm,
+}: {
+  authError: string | null
+  authForm: AuthFormState
+  authMode: AuthMode
+  isSubmitting: boolean
+  onModeChange: (mode: AuthMode) => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  setAuthForm: React.Dispatch<React.SetStateAction<AuthFormState>>
+}) {
+  const isRegistering = authMode === 'register'
+
+  return (
+    <div className="grid min-h-screen bg-background text-foreground lg:grid-cols-[0.95fr_1.05fr]">
+      <section className="flex min-h-[38vh] flex-col justify-between border-b border-border bg-sidebar p-6 lg:min-h-screen lg:border-b-0 lg:border-r lg:p-8">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <HardHat className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold">CoreQuote</p>
+            <p className="text-xs text-muted-foreground">Cabinetry quoting</p>
+          </div>
+        </div>
+
+        <div className="max-w-xl py-10">
+          <Badge className="mb-5" variant="outline">
+            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+            API-backed auth
+          </Badge>
+          <h1 className="text-3xl font-semibold tracking-normal md:text-4xl">Sign in to your quoting workspace.</h1>
+          <p className="mt-4 max-w-lg text-sm leading-6 text-muted-foreground">
+            Sessions are restored with <span className="font-medium text-foreground">/api/v1/auth/me</span>, and
+            every authenticated request uses the bearer token returned by the API.
+          </p>
+        </div>
+
+        <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3 lg:grid-cols-1">
+          <FeatureLine icon={Building2} label="Company tenant context" />
+          <FeatureLine icon={UserRound} label="Owner registration flow" />
+          <FeatureLine icon={LogOut} label="Revoked logout sessions" />
+        </div>
+      </section>
+
+      <main className="flex items-center justify-center p-4 md:p-8">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>{isRegistering ? 'Create owner account' : 'Welcome back'}</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {isRegistering
+                ? 'Register the company and first owner user.'
+                : 'Log in with an existing CoreQuote account.'}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-5 grid grid-cols-2 rounded-[var(--control-radius)] border border-input bg-muted p-1">
+              <button
+                aria-pressed={authMode === 'login'}
+                className={modeButtonClass(authMode === 'login')}
+                onClick={() => onModeChange('login')}
+                type="button"
+              >
+                Log in
+              </button>
+              <button
+                aria-pressed={authMode === 'register'}
+                className={modeButtonClass(authMode === 'register')}
+                onClick={() => onModeChange('register')}
+                type="button"
+              >
+                Register
+              </button>
+            </div>
+
+            <form className="space-y-4" onSubmit={onSubmit}>
+              {isRegistering ? (
+                <>
+                  <Field
+                    autoComplete="organization"
+                    label="Company name"
+                    minLength={2}
+                    onChange={(value) => setAuthForm((current) => ({ ...current, companyName: value }))}
+                    required
+                    value={authForm.companyName}
+                  />
+                  <Field
+                    autoComplete="name"
+                    label="Your name"
+                    minLength={2}
+                    onChange={(value) => setAuthForm((current) => ({ ...current, name: value }))}
+                    required
+                    value={authForm.name}
+                  />
+                </>
+              ) : null}
+
+              <Field
+                autoComplete="email"
+                label="Email"
+                onChange={(value) => setAuthForm((current) => ({ ...current, email: value }))}
+                required
+                type="email"
+                value={authForm.email}
+              />
+              <Field
+                autoComplete={isRegistering ? 'new-password' : 'current-password'}
+                label="Password"
+                minLength={isRegistering ? 12 : 1}
+                onChange={(value) => setAuthForm((current) => ({ ...current, password: value }))}
+                required
+                type="password"
+                value={authForm.password}
+              />
+
+              {authError ? (
+                <div className="rounded-[var(--control-radius)] border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {authError}
+                </div>
+              ) : null}
+
+              <Button className="w-full" disabled={isSubmitting} type="submit">
+                {isSubmitting ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                {isRegistering ? 'Create account' : 'Log in'}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </main>
+    </div>
+  )
+}
+
+function Workspace({
+  authToken,
+  colourTheme,
+  currentPage,
+  isLoggingOut,
+  onLogout,
+  selectedStyle,
+  setColourTheme,
+  setCurrentPage,
+  setThemeMode,
+  setUiStyle,
+  themeMode,
+  uiStyle,
+  user,
+}: {
+  authToken: string
+  colourTheme: ColourTheme
+  currentPage: AppPage
+  isLoggingOut: boolean
+  onLogout: () => void
+  selectedStyle: (typeof uiStyles)[number]
+  setColourTheme: (theme: ColourTheme) => void
+  setCurrentPage: (page: AppPage) => void
+  setThemeMode: (mode: ThemeMode) => void
+  setUiStyle: (style: UiStyle) => void
+  themeMode: ThemeMode
+  uiStyle: UiStyle
+  user: AuthUser
+}) {
+  const navItems = [
+    { label: 'Workspace', icon: ClipboardList, page: 'workspace' as const },
+    { label: 'Cutlist', icon: Calculator, page: 'cutlist' as const },
+    { label: 'Appearance', icon: Palette, page: 'appearance' as const },
+  ]
+  const pageTitle = currentPage === 'appearance' ? 'Appearance' : currentPage === 'cutlist' ? 'Cutlist' : 'Workspace'
+  const pageDescription =
+    currentPage === 'appearance'
+      ? 'Global style, colour, and mode controls'
+      : currentPage === 'cutlist'
+        ? 'Preview carcass and panel rows from the API'
+        : user.company_name
+
+  return (
+    <div className="min-h-screen">
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-border bg-sidebar lg:flex lg:flex-col">
         <div className="flex h-14 items-center gap-3 border-b border-border px-4">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
@@ -180,9 +556,10 @@ function App() {
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">CoreQuote</p>
-            <p className="text-xs text-muted-foreground">Cabinetry quoting</p>
+            <p className="text-xs text-muted-foreground">{user.company_name}</p>
           </div>
         </div>
+
         <nav className="flex-1 space-y-1 px-2 py-3">
           {navItems.map((item) => (
             <button
@@ -191,8 +568,8 @@ function App() {
                   ? 'flex h-9 w-full items-center gap-3 rounded-md bg-sidebar-accent px-3 text-left text-sm font-medium text-foreground'
                   : 'flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
               }
-              key={item.label}
-              onClick={() => item.page && setCurrentPage(item.page)}
+              key={item.page}
+              onClick={() => setCurrentPage(item.page)}
               type="button"
             >
               <item.icon className="h-4 w-4" aria-hidden="true" />
@@ -200,55 +577,62 @@ function App() {
             </button>
           ))}
         </nav>
+
         <div className="border-t border-border p-3">
-          <div className="rounded-md border border-dashed border-border bg-background p-2.5">
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Archive className="h-4 w-4 text-accent" aria-hidden="true" />
-              Frontend preview
-            </div>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">API not connected</p>
+          <div className="rounded-md border border-border bg-background p-3">
+            <p className="truncate text-sm font-medium">{user.name}</p>
+            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+            <Badge className="mt-3" variant="outline">
+              {user.role}
+            </Badge>
           </div>
         </div>
       </aside>
 
       <div className="lg:pl-64">
         <header className="sticky top-0 z-10 flex min-h-14 items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-2 backdrop-blur md:px-6">
-          <div className="flex items-center gap-3">
-            <Button className="lg:hidden" size="icon" variant="ghost" aria-label="Open navigation">
-              <Menu className="h-5 w-5" aria-hidden="true" />
-            </Button>
-            <div>
-              <h1 className="text-lg font-semibold">{currentPage === 'appearance' ? 'Appearance' : 'Projects'}</h1>
-              <p className="hidden text-sm text-muted-foreground sm:block">
-                {currentPage === 'appearance'
-                  ? 'Global style, colour, and mode controls'
-                  : 'Quote pipeline and production readiness'}
-              </p>
-            </div>
+          <div>
+            <h1 className="text-lg font-semibold">{pageTitle}</h1>
+            <p className="hidden text-sm text-muted-foreground sm:block">{pageDescription}</p>
           </div>
           <div className="flex items-center gap-2">
-            {currentPage === 'projects' ? (
-              <div className="hidden h-[var(--control-height)] items-center gap-2 rounded-[var(--control-radius)] border border-input bg-background px-[var(--control-padding-x)] text-sm text-muted-foreground lg:flex">
-              <Search className="h-4 w-4" aria-hidden="true" />
-              Search projects
-              </div>
+            {currentPage === 'workspace' ? (
+              <Button className="hidden sm:inline-flex" onClick={() => setCurrentPage('appearance')} variant="outline">
+                <Palette className="h-4 w-4" aria-hidden="true" />
+                Theme
+              </Button>
             ) : null}
-            <Button onClick={() => setCurrentPage('appearance')} variant="outline">
-              <Palette className="h-4 w-4" aria-hidden="true" />
-              Theme
-            </Button>
-            <Button variant="outline">
-              <FileDown className="h-4 w-4" aria-hidden="true" />
-              Export
-            </Button>
-            <Button>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New quote
+            <Button disabled={isLoggingOut} onClick={onLogout} variant="outline">
+              {isLoggingOut ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <LogOut className="h-4 w-4" aria-hidden="true" />
+              )}
+              Sign out
             </Button>
           </div>
         </header>
 
-        <main className="mx-auto flex max-w-7xl flex-col gap-[var(--section-gap)] p-4 md:p-5">
+        <nav className="grid grid-cols-3 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
+          {navItems.map((item) => (
+            <button
+              aria-pressed={item.page === currentPage}
+              className={
+                item.page === currentPage
+                  ? 'flex h-9 items-center justify-center gap-2 rounded-[var(--control-radius)] bg-sidebar-accent px-2 text-sm font-medium text-foreground'
+                  : 'flex h-9 items-center justify-center gap-2 rounded-[var(--control-radius)] px-2 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
+              }
+              key={item.page}
+              onClick={() => setCurrentPage(item.page)}
+              type="button"
+            >
+              <item.icon className="h-4 w-4" aria-hidden="true" />
+              <span className="truncate">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <main className="mx-auto grid max-w-7xl gap-[var(--section-gap)] p-4 md:p-5">
           {currentPage === 'appearance' ? (
             <AppearancePage
               colourTheme={colourTheme}
@@ -259,8 +643,36 @@ function App() {
               themeMode={themeMode}
               uiStyle={uiStyle}
             />
+          ) : currentPage === 'cutlist' ? (
+            <CutlistPreview authToken={authToken} />
           ) : (
-            <ProjectsPage projectCards={projectCards} quoteRows={quoteRows} />
+            <>
+              <section className="grid gap-4 lg:grid-cols-3">
+                <StatusCard
+                  icon={ShieldCheck}
+                  label="Session"
+                  title="Authenticated"
+                  value="Bearer token restored through /me"
+                />
+                <StatusCard icon={Building2} label="Company" title={user.company_name} value={user.company_id} />
+                <StatusCard icon={UserRound} label="User" title={user.name} value={user.email} />
+              </section>
+
+              <Card>
+                <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <CardTitle>Workspace overview</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Authenticated and ready for quote tools as they come online.
+                    </p>
+                  </div>
+                  <Button onClick={() => setCurrentPage('cutlist')}>
+                    <Calculator className="h-4 w-4" aria-hidden="true" />
+                    Open cutlist preview
+                  </Button>
+                </CardHeader>
+              </Card>
+            </>
           )}
         </main>
       </div>
@@ -268,127 +680,163 @@ function App() {
   )
 }
 
-function ProjectsPage({
-  projectCards,
-  quoteRows,
-}: {
-  projectCards: { client: string; name: string; quotes: number; value: string }[]
-  quoteRows: { board: string; dims: string; hardware: string; status: string; type: string; unit: string }[]
-}) {
+function CutlistPreview({ authToken }: { authToken: string }) {
+  const [form, setForm] = useState<CutlistFormState>(initialCutlistForm)
+  const [preview, setPreview] = useState<CutlistPreviewResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+
+  const totalPieces = useMemo(() => {
+    if (!preview) return 0
+    return [...preview.carcass, ...preview.panels].reduce((sum, row) => sum + row.qty, 0)
+  }, [preview])
+
+  async function handlePreview(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError(null)
+    setIsLoading(true)
+
+    try {
+      const result = await apiRequest<CutlistPreviewResponse>('/api/v1/cutlists/preview', {
+        body: {
+          units: [
+            {
+              depth: form.depth,
+              height: form.height,
+              thickness: form.thickness,
+              unit_number: 1,
+              unit_type: form.unitType,
+              width: form.width,
+            },
+          ],
+        },
+        method: 'POST',
+        token: authToken,
+      })
+      setPreview(result)
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : 'Could not generate the cutlist preview.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return (
-    <>
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard icon={FolderKanban} label="Active projects" value="12" delta="+3 this month" />
-            <MetricCard icon={ClipboardList} label="Open quotes" value="28" delta="7 awaiting review" />
-            <MetricCard icon={Sheet} label="Cutlists ready" value="18" delta="64 sheets planned" />
-            <MetricCard icon={CircleDollarSign} label="Quoted value" value="R 412k" delta="Ex VAT estimate" />
-          </section>
-
-          <section className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Quote workspace</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">Smith Kitchen / Revision B</p>
-                </div>
-                <Button variant="outline">
-                  <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-                  Defaults
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-hidden rounded-md border border-border">
-                  <table className="w-full border-collapse text-left text-sm">
-                    <thead className="bg-muted text-xs uppercase text-muted-foreground">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Unit</th>
-                        <th className="px-4 py-3 font-medium">Type</th>
-                        <th className="hidden px-4 py-3 font-medium md:table-cell">Dimensions</th>
-                        <th className="hidden px-4 py-3 font-medium lg:table-cell">Board</th>
-                        <th className="hidden px-4 py-3 font-medium lg:table-cell">Hardware</th>
-                        <th className="px-4 py-3 font-medium">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {quoteRows.map((row) => (
-                        <tr className="border-t border-border" key={row.unit}>
-                          <td className="px-4 py-4 font-medium text-foreground">{row.unit}</td>
-                          <td className="px-4 py-4">{row.type}</td>
-                          <td className="hidden px-4 py-4 text-muted-foreground md:table-cell">{row.dims}</td>
-                          <td className="hidden px-4 py-4 text-muted-foreground lg:table-cell">{row.board}</td>
-                          <td className="hidden px-4 py-4 text-muted-foreground lg:table-cell">{row.hardware}</td>
-                          <td className="px-4 py-4">
-                            <Badge variant={row.status === 'Ready' ? 'success' : 'warning'}>{row.status}</Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Material summary</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <InventoryLine icon={Grid2X2} label="Boards" value="14 sheets" tone="blue" />
-                  <InventoryLine icon={PanelTop} label="Panels" value="22 pieces" tone="green" />
-                  <InventoryLine icon={Boxes} label="Hardware" value="56 items" tone="amber" />
-                  <InventoryLine icon={Hammer} label="Extras" value="8 items" tone="slate" />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Pricing status</CardTitle>
-                  <Button size="icon" variant="ghost" aria-label="More pricing actions">
-                    <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between rounded-md bg-muted px-3 py-3">
-                    <span className="text-sm text-muted-foreground">Markup</span>
-                    <span className="text-sm font-medium">35%</span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-md bg-muted px-3 py-3">
-                    <span className="text-sm text-muted-foreground">VAT</span>
-                    <span className="text-sm font-medium">15%</span>
-                  </div>
-                  <Button className="w-full" variant="secondary">
-                    View pricing run
-                    <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </CardContent>
-              </Card>
+    <Card>
+      <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <CardTitle>Cutlist preview</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">
+            A working API-backed calculator for one cabinet unit.
+          </p>
+        </div>
+        {preview ? (
+          <Badge variant="success">
+            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            {totalPieces} pieces
+          </Badge>
+        ) : null}
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <form
+            className="grid content-start gap-4 rounded-[var(--card-radius)] border border-border bg-muted/40 p-[var(--card-padding)]"
+            onSubmit={handlePreview}
+          >
+            <div>
+              <p className="text-sm font-semibold">Unit inputs</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">Dimensions are in millimetres.</p>
             </div>
-          </section>
 
-          <section className="grid gap-4 lg:grid-cols-3">
-            {projectCards.map((project) => (
-              <Card key={project.name}>
-                <CardHeader className="space-y-1">
-                  <CardTitle className="text-base">{project.name}</CardTitle>
-                  <p className="text-sm text-muted-foreground">{project.client}</p>
-                </CardHeader>
-                <CardContent className="flex items-center justify-between">
-                  <div className="text-sm text-muted-foreground">
-                    {project.quotes} quote{project.quotes === 1 ? '' : 's'}
-                  </div>
-                  <div className="font-semibold">{project.value}</div>
-                </CardContent>
-              </Card>
-            ))}
-          </section>
+            <label className="grid min-w-0 gap-1.5 text-sm font-medium">
+              Unit type
+              <select
+                className="h-[var(--control-height)] min-w-0 rounded-[var(--control-radius)] border border-input bg-background px-[var(--control-padding-x)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onChange={(event) => setForm((current) => ({ ...current, unitType: event.target.value as UnitType }))}
+                value={form.unitType}
+              >
+                <option>Base Drawer</option>
+                <option>Base Door</option>
+                <option>Wall Door</option>
+                <option>Tall Standard</option>
+              </select>
+            </label>
 
-          <section className="grid gap-4 md:grid-cols-3">
-            <ActionTile icon={Library} label="Library health" value="Boards, slides, hinges, handles" />
-            <ActionTile icon={Calculator} label="Cutlist preview" value="Carcass and panel schedules" />
-            <ActionTile icon={FileDown} label="PDF output" value="Production-ready downloads" />
-          </section>
-    </>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <NumberField label="Height" onChange={(height) => setForm((current) => ({ ...current, height }))} value={form.height} />
+              <NumberField label="Width" onChange={(width) => setForm((current) => ({ ...current, width }))} value={form.width} />
+              <NumberField label="Depth" onChange={(depth) => setForm((current) => ({ ...current, depth }))} value={form.depth} />
+              <NumberField
+                label="Thickness"
+                onChange={(thickness) => setForm((current) => ({ ...current, thickness }))}
+                value={form.thickness}
+              />
+            </div>
+
+            {error ? (
+              <div className="rounded-[var(--control-radius)] border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </div>
+            ) : null}
+
+            <Button className="w-full" disabled={isLoading} type="submit">
+              {isLoading ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Play className="h-4 w-4" aria-hidden="true" />
+              )}
+              Run preview
+            </Button>
+          </form>
+
+          <div className="min-w-0">
+            <CutlistTable preview={preview} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function CutlistTable({ preview }: { preview: CutlistPreviewResponse | null }) {
+  if (!preview) {
+    return (
+      <div className="flex min-h-72 items-center justify-center rounded-md border border-dashed border-border bg-muted p-6 text-center text-sm text-muted-foreground">
+        Run a preview to see carcass and panel rows from the API.
+      </div>
+    )
+  }
+
+  const rows = [
+    ...preview.carcass.map((row) => ({ ...row, section: 'Carcass' })),
+    ...preview.panels.map((row) => ({ ...row, section: 'Panels' })),
+  ]
+
+  return (
+    <div className="min-w-0 overflow-x-auto rounded-md border border-border">
+      <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+        <thead className="bg-muted text-xs uppercase text-muted-foreground">
+          <tr>
+            <th className="px-4 py-3 font-medium">Section</th>
+            <th className="px-4 py-3 font-medium">Description</th>
+            <th className="px-4 py-3 font-medium">Length</th>
+            <th className="px-4 py-3 font-medium">Width</th>
+            <th className="px-4 py-3 font-medium">Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr className="border-t border-border" key={`${row.section}-${row.desc}-${index}`}>
+              <td className="px-4 py-3 text-muted-foreground">{row.section}</td>
+              <td className="px-4 py-3 font-medium">{row.desc}</td>
+              <td className="px-4 py-3">{row.length}</td>
+              <td className="px-4 py-3">{row.width}</td>
+              <td className="px-4 py-3">{row.qty}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -467,9 +915,7 @@ function AppearancePage({
                   <div>
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-base font-semibold">{style.label}</span>
-                      <Badge variant={uiStyle === style.value ? 'default' : 'outline'}>
-                        {style.radius}
-                      </Badge>
+                      <Badge variant={uiStyle === style.value ? 'default' : 'outline'}>{style.radius}</Badge>
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground">{style.description}</p>
                   </div>
@@ -492,7 +938,10 @@ function AppearancePage({
             <div className="grid gap-3">
               <SummaryLine label="Style" value={selectedStyle.label} />
               <SummaryLine label="Mode" value={themeMode === 'dark' ? 'Dark' : 'Light'} />
-              <SummaryLine label="Colour" value={colourThemes.find((theme) => theme.value === colourTheme)?.label ?? colourTheme} />
+              <SummaryLine
+                label="Colour"
+                value={colourThemes.find((theme) => theme.value === colourTheme)?.label ?? colourTheme}
+              />
             </div>
             <div className="rounded-[var(--card-radius)] border border-border bg-muted p-[var(--card-padding)]">
               <div className="flex items-center gap-3">
@@ -512,80 +961,87 @@ function AppearancePage({
   )
 }
 
-type IconType = ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
-
-function MetricCard({
+function StatusCard({
   icon: Icon,
   label,
+  title,
   value,
-  delta,
 }: {
-  icon: IconType
+  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
   label: string
+  title: string
   value: string
-  delta: string
 }) {
   return (
     <Card>
-      <CardContent className="flex items-center justify-between p-5">
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <p className="mt-2 text-2xl font-semibold">{value}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{delta}</p>
+      <CardContent className="flex items-start gap-4 p-5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-accent">
+          <Icon className="h-5 w-5" aria-hidden={true} />
         </div>
-        <div className="flex h-11 w-11 items-center justify-center rounded-md bg-muted">
-          <Icon className="h-5 w-5 text-accent" aria-hidden={true} />
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="mt-1 truncate font-semibold">{title}</p>
+          <p className="mt-1 truncate text-xs text-muted-foreground">{value}</p>
         </div>
       </CardContent>
     </Card>
   )
 }
 
-function InventoryLine({
+function FeatureLine({
   icon: Icon,
   label,
-  value,
-  tone,
 }: {
-  icon: IconType
+  icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
   label: string
-  value: string
-  tone: 'blue' | 'green' | 'amber' | 'slate'
 }) {
-  const toneClasses = {
-    amber: 'bg-muted text-accent border-border',
-    blue: 'bg-muted text-accent border-border',
-    green: 'bg-muted text-accent border-border',
-    slate: 'bg-muted text-accent border-border',
-  }
-
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-md border ${toneClasses[tone]}`}>
-          <Icon className="h-4 w-4" aria-hidden={true} />
-        </div>
-        <span className="text-sm font-medium">{label}</span>
-      </div>
-      <span className="text-sm text-muted-foreground">{value}</span>
+    <div className="flex items-center gap-2">
+      <Icon className="h-4 w-4 text-accent" aria-hidden={true} />
+      {label}
     </div>
   )
 }
 
-function ActionTile({ icon: Icon, label, value }: { icon: IconType; label: string; value: string }) {
+function Field({
+  label,
+  onChange,
+  type = 'text',
+  value,
+  ...props
+}: {
+  label: string
+  onChange: (value: string) => void
+  type?: string
+  value: string
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'type' | 'value'>) {
   return (
-    <button
-      className="flex min-h-24 items-center gap-4 rounded-md border border-border bg-card p-[var(--card-padding)] text-left shadow-[var(--shadow-card)] transition hover:border-primary hover:bg-muted"
-      type="button"
-    >
-      <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground">
-        <Icon className="h-5 w-5" aria-hidden={true} />
-      </span>
-      <span>
-        <span className="block text-sm font-semibold">{label}</span>
-        <span className="mt-1 block text-sm text-muted-foreground">{value}</span>
-      </span>
-    </button>
+    <label className="grid gap-1.5 text-sm font-medium">
+      {label}
+      <input
+        className="h-[var(--control-height)] rounded-[var(--control-radius)] border border-input bg-background px-[var(--control-padding-x)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onChange={(event) => onChange(event.target.value)}
+        type={type}
+        value={value}
+        {...props}
+      />
+    </label>
+  )
+}
+
+function NumberField({ label, onChange, value }: { label: string; onChange: (value: number) => void; value: number }) {
+  return (
+    <label className="grid min-w-0 gap-1.5 text-sm font-medium">
+      {label}
+      <input
+        className="h-[var(--control-height)] min-w-0 rounded-[var(--control-radius)] border border-input bg-background px-[var(--control-padding-x)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        min={1}
+        onChange={(event) => onChange(Number(event.target.value))}
+        required
+        type="number"
+        value={value}
+      />
+    </label>
   )
 }
 
@@ -624,7 +1080,9 @@ function ModeSwitch({
 
 function PreviewBlock({ className, label }: { className: string; label: string }) {
   return (
-    <div className={`flex min-h-24 items-end rounded-[var(--card-radius)] p-[var(--card-padding)] text-sm font-medium ${className}`}>
+    <div
+      className={`flex min-h-24 items-end rounded-[var(--card-radius)] p-[var(--card-padding)] text-sm font-medium ${className}`}
+    >
       {label}
     </div>
   )
@@ -637,6 +1095,65 @@ function SummaryLine({ label, value }: { label: string; value: string }) {
       <span className="font-medium">{value}</span>
     </div>
   )
+}
+
+function modeButtonClass(isActive: boolean) {
+  return [
+    'h-8 rounded-[var(--control-radius)] text-sm font-medium transition-colors',
+    isActive ? 'bg-background text-foreground shadow-[var(--shadow-card)]' : 'text-muted-foreground hover:text-foreground',
+  ].join(' ')
+}
+
+function getStoredAuthToken() {
+  return localStorage.getItem(AUTH_TOKEN_KEY)
+}
+
+async function apiRequest<T = unknown>(
+  path: string,
+  options: {
+    body?: unknown
+    method?: 'GET' | 'POST'
+    token?: string
+  } = {},
+): Promise<T> {
+  const headers = new Headers()
+  headers.set('Accept', 'application/json')
+
+  if (options.body) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  if (options.token) {
+    headers.set('Authorization', `Bearer ${options.token}`)
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    headers,
+    method: options.method ?? 'GET',
+  })
+
+  if (!response.ok) {
+    throw new Error(await getApiErrorMessage(response))
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  return response.json() as Promise<T>
+}
+
+async function getApiErrorMessage(response: Response) {
+  try {
+    const body = (await response.json()) as { detail?: unknown }
+    if (typeof body.detail === 'string') return body.detail
+    if (Array.isArray(body.detail)) return body.detail.map((item) => item.msg ?? String(item)).join(', ')
+  } catch {
+    return `Request failed with status ${response.status}`
+  }
+
+  return `Request failed with status ${response.status}`
 }
 
 function createThemeVars(theme: ThemeSpec, mode: ThemeMode, uiStyle: UiStyle): ThemeVars {
