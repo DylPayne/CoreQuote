@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
+from corequote_api.database import DatabaseHealth
 from corequote_api.main import app
+from corequote_api.routers import health
 
 
 client = TestClient(app)
@@ -9,6 +11,49 @@ client = TestClient(app)
 def test_health_endpoints():
     assert client.get("/health/live").json() == {"status": "ok", "service": "corequote-api"}
     assert client.get("/health/ready").json() == {"status": "ok", "service": "corequote-api"}
+
+
+def test_database_health_endpoint_checks_connection():
+    def checker() -> DatabaseHealth:
+        return DatabaseHealth(ok=True, database="corequote_dev")
+
+    app.dependency_overrides[health.get_database_checker] = lambda: checker
+    try:
+        response = client.get("/health/db")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "service": "corequote-api",
+        "database": "corequote_dev",
+    }
+
+
+def test_database_health_endpoint_returns_503_when_connection_fails():
+    def checker() -> DatabaseHealth:
+        return DatabaseHealth(
+            ok=False,
+            database="corequote_dev",
+            message="Database connection failed: OperationalError",
+        )
+
+    app.dependency_overrides[health.get_database_checker] = lambda: checker
+    try:
+        response = client.get("/health/db")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "status": "error",
+            "service": "corequote-api",
+            "database": "corequote_dev",
+            "message": "Database connection failed: OperationalError",
+        }
+    }
 
 
 def test_cutlist_preview_uses_core_cutlist_logic():
@@ -33,4 +78,3 @@ def test_cutlist_preview_uses_core_cutlist_logic():
     body = response.json()
     assert {"unit_number": 1, "desc": "Side", "length": 748, "width": 544, "qty": 2} in body["carcass"]
     assert {"unit_number": 1, "desc": "Door", "length": 777, "width": 447, "qty": 2} in body["panels"]
-
