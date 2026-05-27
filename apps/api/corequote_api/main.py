@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from corequote_api.routers import auth, cutlists, health
+from corequote_api.routers import auth, companies, cutlists, health
 
 
 def create_app() -> FastAPI:
@@ -13,6 +13,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(auth.router, prefix="/api/v1")
+    app.include_router(companies.router, prefix="/api/v1")
     app.include_router(cutlists.router, prefix="/api/v1")
     return app
 
