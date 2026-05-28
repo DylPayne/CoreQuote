@@ -4,8 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
+from corequote_api.authorization import require_permission
 from corequote_api.companies import CompanyConflict, CompanyNotFound, CompanyStore
-from corequote_api.routers.auth import get_current_user
 from corequote_api.schemas import (
     AuthUserResponse,
     CompanyCreateRequest,
@@ -35,10 +35,9 @@ def get_company_store() -> CompanyStore:
 )
 def create_company(
     payload: CompanyCreateRequest,
-    current_user: Annotated[AuthUserResponse, Depends(get_current_user)],
+    current_user: Annotated[AuthUserResponse, Depends(require_permission("companies:create"))],
     store: Annotated[CompanyStore, Depends(get_company_store)],
 ) -> CompanyResponse:
-    _require_company_manager(current_user)
     try:
         company = store.create_company(name=payload.name)
     except CompanyConflict as exc:
@@ -56,7 +55,7 @@ def create_company(
     },
 )
 def list_companies(
-    current_user: Annotated[AuthUserResponse, Depends(get_current_user)],
+    current_user: Annotated[AuthUserResponse, Depends(require_permission("companies:read"))],
     store: Annotated[CompanyStore, Depends(get_company_store)],
 ) -> list[CompanyResponse]:
     try:
@@ -78,7 +77,7 @@ def list_companies(
 )
 def get_company(
     company_id: str,
-    current_user: Annotated[AuthUserResponse, Depends(get_current_user)],
+    current_user: Annotated[AuthUserResponse, Depends(require_permission("companies:read"))],
     store: Annotated[CompanyStore, Depends(get_company_store)],
 ) -> CompanyResponse:
     _require_visible_company(company_id, current_user)
@@ -103,11 +102,10 @@ def get_company(
 def update_company(
     company_id: str,
     payload: CompanyUpdateRequest,
-    current_user: Annotated[AuthUserResponse, Depends(get_current_user)],
+    current_user: Annotated[AuthUserResponse, Depends(require_permission("companies:update"))],
     store: Annotated[CompanyStore, Depends(get_company_store)],
 ) -> CompanyResponse:
     _require_visible_company(company_id, current_user)
-    _require_company_manager(current_user)
     try:
         company = store.update_company(company_id=company_id, name=payload.name)
     except CompanyNotFound as exc:
@@ -129,11 +127,10 @@ def update_company(
 )
 def delete_company(
     company_id: str,
-    current_user: Annotated[AuthUserResponse, Depends(get_current_user)],
+    current_user: Annotated[AuthUserResponse, Depends(require_permission("companies:delete"))],
     store: Annotated[CompanyStore, Depends(get_company_store)],
 ) -> Response:
     _require_visible_company(company_id, current_user)
-    _require_company_manager(current_user)
     try:
         store.delete_company(company_id)
     except CompanyNotFound as exc:
@@ -146,11 +143,3 @@ def delete_company(
 def _require_visible_company(company_id: str, current_user: AuthUserResponse) -> None:
     if current_user.company_id != company_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
-
-
-def _require_company_manager(current_user: AuthUserResponse) -> None:
-    if current_user.role not in {"owner", "admin"}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only company owners and admins can manage companies",
-        )

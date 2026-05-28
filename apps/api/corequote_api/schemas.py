@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import date
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from corequote_api.authorization import Role
 
 
 UnitType = Literal[
@@ -102,7 +105,7 @@ class AuthUserResponse(BaseModel):
     company_name: str = Field(description="Company display name.")
     name: str = Field(description="User display name.")
     email: str = Field(description="Normalized login email.")
-    role: Literal["owner", "admin", "member"] = Field(description="Company-level role.")
+    role: Role = Field(description="Company-level role.")
 
 
 class AuthTokenResponse(BaseModel):
@@ -173,3 +176,168 @@ class CutlistRowResponse(BaseModel):
 class CutlistPreviewResponse(BaseModel):
     carcass: list[CutlistRowResponse]
     panels: list[CutlistRowResponse]
+
+
+class BoardTypeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    brand: str = Field(min_length=1, max_length=120)
+    material: str = Field(min_length=1, max_length=120)
+    thickness: int = Field(gt=0)
+    length_mm: int = Field(gt=0)
+    width_mm: int = Field(gt=0)
+    costing_mode: Literal["sheet", "sqm"] = "sheet"
+
+
+class BoardTypeResponse(BoardTypeRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class SlideRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    brand: str = Field(min_length=1, max_length=120)
+    model: str = Field(min_length=1, max_length=120)
+    code: str = Field(default="", max_length=120)
+    length: int = Field(ge=0)
+    side_length: int = Field(ge=0)
+    side_clearance_total: int = Field(ge=0)
+    side_height_uplift: int = Field(default=0, ge=0)
+
+
+class SlideResponse(SlideRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class HingeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    brand: str = Field(min_length=1, max_length=120)
+    model: str = Field(min_length=1, max_length=120)
+    code: str = Field(default="", max_length=120)
+    opening_angle_deg: int = Field(ge=0)
+
+
+class HingeResponse(HingeRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class HandleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    supplier: str = Field(default="", max_length=120)
+    code: str = Field(default="", max_length=120)
+
+
+class HandleResponse(HandleRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExtraCategoryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ExtraCategoryResponse(ExtraCategoryRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExtraRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    category_id: str = Field(description="Extra category UUID in the current company.")
+    supplier: str = Field(default="", max_length=120)
+    code: str = Field(default="", max_length=120)
+    notes: str = Field(default="", max_length=1000)
+
+
+class ExtraResponse(ExtraRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    category_name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PriceListRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    status: Literal["draft", "active", "archived"] = "draft"
+    effective_from: date | None = None
+    effective_to: date | None = None
+
+
+class PriceListResponse(PriceListRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PricingSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vat_rate_bps: int = Field(default=1500, ge=0)
+    default_markup_bps: int = Field(default=2500, ge=0)
+
+
+class PricingSettingsResponse(PricingSettingsRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    company_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class PriceListItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_type: Literal["board", "slide", "hinge", "handle", "extra"]
+    item_ref_id: str | None = Field(default=None, description="Optional UUID of the library item this price applies to.")
+    item_key: str = Field(min_length=1, max_length=240, description="Stable item identity key, without the price component.")
+    price_component: str = Field(default="unit", min_length=1, max_length=80)
+    uom: str = Field(min_length=1, max_length=40)
+    unit_price_cents: int = Field(ge=0)
+    effective_from: datetime | None = Field(
+        default=None,
+        description="Optional UTC timestamp for when this price becomes active. Defaults to now.",
+    )
+
+
+class PriceListItemResponse(PriceListItemRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    price_list_id: str
+    effective_from: datetime
+    effective_to: datetime | None
+    replaces_id: str | None = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime

@@ -79,7 +79,7 @@ class FakeCompanyStore:
         self.deleted_id = company_id
 
 
-def test_create_company_requires_manager_role():
+def test_create_company_requires_company_admin_permission():
     store = FakeCompanyStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="member")
     app.dependency_overrides[companies.get_company_store] = lambda: store
@@ -197,3 +197,20 @@ def test_delete_company_returns_204():
     assert response.status_code == 204
     assert response.content == b""
     assert store.deleted_id == "company-1"
+
+
+def test_delete_company_requires_owner_role():
+    store = FakeCompanyStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="admin")
+    app.dependency_overrides[companies.get_company_store] = lambda: store
+    try:
+        response = client.delete(
+            "/api/v1/companies/company-1",
+            headers={"Authorization": "Bearer test-token"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: companies:delete"}
+    assert store.deleted_id is None
