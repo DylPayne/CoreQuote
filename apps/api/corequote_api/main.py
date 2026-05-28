@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from corequote_api.routers import auth, companies, cutlists, health
+from corequote_api.routers import auth, companies, cutlists, health, libraries
 
 
 DEFAULT_CORS_ORIGIN_REGEX = r"^http://(localhost|127\.0\.0\.1):\d+$"
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(companies.router, prefix="/api/v1")
     app.include_router(cutlists.router, prefix="/api/v1")
+    app.include_router(libraries.router, prefix="/api/v1")
     return app
 
 

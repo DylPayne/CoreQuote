@@ -76,7 +76,7 @@ type AuthUser = {
   company_name: string
   name: string
   email: string
-  role: 'owner' | 'admin' | 'member'
+  role: 'owner' | 'admin' | 'manager' | 'estimator' | 'production' | 'viewer' | 'member'
 }
 
 type AuthTokenResponse = {

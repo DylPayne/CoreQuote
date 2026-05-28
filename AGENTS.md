@@ -89,6 +89,14 @@ Always run the relevant tests before finishing. For changes to shared business l
 - Keep schema changes small, backwards-compatible where possible, and covered by tests when they affect business behavior.
 - Explain any migration strategy before implementing it.
 
+## API and Database Development
+
+- Use a test-driven development workflow for API and database work: add or update focused tests first, implement the smallest change that satisfies them, then run the relevant tests before finishing.
+- Protect new API endpoints with bearer authentication and the central role-based permission helpers unless the endpoint is explicitly public.
+- Scope all company-owned database reads and writes by the authenticated user's `company_id`.
+- Document every new or changed API contract in `docs/api` with request/response examples, auth requirements, permissions, error responses, and frontend integration notes.
+- Keep database migrations forward-only, reviewable, and paired with tests that cover the affected API or persistence behavior.
+
 ## Git Workflow
 
 - Always run `git status --short --branch` before editing.
