@@ -74,6 +74,8 @@ Always run the relevant tests before finishing. For changes to shared business l
 ## Frontend Styling
 
 - Keep frontend styling global and token-driven. Colours, typography, spacing density, radii, shadows, and shared control sizing should come from global theme/style variables and shared primitives.
+- Keep the React frontend visually and structurally uniform by composing UI from shared shadcn-style primitives in `apps/web/src/components/ui`.
+- Do not hand-style raw `button`, `input`, `select`, table, alert, card, badge, or navigation controls inside feature code when a shared primitive exists. If a new UI pattern is needed, add or extend a reusable primitive first, then consume it from the feature.
 - Do not hardcode one-off visual styling inside individual components when the same decision belongs in the app-wide design system.
 - Local component classes should be limited to layout, responsive placement, and content-specific structure unless there is a clear reason to extend the shared primitives.
 

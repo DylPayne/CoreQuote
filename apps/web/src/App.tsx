@@ -15,11 +15,16 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
 
+import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChoiceCard, ChoiceCardContent } from '@/components/ui/choice-card'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 const AUTH_TOKEN_KEY = 'corequote.authToken'
@@ -428,24 +433,26 @@ function AuthScreen({
             </p>
           </CardHeader>
           <CardContent>
-            <div className="mb-5 grid grid-cols-2 rounded-[var(--control-radius)] border border-input bg-muted p-1">
-              <button
+            <ControlGroup className="mb-5 grid grid-cols-2 bg-muted p-1" role="group" aria-label="Select auth mode">
+              <Button
                 aria-pressed={authMode === 'login'}
-                className={modeButtonClass(authMode === 'login')}
                 onClick={() => onModeChange('login')}
+                size="sm"
                 type="button"
+                variant={authMode === 'login' ? 'segmentActive' : 'segment'}
               >
                 Log in
-              </button>
-              <button
+              </Button>
+              <Button
                 aria-pressed={authMode === 'register'}
-                className={modeButtonClass(authMode === 'register')}
                 onClick={() => onModeChange('register')}
+                size="sm"
                 type="button"
+                variant={authMode === 'register' ? 'segmentActive' : 'segment'}
               >
                 Register
-              </button>
-            </div>
+              </Button>
+            </ControlGroup>
 
             <form className="space-y-4" onSubmit={onSubmit}>
               {isRegistering ? (
@@ -488,9 +495,7 @@ function AuthScreen({
               />
 
               {authError ? (
-                <div className="rounded-[var(--control-radius)] border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {authError}
-                </div>
+                <Alert variant="destructive">{authError}</Alert>
               ) : null}
 
               <Button className="w-full" disabled={isSubmitting} type="submit">
@@ -562,30 +567,28 @@ function Workspace({
 
         <nav className="flex-1 space-y-1 px-2 py-3">
           {navItems.map((item) => (
-            <button
-              className={
-                item.page === currentPage
-                  ? 'flex h-9 w-full items-center gap-3 rounded-md bg-sidebar-accent px-3 text-left text-sm font-medium text-foreground'
-                  : 'flex h-9 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
-              }
+            <Button
+              aria-pressed={item.page === currentPage}
+              className="h-9 px-3"
               key={item.page}
               onClick={() => setCurrentPage(item.page)}
               type="button"
+              variant={item.page === currentPage ? 'navActive' : 'nav'}
             >
               <item.icon className="h-4 w-4" aria-hidden="true" />
               {item.label}
-            </button>
+            </Button>
           ))}
         </nav>
 
         <div className="border-t border-border p-3">
-          <div className="rounded-md border border-border bg-background p-3">
+          <Card className="p-3">
             <p className="truncate text-sm font-medium">{user.name}</p>
             <p className="truncate text-xs text-muted-foreground">{user.email}</p>
             <Badge className="mt-3" variant="outline">
               {user.role}
             </Badge>
-          </div>
+          </Card>
         </div>
       </aside>
 
@@ -615,20 +618,18 @@ function Workspace({
 
         <nav className="grid grid-cols-3 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
           {navItems.map((item) => (
-            <button
+            <Button
               aria-pressed={item.page === currentPage}
-              className={
-                item.page === currentPage
-                  ? 'flex h-9 items-center justify-center gap-2 rounded-[var(--control-radius)] bg-sidebar-accent px-2 text-sm font-medium text-foreground'
-                  : 'flex h-9 items-center justify-center gap-2 rounded-[var(--control-radius)] px-2 text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-foreground'
-              }
+              className="h-9 justify-center gap-1 px-1 text-xs"
               key={item.page}
               onClick={() => setCurrentPage(item.page)}
+              size="sm"
               type="button"
+              variant={item.page === currentPage ? 'navActive' : 'nav'}
             >
               <item.icon className="h-4 w-4" aria-hidden="true" />
               <span className="truncate">{item.label}</span>
-            </button>
+            </Button>
           ))}
         </nav>
 
@@ -748,10 +749,9 @@ function CutlistPreview({ authToken }: { authToken: string }) {
               <p className="mt-1 text-xs leading-5 text-muted-foreground">Dimensions are in millimetres.</p>
             </div>
 
-            <label className="grid min-w-0 gap-1.5 text-sm font-medium">
+            <Label className="grid min-w-0 gap-1.5">
               Unit type
-              <select
-                className="h-[var(--control-height)] min-w-0 rounded-[var(--control-radius)] border border-input bg-background px-[var(--control-padding-x)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              <Select
                 onChange={(event) => setForm((current) => ({ ...current, unitType: event.target.value as UnitType }))}
                 value={form.unitType}
               >
@@ -759,8 +759,8 @@ function CutlistPreview({ authToken }: { authToken: string }) {
                 <option>Base Door</option>
                 <option>Wall Door</option>
                 <option>Tall Standard</option>
-              </select>
-            </label>
+              </Select>
+            </Label>
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
               <NumberField label="Height" onChange={(height) => setForm((current) => ({ ...current, height }))} value={form.height} />
@@ -774,9 +774,7 @@ function CutlistPreview({ authToken }: { authToken: string }) {
             </div>
 
             {error ? (
-              <div className="rounded-[var(--control-radius)] border border-destructive bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
+              <Alert variant="destructive">{error}</Alert>
             ) : null}
 
             <Button className="w-full" disabled={isLoading} type="submit">
@@ -801,9 +799,9 @@ function CutlistPreview({ authToken }: { authToken: string }) {
 function CutlistTable({ preview }: { preview: CutlistPreviewResponse | null }) {
   if (!preview) {
     return (
-      <div className="flex min-h-72 items-center justify-center rounded-md border border-dashed border-border bg-muted p-6 text-center text-sm text-muted-foreground">
+      <Alert className="flex min-h-72 items-center justify-center border-dashed p-6 text-center text-muted-foreground">
         Run a preview to see carcass and panel rows from the API.
-      </div>
+      </Alert>
     )
   }
 
@@ -813,30 +811,30 @@ function CutlistTable({ preview }: { preview: CutlistPreviewResponse | null }) {
   ]
 
   return (
-    <div className="min-w-0 overflow-x-auto rounded-md border border-border">
-      <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-        <thead className="bg-muted text-xs uppercase text-muted-foreground">
-          <tr>
-            <th className="px-4 py-3 font-medium">Section</th>
-            <th className="px-4 py-3 font-medium">Description</th>
-            <th className="px-4 py-3 font-medium">Length</th>
-            <th className="px-4 py-3 font-medium">Width</th>
-            <th className="px-4 py-3 font-medium">Qty</th>
-          </tr>
-        </thead>
-        <tbody>
+    <TableContainer>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Section</TableHead>
+            <TableHead>Description</TableHead>
+            <TableHead>Length</TableHead>
+            <TableHead>Width</TableHead>
+            <TableHead>Qty</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {rows.map((row, index) => (
-            <tr className="border-t border-border" key={`${row.section}-${row.desc}-${index}`}>
-              <td className="px-4 py-3 text-muted-foreground">{row.section}</td>
-              <td className="px-4 py-3 font-medium">{row.desc}</td>
-              <td className="px-4 py-3">{row.length}</td>
-              <td className="px-4 py-3">{row.width}</td>
-              <td className="px-4 py-3">{row.qty}</td>
-            </tr>
+            <TableRow key={`${row.section}-${row.desc}-${index}`}>
+              <TableCell className="text-muted-foreground">{row.section}</TableCell>
+              <TableCell className="font-medium">{row.desc}</TableCell>
+              <TableCell>{row.length}</TableCell>
+              <TableCell>{row.width}</TableCell>
+              <TableCell>{row.qty}</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </TableContainer>
   )
 }
 
@@ -868,12 +866,12 @@ function AppearancePage({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ControlShell>
+            <div className="flex items-center gap-2">
               <Palette className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <span className="h-3 w-3 border border-border bg-primary" aria-hidden="true" />
-              <select
+              <span className="h-3 w-3 shrink-0 border border-border bg-primary" aria-hidden="true" />
+              <Select
                 aria-label="Select colour theme"
-                className="h-8 bg-transparent text-sm font-medium outline-none"
+                className="w-36"
                 onChange={(event) => setColourTheme(event.target.value as ColourTheme)}
                 value={colourTheme}
               >
@@ -882,8 +880,8 @@ function AppearancePage({
                     {theme.label}
                   </option>
                 ))}
-              </select>
-            </ControlShell>
+              </Select>
+            </div>
             <ModeSwitch setThemeMode={setThemeMode} themeMode={themeMode} />
           </div>
         </CardHeader>
@@ -1016,40 +1014,30 @@ function Field({
   value: string
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'type' | 'value'>) {
   return (
-    <label className="grid gap-1.5 text-sm font-medium">
+    <Label className="grid gap-1.5">
       {label}
-      <input
-        className="h-[var(--control-height)] rounded-[var(--control-radius)] border border-input bg-background px-[var(--control-padding-x)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      <Input
         onChange={(event) => onChange(event.target.value)}
         type={type}
         value={value}
         {...props}
       />
-    </label>
+    </Label>
   )
 }
 
 function NumberField({ label, onChange, value }: { label: string; onChange: (value: number) => void; value: number }) {
   return (
-    <label className="grid min-w-0 gap-1.5 text-sm font-medium">
+    <Label className="grid min-w-0 gap-1.5">
       {label}
-      <input
-        className="h-[var(--control-height)] min-w-0 rounded-[var(--control-radius)] border border-input bg-background px-[var(--control-padding-x)] text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      <Input
         min={1}
         onChange={(event) => onChange(Number(event.target.value))}
         required
         type="number"
         value={value}
       />
-    </label>
-  )
-}
-
-function ControlShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-[var(--control-height)] items-center gap-2 rounded-[var(--control-radius)] border border-input bg-background px-[var(--control-padding-x)] text-sm font-medium">
-      {children}
-    </div>
+    </Label>
   )
 }
 
@@ -1095,13 +1083,6 @@ function SummaryLine({ label, value }: { label: string; value: string }) {
       <span className="font-medium">{value}</span>
     </div>
   )
-}
-
-function modeButtonClass(isActive: boolean) {
-  return [
-    'h-8 rounded-[var(--control-radius)] text-sm font-medium transition-colors',
-    isActive ? 'bg-background text-foreground shadow-[var(--shadow-card)]' : 'text-muted-foreground hover:text-foreground',
-  ].join(' ')
 }
 
 function getStoredAuthToken() {
