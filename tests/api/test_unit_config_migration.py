@@ -3,6 +3,8 @@ from pathlib import Path
 
 MIGRATION_0005 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0005_unit_configs_cutting_rulesets.sql"
 MIGRATION_0006 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0006_inline_cutting_rule_edges.sql"
+MIGRATION_0007 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0007_simplify_default_unit_types.sql"
+MIGRATION_0008 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0008_cutting_ruleset_history.sql"
 
 
 def test_unit_config_migration_is_postgres_first():
@@ -40,3 +42,29 @@ def test_inline_edge_migration_migrates_and_removes_old_edge_table():
     assert "ADD COLUMN IF NOT EXISTS edge_long_1" in sql
     assert "FROM cutting_rule_row_edges" in sql
     assert "DROP TABLE IF EXISTS cutting_rule_row_edges" in sql
+
+
+def test_simplified_default_units_migration_seeds_four_core_families():
+    sql = MIGRATION_0007.read_text()
+
+    assert "'Base Draw'" in sql
+    assert "'Base Door'" in sql
+    assert "'Wall Door'" in sql
+    assert "'Tall Door'" in sql
+    assert "'Tall Pantry'" in sql  # Archived from active defaults.
+
+
+def test_simplified_default_units_migration_removes_pantry_specific_formula_paths():
+    sql = MIGRATION_0007.read_text()
+
+    assert '"is_pantry"' not in sql
+    assert "CASE WHEN" not in sql
+    assert "'h - panel_gap_mm'" in sql
+
+
+def test_ruleset_history_migration_tracks_snapshot_rows():
+    sql = MIGRATION_0008.read_text()
+
+    assert "CREATE TABLE IF NOT EXISTS cutting_ruleset_history" in sql
+    assert "rows            JSONB NOT NULL DEFAULT '[]'::jsonb" in sql
+    assert "snapshot_reason TEXT NOT NULL DEFAULT 'update'" in sql

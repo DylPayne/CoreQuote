@@ -11,6 +11,7 @@ from corequote_api.schemas import (
     CuttingRulesetRequest,
     CuttingRulesetResponse,
     CuttingRulesetSummaryResponse,
+    UnitConfigRequest,
     UnitConfigResponse,
 )
 
@@ -46,6 +47,30 @@ def get_unit_config(
     store: StoreDep,
 ) -> UnitConfigResponse:
     return _get_response(UnitConfigResponse, store.get_unit_config, current_user.company_id, unit_config_id)
+
+
+@router.post(
+    "/unit-configs",
+    response_model=UnitConfigResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a company unit config",
+)
+def create_unit_config(
+    payload: UnitConfigRequest,
+    current_user: CuttingWriter,
+    store: StoreDep,
+) -> UnitConfigResponse:
+    return _create_response(UnitConfigResponse, store.create_unit_config, current_user.company_id, payload)
+
+
+@router.patch("/unit-configs/{unit_config_id}", response_model=UnitConfigResponse, summary="Update a company unit config")
+def update_unit_config(
+    unit_config_id: str,
+    payload: UnitConfigRequest,
+    current_user: CuttingWriter,
+    store: StoreDep,
+) -> UnitConfigResponse:
+    return _update_response(UnitConfigResponse, store.update_unit_config, current_user.company_id, unit_config_id, payload)
 
 
 @router.get("/rulesets", response_model=list[CuttingRulesetSummaryResponse], summary="List visible cutting rulesets")

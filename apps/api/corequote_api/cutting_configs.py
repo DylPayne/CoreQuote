@@ -30,7 +30,6 @@ UNIT_CONFIG_SELECT = """
     version,
     status,
     is_default,
-    based_on_unit_config_id::text,
     variant_config,
     default_height,
     default_width,
@@ -54,7 +53,6 @@ RULESET_SELECT = """
     description,
     status,
     version,
-    based_on_ruleset_id::text,
     is_default,
     created_at,
     updated_at
@@ -114,6 +112,100 @@ class CuttingConfigStore:
             raise CuttingConfigNotFound("Unit config not found")
         return row
 
+    def create_unit_config(self, company_id: str, payload: dict[str, Any]) -> dict:
+        data = _clean_payload(payload)
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    """
+                    INSERT INTO unit_configs
+                        (company_id, unit_type_key, label, category, variant_type, version, status, is_default,
+                         variant_config, default_height, default_width, default_depth,
+                         height_min, height_max, width_min, width_max, depth_min, depth_max)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id::text
+                    """,
+                    (
+                        company_id,
+                        data["unit_type_key"],
+                        data["label"],
+                        data.get("category", "custom"),
+                        data.get("variant_type", "custom"),
+                        data.get("version", 1),
+                        data.get("status", "active"),
+                        data.get("is_default", False),
+                        Jsonb(data.get("variant_config", {}) or {}),
+                        data["default_height"],
+                        data["default_width"],
+                        data["default_depth"],
+                        data["height_min"],
+                        data["height_max"],
+                        data["width_min"],
+                        data["width_max"],
+                        data["depth_min"],
+                        data["depth_max"],
+                    ),
+                ).fetchone()
+        except psycopg.errors.UniqueViolation as exc:
+            raise CuttingConfigConflict("Unit config already exists") from exc
+        return self.get_unit_config(company_id, row["id"])
+
+    def update_unit_config(self, company_id: str, unit_config_id: str, payload: dict[str, Any]) -> dict:
+        data = _clean_payload(payload)
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    """
+                    UPDATE unit_configs
+                    SET unit_type_key = %s,
+                        label = %s,
+                        category = %s,
+                        variant_type = %s,
+                        version = %s,
+                        status = %s,
+                        is_default = %s,
+                        variant_config = %s,
+                        default_height = %s,
+                        default_width = %s,
+                        default_depth = %s,
+                        height_min = %s,
+                        height_max = %s,
+                        width_min = %s,
+                        width_max = %s,
+                        depth_min = %s,
+                        depth_max = %s
+                    WHERE id = %s
+                      AND company_id = %s
+                    RETURNING id::text
+                    """,
+                    (
+                        data["unit_type_key"],
+                        data["label"],
+                        data.get("category", "custom"),
+                        data.get("variant_type", "custom"),
+                        data.get("version", 1),
+                        data.get("status", "active"),
+                        data.get("is_default", False),
+                        Jsonb(data.get("variant_config", {}) or {}),
+                        data["default_height"],
+                        data["default_width"],
+                        data["default_depth"],
+                        data["height_min"],
+                        data["height_max"],
+                        data["width_min"],
+                        data["width_max"],
+                        data["depth_min"],
+                        data["depth_max"],
+                        unit_config_id,
+                        company_id,
+                    ),
+                ).fetchone()
+                if not row:
+                    raise CuttingConfigNotFound("Unit config not found")
+        except psycopg.errors.UniqueViolation as exc:
+            raise CuttingConfigConflict("Unit config already exists") from exc
+        return self.get_unit_config(company_id, unit_config_id)
+
     def list_rulesets(
         self,
         company_id: str,
@@ -160,13 +252,11 @@ class CuttingConfigStore:
             with self._connect() as conn:
                 with conn.transaction():
                     self._ensure_unit_config_visible(conn, company_id, data.get("unit_config_id"))
-                    self._ensure_ruleset_visible(conn, company_id, data.get("based_on_ruleset_id"))
                     row = conn.execute(
                         """
                         INSERT INTO cutting_rulesets
-                            (company_id, unit_config_id, unit_type_key, name, description, status,
-                             version, based_on_ruleset_id, is_default)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            (company_id, unit_config_id, unit_type_key, name, description, status, version, is_default)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         RETURNING id::text
                         """,
                         (
@@ -177,7 +267,6 @@ class CuttingConfigStore:
                             data.get("description", ""),
                             data.get("status", "draft"),
                             data.get("version", 1),
-                            data.get("based_on_ruleset_id"),
                             data.get("is_default", False),
                         ),
                     ).fetchone()
@@ -192,7 +281,18 @@ class CuttingConfigStore:
             with self._connect() as conn:
                 with conn.transaction():
                     self._ensure_unit_config_visible(conn, company_id, data.get("unit_config_id"))
-                    self._ensure_ruleset_visible(conn, company_id, data.get("based_on_ruleset_id"))
+                    existing = conn.execute(
+                        f"""
+                        SELECT {RULESET_SELECT}
+                        FROM cutting_rulesets
+                        WHERE id = %s
+                          AND company_id = %s
+                        """,
+                        (ruleset_id, company_id),
+                    ).fetchone()
+                    if not existing:
+                        raise CuttingConfigNotFound("Cutting ruleset not found")
+                    self._snapshot_ruleset(conn, self._with_rows(conn, existing), snapshot_reason="update")
                     row = conn.execute(
                         """
                         UPDATE cutting_rulesets
@@ -202,7 +302,6 @@ class CuttingConfigStore:
                             description = %s,
                             status = %s,
                             version = %s,
-                            based_on_ruleset_id = %s,
                             is_default = %s
                         WHERE id = %s
                           AND company_id = %s
@@ -215,7 +314,6 @@ class CuttingConfigStore:
                             data.get("description", ""),
                             data.get("status", "draft"),
                             data.get("version", 1),
-                            data.get("based_on_ruleset_id"),
                             data.get("is_default", False),
                             ruleset_id,
                             company_id,
@@ -227,6 +325,39 @@ class CuttingConfigStore:
         except psycopg.errors.UniqueViolation as exc:
             raise CuttingConfigConflict("Cutting ruleset already exists") from exc
         return self.get_ruleset(company_id, ruleset_id)
+
+    def _snapshot_ruleset(self, conn, ruleset: dict[str, Any], snapshot_reason: str) -> None:
+        conn.execute(
+            """
+            INSERT INTO cutting_ruleset_history (
+                ruleset_id,
+                company_id,
+                unit_config_id,
+                unit_type_key,
+                name,
+                description,
+                status,
+                version,
+                is_default,
+                rows,
+                snapshot_reason
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                ruleset["id"],
+                ruleset.get("company_id"),
+                ruleset.get("unit_config_id"),
+                ruleset["unit_type_key"],
+                ruleset["name"],
+                ruleset.get("description", ""),
+                ruleset.get("status", "draft"),
+                ruleset.get("version", 1),
+                ruleset.get("is_default", False),
+                Jsonb(ruleset.get("rows", []) or []),
+                snapshot_reason,
+            ),
+        )
 
     def _with_rows(self, conn, ruleset: dict) -> dict:
         rows = conn.execute(
@@ -285,21 +416,6 @@ class CuttingConfigStore:
         ).fetchone()
         if not row:
             raise CuttingConfigNotFound("Unit config not found")
-
-    def _ensure_ruleset_visible(self, conn, company_id: str, ruleset_id: str | None) -> None:
-        if not ruleset_id:
-            return
-        row = conn.execute(
-            """
-            SELECT id
-            FROM cutting_rulesets
-            WHERE id = %s
-              AND (company_id IS NULL OR company_id = %s)
-            """,
-            (ruleset_id, company_id),
-        ).fetchone()
-        if not row:
-            raise CuttingConfigNotFound("Cutting ruleset not found")
 
     def _connect(self):
         if not self.database_url:

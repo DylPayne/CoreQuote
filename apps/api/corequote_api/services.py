@@ -1,31 +1,28 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 
-import pandas as pd
-
-from corequote_core.cutlist import build_cutlist
-
-from corequote_api.schemas import CutlistRowResponse, CutlistUnitRequest
+from corequote_api.cutting_runtime import CutlistRuntimeService
+from corequote_api.schemas import CutlistUnitRequest
 
 
-def preview_cutlist(units: Iterable[CutlistUnitRequest]) -> tuple[list[CutlistRowResponse], list[CutlistRowResponse]]:
-    unit_dicts = [unit.model_dump() for unit in units]
-    carcass_df, panels_df = build_cutlist(unit_dicts)
-    return _rows_from_df(carcass_df), _rows_from_df(panels_df)
+def preview_cutlist(
+    units: Iterable[CutlistUnitRequest],
+    *,
+    company_id: str,
+    runtime_service: CutlistRuntimeService | None = None,
+    use_db_rulesets: bool | None = None,
+) -> dict:
+    payload_units = [unit.model_dump() for unit in units]
+    service = runtime_service or CutlistRuntimeService()
+    use_rulesets = _is_enabled("CUTLIST_USE_DB_RULESETS") if use_db_rulesets is None else use_db_rulesets
+    return service.build_preview(
+        company_id=company_id,
+        units=payload_units,
+        use_db_rulesets=use_rulesets,
+    )
 
 
-def _rows_from_df(df: pd.DataFrame) -> list[CutlistRowResponse]:
-    rows: list[CutlistRowResponse] = []
-    for record in df.to_dict(orient="records"):
-        rows.append(
-            CutlistRowResponse(
-                unit_number=int(record["Unit #"]),
-                desc=str(record["Desc"]),
-                length=int(record["L"]),
-                width=int(record["W"]),
-                qty=int(record["Qty"]),
-            )
-        )
-    return rows
-
+def _is_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}

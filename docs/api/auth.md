@@ -9,6 +9,7 @@ The auth API is the foundation for the future frontend. It uses opaque bearer to
 - The first user created by `POST /api/v1/auth/register` is the company `owner`.
 - Role permissions are defined in `docs/api/rbac.md`.
 - Library endpoints for boards, hardware, extras, and pricing are defined in `docs/api/libraries.md`.
+- Cutlist preview endpoint and runtime metadata are defined in `docs/api/cutlists.md`.
 - Future quote, board, hardware, extras, and pricing APIs must scope every query by `current_user.company_id`.
 - Quotes should be scoped through their project: `quotes -> projects.company_id`.
 
