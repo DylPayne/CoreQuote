@@ -5,24 +5,34 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from corequote_api.authorization import require_permission
-from corequote_api.schemas import CutlistPreviewRequest, CutlistPreviewResponse
+from corequote_api.cutting_runtime import CutlistRuntimeService
+from corequote_api.schemas import AuthUserResponse, CutlistPreviewRequest, CutlistPreviewResponse
 from corequote_api.services import preview_cutlist
 
 
 router = APIRouter(prefix="/cutlists", tags=["cutlists"])
 
 
+def get_cutlist_runtime_service() -> CutlistRuntimeService:
+    return CutlistRuntimeService()
+
+
 @router.post("/preview", response_model=CutlistPreviewResponse)
 def create_cutlist_preview(
     payload: CutlistPreviewRequest,
-    _current_user: Annotated[object, Depends(require_permission("cutlists:preview"))],
+    current_user: Annotated[AuthUserResponse, Depends(require_permission("cutlists:preview"))],
+    runtime_service: Annotated[CutlistRuntimeService, Depends(get_cutlist_runtime_service)],
 ) -> CutlistPreviewResponse:
     try:
-        carcass, panels = preview_cutlist(payload.units)
+        result = preview_cutlist(
+            payload.units,
+            company_id=current_user.company_id,
+            runtime_service=runtime_service,
+        )
     except (KeyError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
 
-    return CutlistPreviewResponse(carcass=carcass, panels=panels)
+    return CutlistPreviewResponse.model_validate(result)

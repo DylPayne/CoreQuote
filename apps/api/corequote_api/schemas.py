@@ -9,21 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from corequote_api.authorization import Role
 
 
-UnitType = Literal[
-    "Base Drawer",
-    "Base 1 Draw",
-    "Base 2 Draw",
-    "Base 3 Draw",
-    "Base 4 Draw",
-    "Base Door",
-    "Base 1 Door",
-    "Base 2 Door",
-    "Wall Door",
-    "Wall 1 Door",
-    "Wall 2 Door",
-    "Tall Standard",
-    "Tall Pantry",
-]
+UnitType = str
 
 
 class HealthResponse(BaseModel):
@@ -151,7 +137,7 @@ class CutlistUnitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     unit_number: int = Field(ge=1)
-    unit_type: UnitType
+    unit_type: UnitType = Field(min_length=1, max_length=120)
     height: int = Field(gt=0)
     width: int = Field(gt=0)
     depth: int = Field(gt=0)
@@ -173,9 +159,31 @@ class CutlistRowResponse(BaseModel):
     qty: int
 
 
+class CutlistRuntimeRowResponse(CutlistRowResponse):
+    section: Literal["carcass", "panel", "hardware", "extra_panel"]
+    edge_long_1: bool = False
+    edge_long_2: bool = False
+    edge_short_1: bool = False
+    edge_short_2: bool = False
+
+
+class CutlistUnitSourceResponse(BaseModel):
+    unit_number: int
+    unit_type_key: str
+    source: Literal["ruleset", "legacy"]
+    ruleset_id: str | None = None
+    unit_config_id: str | None = None
+    note: str | None = None
+
+
 class CutlistPreviewResponse(BaseModel):
     carcass: list[CutlistRowResponse]
     panels: list[CutlistRowResponse]
+    hardware: list[CutlistRowResponse] = Field(default_factory=list)
+    extras: list[CutlistRowResponse] = Field(default_factory=list)
+    runtime_rows: list[CutlistRuntimeRowResponse] = Field(default_factory=list)
+    runtime_mode: Literal["legacy", "ruleset", "mixed"] = "legacy"
+    unit_sources: list[CutlistUnitSourceResponse] = Field(default_factory=list)
 
 
 UnitConfigCategory = Literal["base", "wall", "tall", "custom"]
@@ -197,7 +205,6 @@ class UnitConfigResponse(BaseModel):
     version: int
     status: CuttingConfigStatus
     is_default: bool
-    based_on_unit_config_id: str | None
     variant_config: dict[str, Any]
     default_height: int
     default_width: int
@@ -210,6 +217,28 @@ class UnitConfigResponse(BaseModel):
     depth_max: int
     created_at: datetime
     updated_at: datetime
+
+
+class UnitConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unit_type_key: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=160)
+    category: UnitConfigCategory = "custom"
+    variant_type: UnitConfigVariantType = "custom"
+    version: int = Field(default=1, gt=0)
+    status: CuttingConfigStatus = "active"
+    is_default: bool = False
+    variant_config: dict[str, Any] = Field(default_factory=dict)
+    default_height: int = Field(gt=0)
+    default_width: int = Field(gt=0)
+    default_depth: int = Field(gt=0)
+    height_min: int = Field(gt=0)
+    height_max: int = Field(gt=0)
+    width_min: int = Field(gt=0)
+    width_max: int = Field(gt=0)
+    depth_min: int = Field(gt=0)
+    depth_max: int = Field(gt=0)
 
 
 class CuttingRuleRowRequest(BaseModel):
@@ -248,7 +277,6 @@ class CuttingRulesetRequest(BaseModel):
     description: str = Field(default="", max_length=1000)
     status: CuttingConfigStatus = "draft"
     version: int = Field(default=1, gt=0)
-    based_on_ruleset_id: str | None = None
     is_default: bool = False
     rows: list[CuttingRuleRowRequest] = Field(min_length=1)
 
@@ -264,7 +292,6 @@ class CuttingRulesetSummaryResponse(BaseModel):
     description: str
     status: CuttingConfigStatus
     version: int
-    based_on_ruleset_id: str | None
     is_default: bool
     created_at: datetime
     updated_at: datetime
