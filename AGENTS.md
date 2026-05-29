@@ -44,6 +44,20 @@ npm run dev
 
 TODO: Confirm the intended local FastAPI run command before relying on it for development workflows.
 
+## Local Test Login
+
+For local frontend QA and styling verification, use this seeded test account:
+
+- Company: `CoreQuote Test Co`
+- Name: `Test Owner`
+- Email: `test.owner@corequote.local`
+- Password: `CoreQuoteTestPass123!`
+
+Notes:
+
+- This user is intended for local development only.
+- If login fails, ensure the API is connected to the local Postgres dev database.
+
 ## Testing Commands
 
 Run the full test suite:

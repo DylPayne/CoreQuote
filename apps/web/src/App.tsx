@@ -1,16 +1,18 @@
 import {
   Building2,
   Calculator,
-  CheckCircle2,
   ClipboardList,
+  CopyPlus,
   HardHat,
   LoaderCircle,
   LogOut,
   Moon,
   Palette,
-  Play,
+  Plus,
+  Save,
   ShieldCheck,
   Sun,
+  Trash2,
   UserRound,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
@@ -19,12 +21,14 @@ import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ChoiceCard, ChoiceCardContent } from '@/components/ui/choice-card'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { cn } from '@/lib/utils'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 const AUTH_TOKEN_KEY = 'corequote.authToken'
@@ -59,7 +63,12 @@ type ColourTheme =
   | 'rose'
 type ThemeMode = 'light' | 'dark'
 type UiStyle = 'vega' | 'nova' | 'maia' | 'lyra' | 'mira' | 'luma' | 'sera'
-type UnitType = 'Base Drawer' | 'Base Door' | 'Wall Door' | 'Tall Standard'
+type UnitConfigCategory = 'base' | 'wall' | 'tall' | 'custom'
+type UnitConfigVariantType = 'drawer' | 'door' | 'wall' | 'tall' | 'custom'
+type CuttingConfigStatus = 'draft' | 'active' | 'archived'
+type CuttingRuleSection = 'carcass' | 'panel' | 'hardware' | 'extra_panel'
+type GrainDirection = 'none' | 'length' | 'width'
+type FormulaFieldKey = 'length_formula' | 'width_formula' | 'qty_formula' | 'condition_formula'
 
 type ThemeSpec = {
   chroma: number
@@ -86,19 +95,6 @@ type AuthTokenResponse = {
   user: AuthUser
 }
 
-type CutlistRow = {
-  unit_number: number
-  desc: string
-  length: number
-  width: number
-  qty: number
-}
-
-type CutlistPreviewResponse = {
-  carcass: CutlistRow[]
-  panels: CutlistRow[]
-}
-
 type AuthFormState = {
   companyName: string
   name: string
@@ -106,12 +102,110 @@ type AuthFormState = {
   password: string
 }
 
-type CutlistFormState = {
-  unitType: UnitType
-  height: number
-  width: number
-  depth: number
-  thickness: number
+type UnitConfigResponse = {
+  id: string
+  company_id: string | null
+  unit_type_key: string
+  label: string
+  category: UnitConfigCategory
+  variant_type: UnitConfigVariantType
+  version: number
+  status: CuttingConfigStatus
+  is_default: boolean
+  based_on_unit_config_id: string | null
+  variant_config: Record<string, unknown>
+  default_height: number
+  default_width: number
+  default_depth: number
+  height_min: number
+  height_max: number
+  width_min: number
+  width_max: number
+  depth_min: number
+  depth_max: number
+  created_at: string
+  updated_at: string
+}
+
+type CuttingRuleRowResponse = {
+  id: string
+  sort_order: number
+  section: CuttingRuleSection
+  description: string
+  length_formula: string
+  width_formula: string
+  qty_formula: string
+  condition_formula: string
+  grain_direction: GrainDirection
+  can_rotate: boolean
+  edge_long_1: boolean
+  edge_long_2: boolean
+  edge_short_1: boolean
+  edge_short_2: boolean
+  meta: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+type CuttingRulesetSummaryResponse = {
+  id: string
+  company_id: string | null
+  unit_config_id: string | null
+  unit_type_key: string
+  name: string
+  description: string
+  status: CuttingConfigStatus
+  version: number
+  based_on_ruleset_id: string | null
+  is_default: boolean
+  created_at: string
+  updated_at: string
+}
+
+type CuttingRulesetResponse = CuttingRulesetSummaryResponse & {
+  rows: CuttingRuleRowResponse[]
+}
+
+type CuttingRuleRowDraft = Omit<CuttingRuleRowResponse, 'created_at' | 'updated_at'>
+
+type CuttingRulesetDraft = {
+  id: string
+  unit_config_id: string | null
+  unit_type_key: string
+  name: string
+  description: string
+  status: CuttingConfigStatus
+  version: number
+  based_on_ruleset_id: string | null
+  is_default: boolean
+  rows: CuttingRuleRowDraft[]
+}
+
+type CuttingRulesetRequest = {
+  unit_config_id: string | null
+  unit_type_key: string
+  name: string
+  description: string
+  status: CuttingConfigStatus
+  version: number
+  based_on_ruleset_id: string | null
+  is_default: boolean
+  rows: Array<{
+    sort_order: number
+    section: CuttingRuleSection
+    description: string
+    length_formula: string
+    width_formula: string
+    qty_formula: string
+    condition_formula: string
+    grain_direction: GrainDirection
+    can_rotate: boolean
+    edge_long_1: boolean
+    edge_long_2: boolean
+    edge_short_1: boolean
+    edge_short_2: boolean
+    meta: Record<string, unknown>
+  }>
 }
 
 const colourThemes: ThemeSpec[] = [
@@ -161,14 +255,6 @@ const initialAuthForm: AuthFormState = {
   email: '',
   name: '',
   password: '',
-}
-
-const initialCutlistForm: CutlistFormState = {
-  depth: 580,
-  height: 780,
-  thickness: 16,
-  unitType: 'Base Drawer',
-  width: 900,
 }
 
 function App() {
@@ -433,25 +519,21 @@ function AuthScreen({
             </p>
           </CardHeader>
           <CardContent>
-            <ControlGroup className="mb-5 grid grid-cols-2 bg-muted p-1" role="group" aria-label="Select auth mode">
-              <Button
+            <ControlGroup className="mb-5 w-full gap-0" role="group" aria-label="Select auth mode">
+              <ControlGroupItem
                 aria-pressed={authMode === 'login'}
+                className="flex-1 justify-center rounded-[calc(var(--control-radius)-0.2rem)]"
                 onClick={() => onModeChange('login')}
-                size="sm"
-                type="button"
-                variant={authMode === 'login' ? 'segmentActive' : 'segment'}
               >
                 Log in
-              </Button>
-              <Button
+              </ControlGroupItem>
+              <ControlGroupItem
                 aria-pressed={authMode === 'register'}
+                className="flex-1 justify-center rounded-[calc(var(--control-radius)-0.2rem)]"
                 onClick={() => onModeChange('register')}
-                size="sm"
-                type="button"
-                variant={authMode === 'register' ? 'segmentActive' : 'segment'}
               >
                 Register
-              </Button>
+              </ControlGroupItem>
             </ControlGroup>
 
             <form className="space-y-4" onSubmit={onSubmit}>
@@ -549,7 +631,7 @@ function Workspace({
     currentPage === 'appearance'
       ? 'Global style, colour, and mode controls'
       : currentPage === 'cutlist'
-        ? 'Preview carcass and panel rows from the API'
+        ? 'Manage cutting rulesets and row formulas'
         : user.company_name
 
   return (
@@ -645,7 +727,7 @@ function Workspace({
               uiStyle={uiStyle}
             />
           ) : currentPage === 'cutlist' ? (
-            <CutlistPreview authToken={authToken} />
+            <CuttingRulesetsPage authToken={authToken} companyId={user.company_id} />
           ) : (
             <>
               <section className="grid gap-4 lg:grid-cols-3">
@@ -669,7 +751,7 @@ function Workspace({
                   </div>
                   <Button onClick={() => setCurrentPage('cutlist')}>
                     <Calculator className="h-4 w-4" aria-hidden="true" />
-                    Open cutlist preview
+                    Open cutting rulesets
                   </Button>
                 </CardHeader>
               </Card>
@@ -681,161 +763,841 @@ function Workspace({
   )
 }
 
-function CutlistPreview({ authToken }: { authToken: string }) {
-  const [form, setForm] = useState<CutlistFormState>(initialCutlistForm)
-  const [preview, setPreview] = useState<CutlistPreviewResponse | null>(null)
+const rulesetStatusOptions: CuttingConfigStatus[] = ['draft', 'active', 'archived']
+const ruleSectionOptions: CuttingRuleSection[] = ['carcass', 'panel', 'hardware', 'extra_panel']
+const grainDirectionOptions: GrainDirection[] = ['none', 'length', 'width']
+const formulaFields: FormulaFieldKey[] = ['length_formula', 'width_formula', 'qty_formula', 'condition_formula']
+const baseFormulaVariables = ['h', 'w', 'd', 't', 'num_doors', 'num_drawers', 'num_shelves', 'panel_gap_mm', 'shelf_setback']
+const formulaKeywords = new Set([
+  'abs',
+  'and',
+  'ceil',
+  'else',
+  'false',
+  'floor',
+  'if',
+  'max',
+  'min',
+  'not',
+  'or',
+  'round',
+  'true',
+])
+
+function CuttingRulesetsPage({ authToken, companyId }: { authToken: string; companyId: string }) {
+  const [unitConfigs, setUnitConfigs] = useState<UnitConfigResponse[]>([])
+  const [rulesets, setRulesets] = useState<CuttingRulesetSummaryResponse[]>([])
+  const [selectedUnitTypeKey, setSelectedUnitTypeKey] = useState('')
+  const [selectedRulesetId, setSelectedRulesetId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<CuttingRulesetDraft | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isCreatingCopy, setIsCreatingCopy] = useState(false)
+  const [isLoadingConfigs, setIsLoadingConfigs] = useState(true)
+  const [isLoadingRulesets, setIsLoadingRulesets] = useState(false)
+  const [isLoadingRuleset, setIsLoadingRuleset] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
-  const totalPieces = useMemo(() => {
-    if (!preview) return 0
-    return [...preview.carcass, ...preview.panels].reduce((sum, row) => sum + row.qty, 0)
-  }, [preview])
+  const unitTypeKeys = useMemo(
+    () => Array.from(new Set(unitConfigs.map((config) => config.unit_type_key))).sort((a, b) => a.localeCompare(b)),
+    [unitConfigs],
+  )
 
-  async function handlePreview(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  const selectedRulesetSummary = useMemo(
+    () => rulesets.find((ruleset) => ruleset.id === selectedRulesetId) ?? null,
+    [rulesets, selectedRulesetId],
+  )
+  const selectedRulesetIsCompanyOwned = selectedRulesetSummary?.company_id === companyId
+  const availableFormulaVariables = useMemo(
+    () => getAvailableFormulaVariables(unitConfigs, selectedUnitTypeKey),
+    [selectedUnitTypeKey, unitConfigs],
+  )
+  const formulaErrors = useMemo(
+    () => (draft ? validateDraftFormulas(draft.rows, availableFormulaVariables) : {}),
+    [availableFormulaVariables, draft],
+  )
+  const formulaErrorCount = useMemo(
+    () =>
+      Object.values(formulaErrors).reduce(
+        (total, rowErrors) =>
+          total + formulaFields.reduce((count, field) => count + (rowErrors[field] ? 1 : 0), 0),
+        0,
+      ),
+    [formulaErrors],
+  )
+
+  const loadRulesets = useCallback(
+    async (unitTypeKey: string, preferredRulesetId?: string | null) => {
+      setIsLoadingRulesets(true)
+      setError(null)
+
+      try {
+        const path = `/api/v1/cutting/rulesets?unit_type_key=${encodeURIComponent(unitTypeKey)}`
+        const list = await apiRequest<CuttingRulesetSummaryResponse[]>(path, { token: authToken })
+        setRulesets(list)
+
+        const selectedId =
+          preferredRulesetId && list.some((ruleset) => ruleset.id === preferredRulesetId)
+            ? preferredRulesetId
+            : list[0]?.id ?? null
+        setSelectedRulesetId(selectedId)
+        if (!selectedId) {
+          setDraft(null)
+        }
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load cutting rulesets.')
+        setRulesets([])
+        setSelectedRulesetId(null)
+        setDraft(null)
+      } finally {
+        setIsLoadingRulesets(false)
+      }
+    },
+    [authToken],
+  )
+
+  useEffect(() => {
+    let isCurrent = true
+
+    async function loadUnitConfigs() {
+      setIsLoadingConfigs(true)
+      setError(null)
+
+      try {
+        const configs = await apiRequest<UnitConfigResponse[]>('/api/v1/cutting/unit-configs', { token: authToken })
+        if (!isCurrent) return
+
+        setUnitConfigs(configs)
+        const defaultUnitType = configs[0]?.unit_type_key ?? ''
+        setSelectedUnitTypeKey((current) => current || defaultUnitType)
+      } catch (loadError) {
+        if (!isCurrent) return
+        setError(loadError instanceof Error ? loadError.message : 'Could not load unit configurations.')
+      } finally {
+        if (isCurrent) {
+          setIsLoadingConfigs(false)
+        }
+      }
+    }
+
+    loadUnitConfigs()
+    return () => {
+      isCurrent = false
+    }
+  }, [authToken])
+
+  useEffect(() => {
+    if (!selectedUnitTypeKey) {
+      return
+    }
+
+    void loadRulesets(selectedUnitTypeKey)
+  }, [loadRulesets, selectedUnitTypeKey])
+
+  useEffect(() => {
+    if (!selectedRulesetId) {
+      return
+    }
+
+    let isCurrent = true
+
+    async function loadRuleset() {
+      setIsLoadingRuleset(true)
+      setError(null)
+
+      try {
+        const ruleset = await apiRequest<CuttingRulesetResponse>(`/api/v1/cutting/rulesets/${selectedRulesetId}`, {
+          token: authToken,
+        })
+        if (!isCurrent) return
+        setDraft(mapRulesetToDraft(ruleset))
+      } catch (loadError) {
+        if (!isCurrent) return
+        setDraft(null)
+        setError(loadError instanceof Error ? loadError.message : 'Could not load the selected ruleset.')
+      } finally {
+        if (isCurrent) {
+          setIsLoadingRuleset(false)
+        }
+      }
+    }
+
+    loadRuleset()
+    return () => {
+      isCurrent = false
+    }
+  }, [authToken, selectedRulesetId])
+
+  async function handleSaveRuleset() {
+    if (!draft || !selectedRulesetId || !selectedRulesetIsCompanyOwned) return
+
+    setIsSaving(true)
     setError(null)
-    setIsLoading(true)
-
     try {
-      const result = await apiRequest<CutlistPreviewResponse>('/api/v1/cutlists/preview', {
+      const updated = await apiRequest<CuttingRulesetResponse>(`/api/v1/cutting/rulesets/${selectedRulesetId}`, {
+        body: toRulesetRequest(draft),
+        method: 'PATCH',
+        token: authToken,
+      })
+      setDraft(mapRulesetToDraft(updated))
+      setRulesets((current) => current.map((ruleset) => (ruleset.id === updated.id ? toRulesetSummary(updated) : ruleset)))
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save this cutting ruleset.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleCreateCompanyCopy() {
+    if (!draft || !selectedRulesetSummary) return
+
+    const fallbackUnitConfig = unitConfigs.find(
+      (config) => config.unit_type_key === draft.unit_type_key && (config.company_id === companyId || config.company_id === null),
+    )
+    if (!draft.unit_config_id && !fallbackUnitConfig?.id) {
+      setError('No visible unit config is available for this ruleset.')
+      return
+    }
+
+    setIsCreatingCopy(true)
+    setError(null)
+    try {
+      const created = await apiRequest<CuttingRulesetResponse>('/api/v1/cutting/rulesets', {
         body: {
-          units: [
-            {
-              depth: form.depth,
-              height: form.height,
-              thickness: form.thickness,
-              unit_number: 1,
-              unit_type: form.unitType,
-              width: form.width,
-            },
-          ],
+          ...toRulesetRequest(draft),
+          based_on_ruleset_id: selectedRulesetSummary.id,
+          is_default: false,
+          name: `${draft.name} (Company)`,
+          status: 'draft',
+          unit_config_id: draft.unit_config_id ?? fallbackUnitConfig?.id ?? null,
         },
         method: 'POST',
         token: authToken,
       })
-      setPreview(result)
-    } catch (previewError) {
-      setError(previewError instanceof Error ? previewError.message : 'Could not generate the cutlist preview.')
+      await loadRulesets(created.unit_type_key, created.id)
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Could not create a company copy.')
     } finally {
-      setIsLoading(false)
+      setIsCreatingCopy(false)
     }
   }
+
+  function updateDraftRow<T extends keyof CuttingRuleRowDraft>(rowId: string, key: T, value: CuttingRuleRowDraft[T]) {
+    setDraft((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        rows: current.rows.map((row) => (row.id === rowId ? { ...row, [key]: value } : row)),
+      }
+    })
+  }
+
+  function updateDraftMeta<K extends 'name' | 'description' | 'status' | 'version' | 'is_default'>(
+    key: K,
+    value: CuttingRulesetDraft[K],
+  ) {
+    setDraft((current) => (current ? { ...current, [key]: value } : current))
+  }
+
+  function addRow() {
+    setDraft((current) => {
+      if (!current) return current
+      const nextSortOrder = current.rows.length === 0 ? 10 : Math.max(...current.rows.map((row) => row.sort_order)) + 10
+      return {
+        ...current,
+        rows: [...current.rows, createDefaultRow(nextSortOrder)],
+      }
+    })
+  }
+
+  function removeRow(rowId: string) {
+    setDraft((current) => {
+      if (!current || current.rows.length <= 1) return current
+      return {
+        ...current,
+        rows: current.rows.filter((row) => row.id !== rowId),
+      }
+    })
+  }
+
+  const saveDisabled =
+    !draft ||
+    !selectedRulesetSummary ||
+    !selectedRulesetIsCompanyOwned ||
+    isSaving ||
+    isLoadingRuleset ||
+    draft.rows.length === 0 ||
+    formulaErrorCount > 0
+  const canCreateCopy = Boolean(draft && selectedRulesetSummary && !selectedRulesetIsCompanyOwned)
 
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <CardTitle>Cutlist preview</CardTitle>
+        <div className="min-w-0">
+          <CardTitle>Cutting rulesets</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            A working API-backed calculator for one cabinet unit.
+            Edit formula rows, side edging toggles, and save complete ruleset drafts through the new API.
           </p>
         </div>
-        {preview ? (
-          <Badge variant="success">
-            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-            {totalPieces} pieces
-          </Badge>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button disabled={!draft || isLoadingRuleset} onClick={addRow} type="button" variant="outline">
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add row
+          </Button>
+          <Button disabled={!canCreateCopy || isCreatingCopy} onClick={handleCreateCompanyCopy} type="button" variant="outline">
+            {isCreatingCopy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CopyPlus className="h-4 w-4" aria-hidden="true" />}
+            Create company copy
+          </Button>
+          <Button disabled={saveDisabled} onClick={handleSaveRuleset} type="button">
+            {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+            Save ruleset
+          </Button>
+        </div>
       </CardHeader>
-      <CardContent>
-        <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-          <form
-            className="grid content-start gap-4 rounded-[var(--card-radius)] border border-border bg-muted/40 p-[var(--card-padding)]"
-            onSubmit={handlePreview}
-          >
-            <div>
-              <p className="text-sm font-semibold">Unit inputs</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">Dimensions are in millimetres.</p>
-            </div>
 
-            <Label className="grid min-w-0 gap-1.5">
+      <CardContent>
+        <div className="grid items-start gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <div className="grid content-start gap-4 rounded-[var(--card-radius)] border border-border bg-muted/40 p-[var(--card-padding)] xl:justify-self-start">
+            <Label className="grid gap-1.5">
               Unit type
               <Select
-                onChange={(event) => setForm((current) => ({ ...current, unitType: event.target.value as UnitType }))}
-                value={form.unitType}
+                disabled={isLoadingConfigs || unitTypeKeys.length === 0}
+                onChange={(event) => setSelectedUnitTypeKey(event.target.value)}
+                value={selectedUnitTypeKey}
               >
-                <option>Base Drawer</option>
-                <option>Base Door</option>
-                <option>Wall Door</option>
-                <option>Tall Standard</option>
+                {unitTypeKeys.length === 0 ? <option value="">No unit configs</option> : null}
+                {unitTypeKeys.map((unitTypeKey) => (
+                  <option key={unitTypeKey} value={unitTypeKey}>
+                    {unitTypeKey}
+                  </option>
+                ))}
               </Select>
             </Label>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-              <NumberField label="Height" onChange={(height) => setForm((current) => ({ ...current, height }))} value={form.height} />
-              <NumberField label="Width" onChange={(width) => setForm((current) => ({ ...current, width }))} value={form.width} />
-              <NumberField label="Depth" onChange={(depth) => setForm((current) => ({ ...current, depth }))} value={form.depth} />
-              <NumberField
-                label="Thickness"
-                onChange={(thickness) => setForm((current) => ({ ...current, thickness }))}
-                value={form.thickness}
-              />
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase text-muted-foreground">Rulesets</p>
+              <div className="grid max-h-96 gap-2 overflow-y-auto pr-1">
+                {isLoadingRulesets ? (
+                  <div className="flex items-center gap-2 rounded-[var(--control-radius)] border border-border bg-card p-3 text-sm text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Loading rulesets
+                  </div>
+                ) : rulesets.length > 0 ? (
+                  rulesets.map((ruleset) => (
+                    <Button
+                      className="h-auto justify-between gap-3 py-2"
+                      key={ruleset.id}
+                      onClick={() => setSelectedRulesetId(ruleset.id)}
+                      type="button"
+                      variant={selectedRulesetId === ruleset.id ? 'secondary' : 'outline'}
+                    >
+                      <span className="min-w-0 text-left">
+                        <span className="block truncate text-sm font-medium">{ruleset.name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {ruleset.status} · v{ruleset.version}
+                        </span>
+                      </span>
+                      <Badge variant={ruleset.company_id ? 'outline' : 'warning'}>
+                        {ruleset.company_id ? 'Company' : 'Global'}
+                      </Badge>
+                    </Button>
+                  ))
+                ) : (
+                  <Alert className="text-xs text-muted-foreground">No rulesets found for this unit type.</Alert>
+                )}
+              </div>
             </div>
-
-            {error ? (
-              <Alert variant="destructive">{error}</Alert>
-            ) : null}
-
-            <Button className="w-full" disabled={isLoading} type="submit">
-              {isLoading ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Play className="h-4 w-4" aria-hidden="true" />
-              )}
-              Run preview
-            </Button>
-          </form>
+          </div>
 
           <div className="min-w-0">
-            <CutlistTable preview={preview} />
+            {isLoadingRuleset ? (
+              <Alert className="flex min-h-64 items-center justify-center gap-2 text-muted-foreground">
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Loading ruleset
+              </Alert>
+            ) : draft ? (
+              <div className="grid gap-4">
+                <div className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-card p-[var(--card-padding)] md:grid-cols-3">
+                  <Label className="grid min-w-0 gap-1.5">
+                    Ruleset name
+                    <Input
+                      disabled={!selectedRulesetIsCompanyOwned}
+                      onChange={(event) => updateDraftMeta('name', event.target.value)}
+                      value={draft.name}
+                    />
+                  </Label>
+                  <Label className="grid min-w-0 gap-1.5">
+                    Status
+                    <Select
+                      disabled={!selectedRulesetIsCompanyOwned}
+                      onChange={(event) => updateDraftMeta('status', event.target.value as CuttingConfigStatus)}
+                      value={draft.status}
+                    >
+                      {rulesetStatusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                  <Label className="grid min-w-0 gap-1.5">
+                    Version
+                    <Input
+                      disabled={!selectedRulesetIsCompanyOwned}
+                      min={1}
+                      onChange={(event) => updateDraftMeta('version', parsePositiveInteger(event.target.value, draft.version))}
+                      type="number"
+                      value={draft.version}
+                    />
+                  </Label>
+                  <Label className="grid min-w-0 gap-1.5 md:col-span-2">
+                    Description
+                    <Input
+                      disabled={!selectedRulesetIsCompanyOwned}
+                      onChange={(event) => updateDraftMeta('description', event.target.value)}
+                      value={draft.description}
+                    />
+                  </Label>
+                  <Label className="flex items-center gap-2 pt-6 text-sm font-medium">
+                    <Checkbox
+                      checked={draft.is_default}
+                      disabled={!selectedRulesetIsCompanyOwned}
+                      onChange={(event) => updateDraftMeta('is_default', event.target.checked)}
+                    />
+                    Default ruleset
+                  </Label>
+                </div>
+
+                {!selectedRulesetIsCompanyOwned ? (
+                  <Alert>This is a global ruleset. Create a company copy to customize and save changes.</Alert>
+                ) : null}
+
+                <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+                  <p className="text-sm font-semibold">Formula helper</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Formulas accept numbers, + - * /, parentheses, comparisons ({'>'}, {'>='}, ==), and logical
+                    operators (and, or, not).
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {availableFormulaVariables.map((variableName) => (
+                      <Badge key={variableName} variant="outline">
+                        {variableName}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Example length: <span className="font-mono">h - (2 * t)</span> · Example width:{' '}
+                    <span className="font-mono">w - (2 * t)</span> · Example qty:{' '}
+                    <span className="font-mono">num_doors</span> · Example condition:{' '}
+                    <span className="font-mono">num_doors {'>'} 0</span>
+                  </p>
+                </div>
+
+                {formulaErrorCount > 0 ? (
+                  <Alert variant="destructive">
+                    {formulaErrorCount} formula validation {formulaErrorCount === 1 ? 'issue' : 'issues'} found. Hover a
+                    highlighted formula input to see details.
+                  </Alert>
+                ) : null}
+
+                <TableContainer>
+                  <Table className="min-w-[1500px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Order</TableHead>
+                        <TableHead>Section</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Length formula</TableHead>
+                        <TableHead>Width formula</TableHead>
+                        <TableHead>Qty formula</TableHead>
+                        <TableHead>Condition</TableHead>
+                        <TableHead>Grain</TableHead>
+                        <TableHead>Rotate</TableHead>
+                        <TableHead>L1</TableHead>
+                        <TableHead>L2</TableHead>
+                        <TableHead>S1</TableHead>
+                        <TableHead>S2</TableHead>
+                        <TableHead />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {draft.rows.map((row) => (
+                        <TableRow key={row.id}>
+                          {/*
+                            Validation feedback for formula fields is computed centrally so we can keep
+                            the rules grid fast while still providing immediate, field-level guidance.
+                          */}
+                          <TableCell>
+                            <Input
+                              className="h-8 w-20"
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              min={1}
+                              onChange={(event) =>
+                                updateDraftRow(row.id, 'sort_order', parsePositiveInteger(event.target.value, row.sort_order))
+                              }
+                              type="number"
+                              value={row.sort_order}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              className="h-8 min-w-[140px]"
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onChange={(event) => updateDraftRow(row.id, 'section', event.target.value as CuttingRuleSection)}
+                              value={row.section}
+                            >
+                              {ruleSectionOptions.map((section) => (
+                                <option key={section} value={section}>
+                                  {section}
+                                </option>
+                              ))}
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              className="h-8 min-w-[200px]"
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onChange={(event) => updateDraftRow(row.id, 'description', event.target.value)}
+                              value={row.description}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-invalid={Boolean(formulaErrors[row.id]?.length_formula)}
+                              className={cn(
+                                'h-8 min-w-[220px]',
+                                formulaErrors[row.id]?.length_formula ? 'border-destructive focus-visible:ring-destructive' : '',
+                              )}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onBlur={(event) =>
+                                updateDraftRow(row.id, 'length_formula', event.target.value.trim())
+                              }
+                              onChange={(event) => updateDraftRow(row.id, 'length_formula', event.target.value)}
+                              placeholder="h - (2 * t)"
+                              title={formulaErrors[row.id]?.length_formula ?? ''}
+                              value={row.length_formula}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-invalid={Boolean(formulaErrors[row.id]?.width_formula)}
+                              className={cn(
+                                'h-8 min-w-[220px]',
+                                formulaErrors[row.id]?.width_formula ? 'border-destructive focus-visible:ring-destructive' : '',
+                              )}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onBlur={(event) =>
+                                updateDraftRow(row.id, 'width_formula', event.target.value.trim())
+                              }
+                              onChange={(event) => updateDraftRow(row.id, 'width_formula', event.target.value)}
+                              placeholder="w - (2 * t)"
+                              title={formulaErrors[row.id]?.width_formula ?? ''}
+                              value={row.width_formula}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-invalid={Boolean(formulaErrors[row.id]?.qty_formula)}
+                              className={cn(
+                                'h-8 min-w-[180px]',
+                                formulaErrors[row.id]?.qty_formula ? 'border-destructive focus-visible:ring-destructive' : '',
+                              )}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onBlur={(event) =>
+                                updateDraftRow(row.id, 'qty_formula', event.target.value.trim())
+                              }
+                              onChange={(event) => updateDraftRow(row.id, 'qty_formula', event.target.value)}
+                              placeholder="1"
+                              title={formulaErrors[row.id]?.qty_formula ?? ''}
+                              value={row.qty_formula}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-invalid={Boolean(formulaErrors[row.id]?.condition_formula)}
+                              className={cn(
+                                'h-8 min-w-[220px]',
+                                formulaErrors[row.id]?.condition_formula ? 'border-destructive focus-visible:ring-destructive' : '',
+                              )}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onBlur={(event) =>
+                                updateDraftRow(row.id, 'condition_formula', event.target.value.trim())
+                              }
+                              onChange={(event) => updateDraftRow(row.id, 'condition_formula', event.target.value)}
+                              placeholder="num_doors > 0"
+                              title={formulaErrors[row.id]?.condition_formula ?? ''}
+                              value={row.condition_formula}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              className="h-8 min-w-[120px]"
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onChange={(event) => updateDraftRow(row.id, 'grain_direction', event.target.value as GrainDirection)}
+                              value={row.grain_direction}
+                            >
+                              {grainDirectionOptions.map((grainDirection) => (
+                                <option key={grainDirection} value={grainDirection}>
+                                  {grainDirection}
+                                </option>
+                              ))}
+                            </Select>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Checkbox
+                              checked={row.can_rotate}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onChange={(event) => updateDraftRow(row.id, 'can_rotate', event.target.checked)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Checkbox
+                              checked={row.edge_long_1}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onChange={(event) => updateDraftRow(row.id, 'edge_long_1', event.target.checked)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Checkbox
+                              checked={row.edge_long_2}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onChange={(event) => updateDraftRow(row.id, 'edge_long_2', event.target.checked)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Checkbox
+                              checked={row.edge_short_1}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onChange={(event) => updateDraftRow(row.id, 'edge_short_1', event.target.checked)}
+                            />
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Checkbox
+                              checked={row.edge_short_2}
+                              disabled={!selectedRulesetIsCompanyOwned}
+                              onChange={(event) => updateDraftRow(row.id, 'edge_short_2', event.target.checked)}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              aria-label="Delete rule row"
+                              disabled={!selectedRulesetIsCompanyOwned || draft.rows.length <= 1}
+                              onClick={() => removeRow(row.id)}
+                              size="icon"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </div>
+            ) : (
+              <Alert className="flex min-h-64 items-center justify-center border-dashed text-muted-foreground">
+                Select a ruleset to begin editing.
+              </Alert>
+            )}
           </div>
         </div>
+
+        {error ? <Alert className="mt-4" variant="destructive">{error}</Alert> : null}
       </CardContent>
     </Card>
   )
 }
 
-function CutlistTable({ preview }: { preview: CutlistPreviewResponse | null }) {
-  if (!preview) {
-    return (
-      <Alert className="flex min-h-72 items-center justify-center border-dashed p-6 text-center text-muted-foreground">
-        Run a preview to see carcass and panel rows from the API.
-      </Alert>
-    )
+function mapRulesetToDraft(ruleset: CuttingRulesetResponse): CuttingRulesetDraft {
+  return {
+    based_on_ruleset_id: ruleset.based_on_ruleset_id,
+    description: ruleset.description,
+    id: ruleset.id,
+    is_default: ruleset.is_default,
+    name: ruleset.name,
+    rows: ruleset.rows.map((row) => ({
+      can_rotate: row.can_rotate,
+      condition_formula: row.condition_formula,
+      description: row.description,
+      edge_long_1: row.edge_long_1,
+      edge_long_2: row.edge_long_2,
+      edge_short_1: row.edge_short_1,
+      edge_short_2: row.edge_short_2,
+      grain_direction: row.grain_direction,
+      id: row.id,
+      length_formula: row.length_formula,
+      meta: row.meta ?? {},
+      qty_formula: row.qty_formula,
+      section: row.section,
+      sort_order: row.sort_order,
+      width_formula: row.width_formula,
+    })),
+    status: ruleset.status,
+    unit_config_id: ruleset.unit_config_id,
+    unit_type_key: ruleset.unit_type_key,
+    version: ruleset.version,
+  }
+}
+
+function toRulesetRequest(draft: CuttingRulesetDraft): CuttingRulesetRequest {
+  return {
+    based_on_ruleset_id: draft.based_on_ruleset_id,
+    description: draft.description,
+    is_default: draft.is_default,
+    name: draft.name,
+    rows: draft.rows.map((row) => ({
+      can_rotate: row.can_rotate,
+      condition_formula: row.condition_formula,
+      description: row.description,
+      edge_long_1: row.edge_long_1,
+      edge_long_2: row.edge_long_2,
+      edge_short_1: row.edge_short_1,
+      edge_short_2: row.edge_short_2,
+      grain_direction: row.grain_direction,
+      length_formula: row.length_formula,
+      meta: row.meta ?? {},
+      qty_formula: row.qty_formula,
+      section: row.section,
+      sort_order: row.sort_order,
+      width_formula: row.width_formula,
+    })),
+    status: draft.status,
+    unit_config_id: draft.unit_config_id,
+    unit_type_key: draft.unit_type_key,
+    version: draft.version,
+  }
+}
+
+function toRulesetSummary(ruleset: CuttingRulesetResponse): CuttingRulesetSummaryResponse {
+  return {
+    based_on_ruleset_id: ruleset.based_on_ruleset_id,
+    company_id: ruleset.company_id,
+    created_at: ruleset.created_at,
+    description: ruleset.description,
+    id: ruleset.id,
+    is_default: ruleset.is_default,
+    name: ruleset.name,
+    status: ruleset.status,
+    unit_config_id: ruleset.unit_config_id,
+    unit_type_key: ruleset.unit_type_key,
+    updated_at: ruleset.updated_at,
+    version: ruleset.version,
+  }
+}
+
+function createDefaultRow(sortOrder: number): CuttingRuleRowDraft {
+  return {
+    can_rotate: true,
+    condition_formula: '',
+    description: 'New row',
+    edge_long_1: false,
+    edge_long_2: false,
+    edge_short_1: false,
+    edge_short_2: false,
+    grain_direction: 'none',
+    id: createLocalRowId(),
+    length_formula: '',
+    meta: {},
+    qty_formula: '1',
+    section: 'carcass',
+    sort_order: sortOrder,
+    width_formula: '',
+  }
+}
+
+function createLocalRowId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `draft-${crypto.randomUUID()}`
+  }
+  return `draft-${Date.now()}-${Math.round(Math.random() * 100_000)}`
+}
+
+function parsePositiveInteger(value: string, fallback: number) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return fallback
+  }
+  return Math.floor(parsed)
+}
+
+function getAvailableFormulaVariables(unitConfigs: UnitConfigResponse[], unitTypeKey: string) {
+  const dynamicVariables = new Set<string>()
+  for (const config of unitConfigs) {
+    if (config.unit_type_key !== unitTypeKey) continue
+    for (const key of Object.keys(config.variant_config ?? {})) {
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+        dynamicVariables.add(key)
+      }
+    }
   }
 
-  const rows = [
-    ...preview.carcass.map((row) => ({ ...row, section: 'Carcass' })),
-    ...preview.panels.map((row) => ({ ...row, section: 'Panels' })),
-  ]
+  return [...baseFormulaVariables, ...Array.from(dynamicVariables).sort((a, b) => a.localeCompare(b))]
+}
 
-  return (
-    <TableContainer>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Section</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead>Length</TableHead>
-            <TableHead>Width</TableHead>
-            <TableHead>Qty</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row, index) => (
-            <TableRow key={`${row.section}-${row.desc}-${index}`}>
-              <TableCell className="text-muted-foreground">{row.section}</TableCell>
-              <TableCell className="font-medium">{row.desc}</TableCell>
-              <TableCell>{row.length}</TableCell>
-              <TableCell>{row.width}</TableCell>
-              <TableCell>{row.qty}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
+function validateDraftFormulas(
+  rows: CuttingRuleRowDraft[],
+  availableVariables: string[],
+): Record<string, Partial<Record<FormulaFieldKey, string>>> {
+  const errors: Record<string, Partial<Record<FormulaFieldKey, string>>> = {}
+  for (const row of rows) {
+    const rowErrors: Partial<Record<FormulaFieldKey, string>> = {}
+
+    const lengthError = validateFormulaExpression('length_formula', row.length_formula, availableVariables)
+    if (lengthError) rowErrors.length_formula = lengthError
+
+    const widthError = validateFormulaExpression('width_formula', row.width_formula, availableVariables)
+    if (widthError) rowErrors.width_formula = widthError
+
+    const qtyError = validateFormulaExpression('qty_formula', row.qty_formula, availableVariables)
+    if (qtyError) rowErrors.qty_formula = qtyError
+
+    const conditionError = validateFormulaExpression('condition_formula', row.condition_formula, availableVariables)
+    if (conditionError) rowErrors.condition_formula = conditionError
+
+    if (Object.keys(rowErrors).length > 0) {
+      errors[row.id] = rowErrors
+    }
+  }
+  return errors
+}
+
+function validateFormulaExpression(
+  field: FormulaFieldKey,
+  expression: string,
+  availableVariables: string[],
+): string | null {
+  const trimmed = expression.trim()
+  if (!trimmed) {
+    return field === 'qty_formula' ? 'Quantity formula is required.' : null
+  }
+  if (!/^[0-9A-Za-z_+\-*/().<>=!&|,%\s]*$/.test(trimmed)) {
+    return 'Contains unsupported characters.'
+  }
+  if (!hasBalancedParentheses(trimmed)) {
+    return 'Parentheses are not balanced.'
+  }
+
+  const validIdentifiers = new Set<string>(availableVariables)
+  const unknownTokens = (trimmed.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []).filter(
+    (token) => !validIdentifiers.has(token) && !formulaKeywords.has(token.toLowerCase()),
   )
+  if (unknownTokens.length > 0) {
+    return `Unknown token(s): ${Array.from(new Set(unknownTokens)).join(', ')}`
+  }
+  return null
+}
+
+function hasBalancedParentheses(value: string) {
+  let depth = 0
+  for (const char of value) {
+    if (char === '(') depth += 1
+    if (char === ')') {
+      depth -= 1
+      if (depth < 0) return false
+    }
+  }
+  return depth === 0
 }
 
 function AppearancePage({
@@ -1026,21 +1788,6 @@ function Field({
   )
 }
 
-function NumberField({ label, onChange, value }: { label: string; onChange: (value: number) => void; value: number }) {
-  return (
-    <Label className="grid min-w-0 gap-1.5">
-      {label}
-      <Input
-        min={1}
-        onChange={(event) => onChange(Number(event.target.value))}
-        required
-        type="number"
-        value={value}
-      />
-    </Label>
-  )
-}
-
 function ModeSwitch({
   setThemeMode,
   themeMode,
@@ -1093,7 +1840,7 @@ async function apiRequest<T = unknown>(
   path: string,
   options: {
     body?: unknown
-    method?: 'GET' | 'POST'
+    method?: 'GET' | 'POST' | 'PATCH'
     token?: string
   } = {},
 ): Promise<T> {
