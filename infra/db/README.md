@@ -15,7 +15,9 @@ uv run python infra/db/apply_migrations.py
 
 The runner records applied files in `schema_migrations` so repeated runs are safe.
 
-## SQLite Library Import
+## Legacy SQLite Library Import
+
+SQLite and Streamlit are deprecated and are not product development targets. This importer exists only to migrate old local library rows into Postgres when explicitly needed.
 
 Legacy Streamlit library rows can be imported into a specific company with:
 

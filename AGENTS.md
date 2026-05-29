@@ -4,16 +4,20 @@ Guidance for AI agents working in this repository.
 
 ## Project Overview
 
-CoreQuote is a Streamlit-based cabinetry quoting and cutlist system for kitchen, built-in, and board-based joinery workflows. It combines project and quote management, cabinet unit configuration, board and hardware libraries, cutting list generation, component counting, and PDF output.
+CoreQuote is a FastAPI + React cabinetry quoting and cutlist system for kitchen, built-in, and board-based joinery workflows. It combines project and quote management, cabinet unit configuration, board and hardware libraries, cutting list generation, component counting, and PDF output.
 
 The current codebase is a Python project with:
 
-- Streamlit UI in `apps/streamlit`.
+- React UI in `apps/web`.
 - FastAPI API layer in `apps/api`.
 - Reusable business logic in `packages/corequote-core/corequote_core`.
-- SQLite persistence in `packages/corequote-core/corequote_core/database.py`.
-- Runtime local data in `data/corequote.db` and `data/slides.csv`.
+- PostgreSQL persistence managed through migrations in `infra/db/migrations`.
 - Tests in `tests/unit` and `tests/api`.
+
+Deprecated legacy surfaces:
+
+- `apps/streamlit` is deprecated and no longer used. Do not add features, fixes, styling changes, or new workflows there unless the user explicitly asks for legacy migration support.
+- SQLite persistence in `packages/corequote-core/corequote_core/database.py`, `data/corequote.db`, and `data/slides.csv` is deprecated and no longer used for product development. Do not extend SQLite schemas, helpers, seed data, or tests. New persistence work must be designed for PostgreSQL first.
 
 ## Setup Commands
 
@@ -31,10 +35,11 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Run the Streamlit app:
+Run the React frontend:
 
 ```bash
-uv run streamlit run apps/streamlit/main.py
+cd apps/web
+npm run dev
 ```
 
 TODO: Confirm the intended local FastAPI run command before relying on it for development workflows.
@@ -67,7 +72,7 @@ Always run the relevant tests before finishing. For changes to shared business l
 - Follow the existing Python style in the touched files.
 - Keep functions small and behavior explicit.
 - Prefer typed datamodels and existing helper functions over ad hoc dictionaries or string manipulation.
-- Keep UI code in `apps/streamlit`, API code in `apps/api`, and reusable business logic in `packages/corequote-core/corequote_core`.
+- Keep React UI code in `apps/web`, API code in `apps/api`, and reusable business logic in `packages/corequote-core/corequote_core`.
 - Do not introduce a new formatter, linter, framework, or architectural pattern without approval.
 - TODO: Add the canonical formatter/linter command if the project adopts one.
 
@@ -81,10 +86,10 @@ Always run the relevant tests before finishing. For changes to shared business l
 
 ## Database and Migration Rules
 
-- The app uses SQLite, with the default database at `data/corequote.db`.
-- Database schema creation and lightweight migrations currently live in `packages/corequote-core/corequote_core/database.py`.
-- Use `COREQUOTE_DB_PATH` for isolated local or test databases when appropriate.
-- Do not hand-edit `data/corequote.db` unless the user explicitly asks for it.
+- The product database is PostgreSQL. Design schema and persistence behavior for PostgreSQL first.
+- Database migrations live in `infra/db/migrations` and are applied with `infra/db/apply_migrations.py`.
+- Do not add new SQLite tables, migrations, helpers, or tests. SQLite files and `apps/streamlit` are legacy migration references only.
+- Do not hand-edit `data/corequote.db` unless the user explicitly asks for legacy data recovery.
 - Do not run destructive database commands, data wipes, bulk updates, or migration rewrites without explicit confirmation.
 - Keep schema changes small, backwards-compatible where possible, and covered by tests when they affect business behavior.
 - Explain any migration strategy before implementing it.
