@@ -178,6 +178,102 @@ class CutlistPreviewResponse(BaseModel):
     panels: list[CutlistRowResponse]
 
 
+UnitConfigCategory = Literal["base", "wall", "tall", "custom"]
+UnitConfigVariantType = Literal["drawer", "door", "wall", "tall", "custom"]
+CuttingConfigStatus = Literal["draft", "active", "archived"]
+CuttingRuleSection = Literal["carcass", "panel", "hardware", "extra_panel"]
+GrainDirection = Literal["none", "length", "width"]
+
+
+class UnitConfigResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    company_id: str | None
+    unit_type_key: str
+    label: str
+    category: UnitConfigCategory
+    variant_type: UnitConfigVariantType
+    version: int
+    status: CuttingConfigStatus
+    is_default: bool
+    based_on_unit_config_id: str | None
+    variant_config: dict[str, Any]
+    default_height: int
+    default_width: int
+    default_depth: int
+    height_min: int
+    height_max: int
+    width_min: int
+    width_max: int
+    depth_min: int
+    depth_max: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CuttingRuleRowRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sort_order: int = Field(gt=0)
+    section: CuttingRuleSection
+    description: str = Field(min_length=1, max_length=160)
+    length_formula: str = Field(default="", max_length=500)
+    width_formula: str = Field(default="", max_length=500)
+    qty_formula: str = Field(default="1", min_length=1, max_length=500)
+    condition_formula: str = Field(default="", max_length=500)
+    grain_direction: GrainDirection = "none"
+    can_rotate: bool = True
+    edge_long_1: bool = False
+    edge_long_2: bool = False
+    edge_short_1: bool = False
+    edge_short_2: bool = False
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class CuttingRuleRowResponse(CuttingRuleRowRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CuttingRulesetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unit_config_id: str | None = None
+    unit_type_key: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    status: CuttingConfigStatus = "draft"
+    version: int = Field(default=1, gt=0)
+    based_on_ruleset_id: str | None = None
+    is_default: bool = False
+    rows: list[CuttingRuleRowRequest] = Field(min_length=1)
+
+
+class CuttingRulesetSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    company_id: str | None
+    unit_config_id: str | None
+    unit_type_key: str
+    name: str
+    description: str
+    status: CuttingConfigStatus
+    version: int
+    based_on_ruleset_id: str | None
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class CuttingRulesetResponse(CuttingRulesetSummaryResponse):
+    rows: list[CuttingRuleRowResponse]
+
+
 class BoardTypeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
