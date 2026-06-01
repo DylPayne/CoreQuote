@@ -42,6 +42,9 @@ class FakeWorkspaceStore:
         self.created_unit_payload: tuple[str, str, dict] | None = None
         self.updated_unit_payload: tuple[str, str, str, dict] | None = None
         self.deleted_unit: tuple[str, str, str] | None = None
+        self.replaced_quote_extras_payload: tuple[str, str, list[dict]] | None = None
+        self.requested_cutting_list: tuple[str, str] | None = None
+        self.requested_project_pricing: tuple[str, str] | None = None
 
     def list_projects(self, company_id: str, search: str | None = None) -> list[dict]:
         return [project("project-1", quote_count=2)]
@@ -138,6 +141,32 @@ class FakeWorkspaceStore:
         if quote_id == "missing" or unit_id == "missing":
             raise WorkspaceNotFound("Unit not found")
         self.deleted_unit = (company_id, quote_id, unit_id)
+
+    def get_quote_cutting_list(self, company_id: str, quote_id: str, runtime_service=None) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.requested_cutting_list = (company_id, quote_id)
+        return quote_cutting_list(quote_id)
+
+    def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        return [
+            {"extra_id": "extra-1", "quantity": 2},
+            {"extra_id": "extra-2", "quantity": 1},
+        ]
+
+    def replace_quote_extras(self, company_id: str, quote_id: str, items: list[dict]) -> list[dict]:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.replaced_quote_extras_payload = (company_id, quote_id, items)
+        return items
+
+    def get_project_pricing(self, company_id: str, project_id: str, runtime_service=None) -> dict:
+        if project_id == "missing":
+            raise WorkspaceNotFound("Project not found")
+        self.requested_project_pricing = (company_id, project_id)
+        return project_pricing(project_id)
 
 
 def test_list_projects_returns_quote_counts():
@@ -274,6 +303,91 @@ def test_delete_unit_returns_204():
     assert store.deleted_unit == ("company-1", "quote-1", "unit-1")
 
 
+def test_get_quote_cutting_list_returns_cutlist_payload():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/quote-1/cutting-list", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["quote_id"] == "quote-1"
+    assert response.json()["carcass"][0]["desc"] == "Side"
+    assert store.requested_cutting_list == ("company-1", "quote-1")
+
+
+def test_quote_extras_read_and_replace():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = {
+        "items": [
+            {"extra_id": "extra-1", "quantity": 3},
+            {"extra_id": "extra-2", "quantity": 1},
+        ]
+    }
+    try:
+        read_response = client.get("/api/v1/quotes/quote-1/extras", headers=auth_header())
+        replace_response = client.put("/api/v1/quotes/quote-1/extras", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert read_response.status_code == 200
+    assert read_response.json()["quote_id"] == "quote-1"
+    assert len(read_response.json()["items"]) == 2
+    assert replace_response.status_code == 200
+    assert replace_response.json()["items"] == payload["items"]
+    assert store.replaced_quote_extras_payload == ("company-1", "quote-1", payload["items"])
+
+
+def test_replace_quote_extras_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.put(
+            "/api/v1/quotes/quote-1/extras",
+            json={"items": [{"extra_id": "extra-1", "quantity": 2}]},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+
+
+def test_get_project_pricing_requires_pricing_read_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/projects/project-1/pricing", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:read"}
+
+
+def test_get_project_pricing_returns_project_totals():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/projects/project-1/pricing", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["project_id"] == "project-1"
+    assert response.json()["grand_total_cents"] == 498000
+    assert response.json()["quotes"][0]["quote_id"] == "quote-1"
+    assert store.requested_project_pricing == ("company-1", "project-1")
+
+
 def project(item_id: str, *, name: str = "Main Kitchen", quote_count: int = 0) -> dict:
     return {
         "id": item_id,
@@ -394,6 +508,47 @@ def unit_payload(*, unit_type_key: str = "Base Draw", width: int = 900) -> dict:
         "carcass_board_type_id": None,
         "door_board_type_id": None,
         "extra_params": {"num_drawers": 3},
+    }
+
+
+def quote_cutting_list(quote_id: str) -> dict:
+    return {
+        "quote_id": quote_id,
+        "carcass": [{"unit_number": 1, "desc": "Side", "length": 748, "width": 564, "qty": 2}],
+        "panels": [{"unit_number": 1, "desc": "Door", "length": 777, "width": 297, "qty": 2}],
+        "hardware": [],
+        "extras": [],
+        "runtime_rows": [],
+        "runtime_mode": "legacy",
+        "unit_sources": [{"unit_number": 1, "unit_type_key": "Base Door", "source": "legacy", "ruleset_id": None, "unit_config_id": None, "note": None}],
+    }
+
+
+def project_pricing(project_id: str) -> dict:
+    return {
+        "project_id": project_id,
+        "project_name": "Main Kitchen",
+        "active_price_list_id": "price-list-1",
+        "vat_rate_bps": 1500,
+        "markup_bps": 2500,
+        "is_complete": True,
+        "subtotal_cents": 346783,
+        "sell_before_vat_cents": 433479,
+        "vat_cents": 65021,
+        "grand_total_cents": 498000,
+        "quotes": [
+            {
+                "quote_id": "quote-1",
+                "quote_name": "Kitchen Quote",
+                "is_complete": True,
+                "missing_items": [],
+                "subtotal_cents": 346783,
+                "sell_before_vat_cents": 433479,
+                "vat_cents": 65021,
+                "grand_total_cents": 498000,
+                "lines": [],
+            }
+        ],
     }
 
 

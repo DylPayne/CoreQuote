@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import math
 import os
+from collections import defaultdict
 from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+
+from corequote_api.cutting_runtime import CutlistRuntimeService, canonical_unit_type_key
 
 
 class WorkspaceError(Exception):
@@ -482,6 +486,277 @@ class WorkspaceStore:
                     (company_id, quote_id),
                 )
 
+    def get_quote_cutting_list(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict:
+        quote = self.get_quote(company_id, quote_id)
+        units = self.list_units(company_id, quote_id)
+        use_rulesets = _is_enabled("CUTLIST_USE_DB_RULESETS")
+
+        with self._connect() as conn:
+            lookups = self._load_company_item_lookups(conn, company_id)
+
+        return _build_cutting_list_preview(
+            company_id=company_id,
+            quote=quote,
+            units=units,
+            runtime_service=runtime_service,
+            use_rulesets=use_rulesets,
+            slide_lookup=lookups["slides"],
+        )
+
+    def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
+        with self._connect() as conn:
+            self._ensure_quote_visible(conn, company_id, quote_id)
+            return conn.execute(
+                """
+                SELECT extra_id::text, quantity
+                FROM quote_extras
+                WHERE company_id = %s
+                  AND quote_id = %s
+                ORDER BY created_at ASC, id ASC
+                """,
+                (company_id, quote_id),
+            ).fetchall()
+
+    def replace_quote_extras(self, company_id: str, quote_id: str, items: list[dict[str, Any]]) -> list[dict]:
+        cleaned_items = _clean_quote_extras_items(items)
+        with self._connect() as conn:
+            with conn.transaction():
+                self._ensure_quote_visible(conn, company_id, quote_id)
+                self._validate_quote_extras(conn, company_id, cleaned_items)
+                conn.execute(
+                    """
+                    DELETE FROM quote_extras
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    """,
+                    (company_id, quote_id),
+                )
+                if cleaned_items:
+                    conn.executemany(
+                        """
+                        INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        [
+                            (
+                                company_id,
+                                quote_id,
+                                row["extra_id"],
+                                row["quantity"],
+                            )
+                            for row in cleaned_items
+                        ],
+                    )
+        return self.list_quote_extras(company_id, quote_id)
+
+    def get_project_pricing(
+        self,
+        company_id: str,
+        project_id: str,
+        *,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict:
+        project = self.get_project(company_id, project_id)
+        quotes = self.list_quotes(company_id, project_id)
+        quote_ids = [quote["id"] for quote in quotes]
+        use_rulesets = _is_enabled("CUTLIST_USE_DB_RULESETS")
+
+        units_by_quote: dict[str, list[dict]] = {quote_id: [] for quote_id in quote_ids}
+        extras_by_quote: dict[str, list[dict]] = {quote_id: [] for quote_id in quote_ids}
+
+        with self._connect() as conn:
+            pricing_settings = self._get_pricing_settings(conn, company_id)
+            active_price_list_id = self._get_active_price_list_id(conn, company_id)
+            price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id)
+            lookups = self._load_company_item_lookups(conn, company_id)
+
+            if quote_ids:
+                for row in conn.execute(
+                    f"""
+                    SELECT {UNIT_SELECT}
+                    FROM quote_units u
+                    WHERE u.company_id = %s
+                      AND u.quote_id = ANY(%s::uuid[])
+                    ORDER BY u.quote_id ASC, u.unit_number ASC, u.created_at ASC
+                    """,
+                    (company_id, quote_ids),
+                ).fetchall():
+                    units_by_quote.setdefault(row["quote_id"], []).append(row)
+
+                for row in conn.execute(
+                    """
+                    SELECT quote_id::text, extra_id::text, quantity
+                    FROM quote_extras
+                    WHERE company_id = %s
+                      AND quote_id = ANY(%s::uuid[])
+                    ORDER BY quote_id ASC, created_at ASC, id ASC
+                    """,
+                    (company_id, quote_ids),
+                ).fetchall():
+                    extras_by_quote.setdefault(row["quote_id"], []).append(row)
+
+        quote_summaries = [
+            _price_quote(
+                quote=quote,
+                units=units_by_quote.get(quote["id"], []),
+                quote_extras=extras_by_quote.get(quote["id"], []),
+                runtime_service=runtime_service,
+                company_id=company_id,
+                use_rulesets=use_rulesets,
+                price_lookup=price_lookup,
+                board_lookup=lookups["boards"],
+                slide_lookup=lookups["slides"],
+                hinge_lookup=lookups["hinges"],
+                handle_lookup=lookups["handles"],
+                extra_lookup=lookups["extras"],
+                active_price_list_id=active_price_list_id,
+                markup_bps=int(pricing_settings["default_markup_bps"]),
+                vat_rate_bps=int(pricing_settings["vat_rate_bps"]),
+            )
+            for quote in quotes
+        ]
+
+        subtotal_cents = sum(int(row["subtotal_cents"]) for row in quote_summaries)
+        sell_before_vat_cents = sum(int(row["sell_before_vat_cents"]) for row in quote_summaries)
+        vat_cents = sum(int(row["vat_cents"]) for row in quote_summaries)
+        grand_total_cents = sum(int(row["grand_total_cents"]) for row in quote_summaries)
+        is_complete = bool(active_price_list_id) and all(bool(row["is_complete"]) for row in quote_summaries)
+
+        return {
+            "project_id": project["id"],
+            "project_name": project["name"],
+            "active_price_list_id": active_price_list_id,
+            "vat_rate_bps": int(pricing_settings["vat_rate_bps"]),
+            "markup_bps": int(pricing_settings["default_markup_bps"]),
+            "is_complete": is_complete,
+            "subtotal_cents": subtotal_cents,
+            "sell_before_vat_cents": sell_before_vat_cents,
+            "vat_cents": vat_cents,
+            "grand_total_cents": grand_total_cents,
+            "quotes": quote_summaries,
+        }
+
+    def _get_pricing_settings(self, conn, company_id: str) -> dict:
+        row = conn.execute(
+            """
+            SELECT vat_rate_bps, default_markup_bps
+            FROM pricing_settings
+            WHERE company_id = %s
+            """,
+            (company_id,),
+        ).fetchone()
+        if row:
+            return row
+        return {"vat_rate_bps": 1500, "default_markup_bps": 2500}
+
+    def _get_active_price_list_id(self, conn, company_id: str) -> str | None:
+        row = conn.execute(
+            """
+            SELECT id::text
+            FROM price_lists
+            WHERE company_id = %s
+              AND status = 'active'
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (company_id,),
+        ).fetchone()
+        return row["id"] if row else None
+
+    def _get_price_lookup(self, conn, company_id: str, price_list_id: str | None) -> dict[tuple[str, str, str], dict]:
+        if not price_list_id:
+            return {}
+        rows = conn.execute(
+            """
+            SELECT item_type, item_key, price_component, uom, unit_price_cents
+            FROM price_list_items
+            WHERE company_id = %s
+              AND price_list_id = %s
+              AND effective_to IS NULL
+            ORDER BY item_type ASC, item_key ASC, price_component ASC
+            """,
+            (company_id, price_list_id),
+        ).fetchall()
+        return {
+            (str(row["item_type"]), str(row["item_key"]), str(row["price_component"])): row
+            for row in rows
+        }
+
+    def _load_company_item_lookups(self, conn, company_id: str) -> dict[str, dict[str, dict]]:
+        boards = {
+            row["id"]: row
+            for row in conn.execute(
+                """
+                SELECT id::text, brand, material, thickness, length_mm, width_mm, costing_mode
+                FROM board_types
+                WHERE company_id = %s
+                ORDER BY brand ASC, material ASC, thickness ASC
+                """,
+                (company_id,),
+            ).fetchall()
+        }
+        slides = {
+            row["id"]: row
+            for row in conn.execute(
+                """
+                SELECT id::text, brand, model, code, length, side_length, side_clearance_total, side_height_uplift
+                FROM slides
+                WHERE company_id = %s
+                ORDER BY brand ASC, model ASC, code ASC
+                """,
+                (company_id,),
+            ).fetchall()
+        }
+        hinges = {
+            row["id"]: row
+            for row in conn.execute(
+                """
+                SELECT id::text, brand, model, code, opening_angle_deg
+                FROM hinges
+                WHERE company_id = %s
+                ORDER BY brand ASC, model ASC, code ASC
+                """,
+                (company_id,),
+            ).fetchall()
+        }
+        handles = {
+            row["id"]: row
+            for row in conn.execute(
+                """
+                SELECT id::text, name, supplier, code
+                FROM handles
+                WHERE company_id = %s
+                ORDER BY name ASC, supplier ASC, code ASC
+                """,
+                (company_id,),
+            ).fetchall()
+        }
+        extras = {
+            row["id"]: row
+            for row in conn.execute(
+                """
+                SELECT id::text, name, supplier, code
+                FROM extras
+                WHERE company_id = %s
+                ORDER BY name ASC, supplier ASC, code ASC
+                """,
+                (company_id,),
+            ).fetchall()
+        }
+        return {
+            "boards": boards,
+            "slides": slides,
+            "hinges": hinges,
+            "handles": handles,
+            "extras": extras,
+        }
+
     def _validate_quote_defaults(self, conn, company_id: str, data: dict[str, Any]) -> None:
         self._ensure_library_item_visible(
             conn,
@@ -526,6 +801,24 @@ class WorkspaceStore:
             data["door_board_type_id"],
             "Unit door board",
         )
+
+    def _validate_quote_extras(self, conn, company_id: str, items: list[dict[str, Any]]) -> None:
+        if not items:
+            return
+        extra_ids = [row["extra_id"] for row in items]
+        visible_rows = conn.execute(
+            """
+            SELECT id::text
+            FROM extras
+            WHERE company_id = %s
+              AND id = ANY(%s::uuid[])
+            """,
+            (company_id, extra_ids),
+        ).fetchall()
+        visible = {row["id"] for row in visible_rows}
+        for extra_id in extra_ids:
+            if extra_id not in visible:
+                raise WorkspaceValidationError(f"Extra is not visible for this company: {extra_id}")
 
     def _ensure_project_visible(self, conn, company_id: str, project_id: str) -> None:
         row = conn.execute(
@@ -667,3 +960,370 @@ def _positive_int(value: Any, *, field: str) -> int:
     if parsed <= 0:
         raise WorkspaceValidationError(f"{field} must be a positive integer")
     return parsed
+
+
+def _is_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _clean_quote_extras_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    totals: dict[str, int] = defaultdict(int)
+    for index, row in enumerate(items):
+        extra_id = str(row.get("extra_id", "")).strip()
+        if not extra_id:
+            raise WorkspaceValidationError(f"items[{index}].extra_id is required")
+        try:
+            quantity = int(row.get("quantity", 1))
+        except (TypeError, ValueError) as exc:
+            raise WorkspaceValidationError(f"items[{index}].quantity must be a positive integer") from exc
+        if quantity <= 0:
+            raise WorkspaceValidationError(f"items[{index}].quantity must be a positive integer")
+        totals[extra_id] += quantity
+    return [{"extra_id": extra_id, "quantity": quantity} for extra_id, quantity in sorted(totals.items())]
+
+
+def _build_cutting_list_preview(
+    *,
+    company_id: str,
+    quote: dict[str, Any],
+    units: list[dict[str, Any]],
+    runtime_service: CutlistRuntimeService,
+    use_rulesets: bool,
+    slide_lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if not units:
+        return {
+            "carcass": [],
+            "panels": [],
+            "hardware": [],
+            "extras": [],
+            "runtime_rows": [],
+            "runtime_mode": "legacy",
+            "unit_sources": [],
+        }
+
+    default_slide = slide_lookup.get(str(quote.get("default_slide_id") or ""))
+    payload_units = [_to_runtime_unit(unit, default_slide=default_slide) for unit in units]
+    return runtime_service.build_preview(
+        company_id=company_id,
+        units=payload_units,
+        use_db_rulesets=use_rulesets,
+    )
+
+
+def _to_runtime_unit(unit: dict[str, Any], *, default_slide: dict[str, Any] | None) -> dict[str, Any]:
+    extra_params = dict(unit.get("extra_params") or {})
+    if default_slide:
+        extra_params.setdefault("slide_brand", default_slide.get("brand", ""))
+        extra_params.setdefault("slide_model", default_slide.get("model", ""))
+        extra_params.setdefault("slide_code", default_slide.get("code", ""))
+        extra_params.setdefault("slide_length", int(default_slide.get("length", 0) or 0))
+        extra_params.setdefault("slide_side_length", int(default_slide.get("side_length", 0) or 0))
+        extra_params.setdefault("slide_side_clearance_total", int(default_slide.get("side_clearance_total", 0) or 0))
+        extra_params.setdefault("slide_side_height_uplift", int(default_slide.get("side_height_uplift", 0) or 0))
+    return {
+        "unit_number": int(unit["unit_number"]),
+        "unit_type": str(unit["unit_type_key"]),
+        "height": int(unit["height"]),
+        "width": int(unit["width"]),
+        "depth": int(unit["depth"]),
+        "thickness": int(unit.get("thickness", 16) or 16),
+        "extra_params": extra_params,
+    }
+
+
+def _price_quote(
+    *,
+    quote: dict[str, Any],
+    units: list[dict[str, Any]],
+    quote_extras: list[dict[str, Any]],
+    runtime_service: CutlistRuntimeService,
+    company_id: str,
+    use_rulesets: bool,
+    price_lookup: dict[tuple[str, str, str], dict[str, Any]],
+    board_lookup: dict[str, dict[str, Any]],
+    slide_lookup: dict[str, dict[str, Any]],
+    hinge_lookup: dict[str, dict[str, Any]],
+    handle_lookup: dict[str, dict[str, Any]],
+    extra_lookup: dict[str, dict[str, Any]],
+    active_price_list_id: str | None,
+    markup_bps: int,
+    vat_rate_bps: int,
+) -> dict[str, Any]:
+    cutting_list = _build_cutting_list_preview(
+        company_id=company_id,
+        quote=quote,
+        units=units,
+        runtime_service=runtime_service,
+        use_rulesets=use_rulesets,
+        slide_lookup=slide_lookup,
+    )
+
+    required: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def add_required(
+        *,
+        item_type: str,
+        item_key: str | None,
+        price_component: str,
+        description: str,
+        qty: float,
+        uom: str,
+    ) -> None:
+        if not item_key:
+            return
+        rounded_qty = float(qty)
+        if rounded_qty <= 0:
+            return
+        key = (item_type, item_key, price_component)
+        row = required.get(key)
+        if row:
+            row["qty"] += rounded_qty
+            return
+        required[key] = {
+            "item_type": item_type,
+            "item_key": item_key,
+            "price_component": price_component,
+            "description": description,
+            "qty": rounded_qty,
+            "uom": uom,
+        }
+
+    units_by_number = {int(unit["unit_number"]): unit for unit in units}
+    board_usage: dict[str, dict[str, Any]] = {}
+    for row in cutting_list.get("runtime_rows", []):
+        section = str(row.get("section", ""))
+        unit = units_by_number.get(int(row.get("unit_number", 0)))
+        if not unit:
+            continue
+
+        board_id: str | None
+        if section == "carcass":
+            board_id = str(unit.get("carcass_board_type_id") or quote.get("default_carcass_board_type_id") or "")
+        elif section == "panel":
+            board_id = str(unit.get("door_board_type_id") or quote.get("default_door_board_type_id") or "")
+        elif section == "extra_panel":
+            board_id = str(
+                quote.get("default_panel_board_type_id")
+                or unit.get("door_board_type_id")
+                or quote.get("default_door_board_type_id")
+                or ""
+            )
+        else:
+            continue
+        if not board_id:
+            continue
+
+        length = int(row.get("length", 0) or 0)
+        width = int(row.get("width", 0) or 0)
+        qty = int(row.get("qty", 0) or 0)
+        if length <= 0 or width <= 0 or qty <= 0:
+            continue
+
+        usage = board_usage.setdefault(board_id, {"piece_areas": [], "total_area_mm2": 0})
+        usage["piece_areas"].extend([length * width] * qty)
+        usage["total_area_mm2"] += length * width * qty
+
+    for board_id, usage in board_usage.items():
+        board = board_lookup.get(board_id)
+        if not board:
+            continue
+        item_key = f"board::{board_id}"
+        costing_mode = str(board.get("costing_mode", "sheet") or "sheet").strip().lower()
+        description = _board_description(board)
+        if costing_mode == "sqm":
+            area_m2 = float(usage["total_area_mm2"]) / 1_000_000.0
+            add_required(
+                item_type="board",
+                item_key=item_key,
+                price_component="sqm",
+                description=description,
+                qty=area_m2,
+                uom="m2",
+            )
+            continue
+        sheet_area = int(board.get("length_mm", 0) or 0) * int(board.get("width_mm", 0) or 0)
+        sheets_used = _estimate_boards_used(usage["piece_areas"], sheet_area)
+        add_required(
+            item_type="board",
+            item_key=item_key,
+            price_component="sheet",
+            description=description,
+            qty=float(sheets_used),
+            uom="sheet",
+        )
+
+    for unit in units:
+        canonical_type = canonical_unit_type_key(str(unit["unit_type_key"]))
+        extra_params = unit.get("extra_params", {}) or {}
+        height = int(unit.get("height", 0) or 0)
+        num_drawers = _int_or_default(extra_params.get("num_drawers"), default=3 if canonical_type == "Base Draw" else 0, minimum=0)
+        num_doors = _int_or_default(
+            extra_params.get("num_doors"),
+            default=2 if canonical_type in {"Base Door", "Wall Door", "Tall Door"} else 0,
+            minimum=0,
+        )
+
+        if canonical_type == "Base Draw":
+            slide_id = str(quote.get("default_slide_id") or "")
+            add_required(
+                item_type="slide",
+                item_key=f"slide::{slide_id}" if slide_id else None,
+                price_component="unit",
+                description=_slide_description(slide_lookup.get(slide_id)),
+                qty=float(num_drawers),
+                uom="pairs",
+            )
+            drawer_handle_id = str(quote.get("default_drawer_handle_id") or "")
+            drawer_handle_qty = _int_or_default(extra_params.get("handle_qty"), default=num_drawers, minimum=0)
+            add_required(
+                item_type="handle",
+                item_key=f"handle::{drawer_handle_id}" if drawer_handle_id else None,
+                price_component="unit",
+                description=_handle_description(handle_lookup.get(drawer_handle_id)),
+                qty=float(drawer_handle_qty),
+                uom="pcs",
+            )
+
+        if canonical_type in {"Base Door", "Wall Door", "Tall Door"}:
+            hinge_id = str(quote.get("default_hinge_id") or "")
+            hinges_per_door = max(2, math.ceil(height / 600)) if height > 0 else 2
+            add_required(
+                item_type="hinge",
+                item_key=f"hinge::{hinge_id}" if hinge_id else None,
+                price_component="unit",
+                description=_hinge_description(hinge_lookup.get(hinge_id)),
+                qty=float(num_doors * hinges_per_door),
+                uom="pcs",
+            )
+
+            if canonical_type == "Wall Door":
+                handle_id = str(quote.get("default_wall_handle_id") or "")
+            elif canonical_type == "Tall Door":
+                handle_id = str(quote.get("default_tall_handle_id") or "")
+            else:
+                handle_id = str(quote.get("default_base_handle_id") or "")
+
+            handle_qty = _int_or_default(extra_params.get("handle_qty"), default=num_doors, minimum=0)
+            add_required(
+                item_type="handle",
+                item_key=f"handle::{handle_id}" if handle_id else None,
+                price_component="unit",
+                description=_handle_description(handle_lookup.get(handle_id)),
+                qty=float(handle_qty),
+                uom="pcs",
+            )
+
+    for selected_extra in quote_extras:
+        extra_id = str(selected_extra.get("extra_id") or "")
+        quantity = _int_or_default(selected_extra.get("quantity"), default=1, minimum=0)
+        add_required(
+            item_type="extra",
+            item_key=f"extra::{extra_id}" if extra_id else None,
+            price_component="unit",
+            description=_extra_description(extra_lookup.get(extra_id)),
+            qty=float(quantity),
+            uom="pcs",
+        )
+
+    lines: list[dict[str, Any]] = []
+    missing_items: list[str] = []
+    subtotal_cents = 0
+    for _, row in sorted(required.items(), key=lambda entry: (entry[1]["item_type"], entry[1]["description"])):
+        lookup_key = (row["item_type"], row["item_key"], row["price_component"])
+        active_price = price_lookup.get(lookup_key)
+        unit_price_cents: int | None = None
+        line_total_cents: int | None = None
+        missing = active_price is None
+        if active_price is None:
+            missing_items.append(f"{row['item_key']}::{row['price_component']}")
+        else:
+            unit_price_cents = int(active_price["unit_price_cents"])
+            line_total_cents = int(round(float(row["qty"]) * unit_price_cents))
+            subtotal_cents += line_total_cents
+
+        lines.append(
+            {
+                "item_type": row["item_type"],
+                "item_key": row["item_key"],
+                "price_component": row["price_component"],
+                "description": row["description"],
+                "qty": float(round(float(row["qty"]), 4)),
+                "uom": row["uom"],
+                "unit_price_cents": unit_price_cents,
+                "line_total_cents": line_total_cents,
+                "missing": missing,
+            }
+        )
+
+    sell_before_vat_cents = int(round(subtotal_cents * (1.0 + (markup_bps / 10_000.0))))
+    vat_cents = int(round(sell_before_vat_cents * (vat_rate_bps / 10_000.0)))
+    grand_total_cents = sell_before_vat_cents + vat_cents
+
+    return {
+        "quote_id": quote["id"],
+        "quote_name": quote["name"],
+        "is_complete": bool(active_price_list_id) and len(missing_items) == 0,
+        "missing_items": missing_items,
+        "subtotal_cents": subtotal_cents,
+        "sell_before_vat_cents": sell_before_vat_cents,
+        "vat_cents": vat_cents,
+        "grand_total_cents": grand_total_cents,
+        "lines": lines,
+    }
+
+
+def _estimate_boards_used(piece_areas_mm2: list[int], sheet_area_mm2: int) -> int:
+    if sheet_area_mm2 <= 0 or not piece_areas_mm2:
+        return 0
+    bins: list[int] = []
+    for area in sorted((int(value) for value in piece_areas_mm2 if int(value) > 0), reverse=True):
+        for index, remaining in enumerate(bins):
+            if area <= remaining:
+                bins[index] = remaining - area
+                break
+        else:
+            bins.append(max(0, sheet_area_mm2 - area))
+    return len(bins)
+
+
+def _int_or_default(value: Any, *, default: int, minimum: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, parsed)
+
+
+def _board_description(board: dict[str, Any] | None) -> str:
+    if not board:
+        return "Board"
+    return f"{board['brand']} {board['material']} ({board['thickness']}mm)"
+
+
+def _slide_description(slide: dict[str, Any] | None) -> str:
+    if not slide:
+        return "Slide"
+    code = str(slide.get("code", "")).strip()
+    return f"{slide['brand']} {slide['model']}{f' ({code})' if code else ''}"
+
+
+def _hinge_description(hinge: dict[str, Any] | None) -> str:
+    if not hinge:
+        return "Hinge"
+    code = str(hinge.get("code", "")).strip()
+    return f"{hinge['brand']} {hinge['model']}{f' ({code})' if code else ''}"
+
+
+def _handle_description(handle: dict[str, Any] | None) -> str:
+    if not handle:
+        return "Handle"
+    supplier = str(handle.get("supplier", "")).strip()
+    return f"{handle['name']}{f' · {supplier}' if supplier else ''}"
+
+
+def _extra_description(extra: dict[str, Any] | None) -> str:
+    if not extra:
+        return "Extra"
+    supplier = str(extra.get("supplier", "")).strip()
+    return f"{extra['name']}{f' · {supplier}' if supplier else ''}"

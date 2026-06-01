@@ -211,6 +211,31 @@ class QuoteUnitResponse(QuoteUnitRequest):
     updated_at: datetime
 
 
+class QuoteExtraSelectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    extra_id: str = Field(min_length=1, description="Extra library UUID in the current company.")
+    quantity: int = Field(default=1, ge=1)
+
+
+class QuoteExtrasRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[QuoteExtraSelectionRequest] = Field(default_factory=list)
+
+
+class QuoteExtraSelectionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    extra_id: str
+    quantity: int = Field(ge=1)
+
+
+class QuoteExtrasResponse(BaseModel):
+    quote_id: str
+    items: list[QuoteExtraSelectionResponse] = Field(default_factory=list)
+
+
 class CutlistUnitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -262,6 +287,48 @@ class CutlistPreviewResponse(BaseModel):
     runtime_rows: list[CutlistRuntimeRowResponse] = Field(default_factory=list)
     runtime_mode: Literal["legacy", "ruleset", "mixed"] = "legacy"
     unit_sources: list[CutlistUnitSourceResponse] = Field(default_factory=list)
+
+
+class QuoteCuttingListResponse(CutlistPreviewResponse):
+    quote_id: str
+
+
+class QuotePricingLineResponse(BaseModel):
+    item_type: Literal["board", "slide", "hinge", "handle", "extra"]
+    item_key: str
+    price_component: str
+    description: str
+    qty: float
+    uom: str
+    unit_price_cents: int | None = None
+    line_total_cents: int | None = None
+    missing: bool = False
+
+
+class QuotePricingSummaryResponse(BaseModel):
+    quote_id: str
+    quote_name: str
+    is_complete: bool
+    missing_items: list[str] = Field(default_factory=list)
+    subtotal_cents: int = 0
+    sell_before_vat_cents: int = 0
+    vat_cents: int = 0
+    grand_total_cents: int = 0
+    lines: list[QuotePricingLineResponse] = Field(default_factory=list)
+
+
+class ProjectPricingResponse(BaseModel):
+    project_id: str
+    project_name: str
+    active_price_list_id: str | None = None
+    vat_rate_bps: int = Field(ge=0)
+    markup_bps: int = Field(ge=0)
+    is_complete: bool
+    subtotal_cents: int = 0
+    sell_before_vat_cents: int = 0
+    vat_cents: int = 0
+    grand_total_cents: int = 0
+    quotes: list[QuotePricingSummaryResponse] = Field(default_factory=list)
 
 
 UnitConfigCategory = Literal["base", "wall", "tall", "custom"]

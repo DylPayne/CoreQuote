@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from corequote_api.authorization import require_permission
+from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes import (
     WorkspaceConflict,
     WorkspaceNotFound,
@@ -13,8 +14,12 @@ from corequote_api.projects_quotes import (
 )
 from corequote_api.schemas import (
     AuthUserResponse,
+    ProjectPricingResponse,
     ProjectRequest,
     ProjectResponse,
+    QuoteCuttingListResponse,
+    QuoteExtrasRequest,
+    QuoteExtrasResponse,
     QuoteRequest,
     QuoteResponse,
     QuoteUnitRequest,
@@ -29,11 +34,17 @@ def get_workspace_store() -> WorkspaceStore:
     return WorkspaceStore()
 
 
+def get_cutlist_runtime_service() -> CutlistRuntimeService:
+    return CutlistRuntimeService()
+
+
 ProjectsReader = Annotated[AuthUserResponse, Depends(require_permission("projects:read"))]
 ProjectsWriter = Annotated[AuthUserResponse, Depends(require_permission("projects:write"))]
 QuotesReader = Annotated[AuthUserResponse, Depends(require_permission("quotes:read"))]
 QuotesWriter = Annotated[AuthUserResponse, Depends(require_permission("quotes:write"))]
+PricingReader = Annotated[AuthUserResponse, Depends(require_permission("pricing:read"))]
 StoreDep = Annotated[WorkspaceStore, Depends(get_workspace_store)]
+CutlistRuntimeDep = Annotated[CutlistRuntimeService, Depends(get_cutlist_runtime_service)]
 
 
 @router.get("/projects", response_model=list[ProjectResponse], summary="List projects")
@@ -221,6 +232,79 @@ def delete_unit(
     except WorkspaceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unit not found") from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/quotes/{quote_id}/cutting-list", response_model=QuoteCuttingListResponse, summary="Build quote cutting list")
+def get_quote_cutting_list(
+    quote_id: str,
+    current_user: QuotesReader,
+    store: StoreDep,
+    runtime_service: CutlistRuntimeDep,
+) -> QuoteCuttingListResponse:
+    try:
+        payload = store.get_quote_cutting_list(
+            current_user.company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return QuoteCuttingListResponse.model_validate({"quote_id": quote_id, **payload})
+
+
+@router.get("/quotes/{quote_id}/extras", response_model=QuoteExtrasResponse, summary="List selected quote extras")
+def list_quote_extras(
+    quote_id: str,
+    current_user: QuotesReader,
+    store: StoreDep,
+) -> QuoteExtrasResponse:
+    try:
+        rows = store.list_quote_extras(current_user.company_id, quote_id)
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    return QuoteExtrasResponse.model_validate({"quote_id": quote_id, "items": rows})
+
+
+@router.put("/quotes/{quote_id}/extras", response_model=QuoteExtrasResponse, summary="Replace selected quote extras")
+def replace_quote_extras(
+    quote_id: str,
+    payload: QuoteExtrasRequest,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> QuoteExtrasResponse:
+    try:
+        rows = store.replace_quote_extras(
+            current_user.company_id,
+            quote_id,
+            [item.model_dump() for item in payload.items],
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return QuoteExtrasResponse.model_validate({"quote_id": quote_id, "items": rows})
+
+
+@router.get("/projects/{project_id}/pricing", response_model=ProjectPricingResponse, summary="Build project pricing summary")
+def get_project_pricing(
+    project_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+    runtime_service: CutlistRuntimeDep,
+) -> ProjectPricingResponse:
+    try:
+        payload = store.get_project_pricing(
+            current_user.company_id,
+            project_id,
+            runtime_service=runtime_service,
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return ProjectPricingResponse.model_validate(payload)
 
 
 def _payload(payload: Any) -> dict[str, Any]:

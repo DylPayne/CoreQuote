@@ -12,6 +12,7 @@ import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -103,9 +104,78 @@ type HandleRow = {
   code: string
 }
 
-type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+type ExtraRow = {
+  id: string
+  name: string
+  category_id: string
+  category_name: string
+  supplier: string
+  code: string
+  notes: string
+}
+
+type CutlistRow = {
+  unit_number: number
+  desc: string
+  length: number
+  width: number
+  qty: number
+}
+
+type QuoteCuttingList = {
+  quote_id: string
+  carcass: CutlistRow[]
+  panels: CutlistRow[]
+  hardware: CutlistRow[]
+  extras: CutlistRow[]
+}
+
+type QuoteExtrasResponse = {
+  quote_id: string
+  items: Array<{ extra_id: string; quantity: number }>
+}
+
+type PricingLine = {
+  item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra'
+  item_key: string
+  price_component: string
+  description: string
+  qty: number
+  uom: string
+  unit_price_cents: number | null
+  line_total_cents: number | null
+  missing: boolean
+}
+
+type QuotePricingSummary = {
+  quote_id: string
+  quote_name: string
+  is_complete: boolean
+  missing_items: string[]
+  subtotal_cents: number
+  sell_before_vat_cents: number
+  vat_cents: number
+  grand_total_cents: number
+  lines: PricingLine[]
+}
+
+type ProjectPricingSummary = {
+  project_id: string
+  project_name: string
+  active_price_list_id: string | null
+  vat_rate_bps: number
+  markup_bps: number
+  is_complete: boolean
+  subtotal_cents: number
+  sell_before_vat_cents: number
+  vat_cents: number
+  grand_total_cents: number
+  quotes: QuotePricingSummary[]
+}
+
+type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
-type QuoteWorkspaceTab = 'units' | 'cutting-lists' | 'extras'
+type QuoteWorkspaceTab = 'units' | 'cutting-lists' | 'extras' | 'pricing'
 
 type ProjectDraft = {
   name: string
@@ -214,6 +284,11 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
   const [slides, setSlides] = useState<SlideRow[]>([])
   const [hinges, setHinges] = useState<HingeRow[]>([])
   const [handles, setHandles] = useState<HandleRow[]>([])
+  const [extras, setExtras] = useState<ExtraRow[]>([])
+
+  const [quoteCuttingList, setQuoteCuttingList] = useState<QuoteCuttingList | null>(null)
+  const [quoteExtrasSelection, setQuoteExtrasSelection] = useState<Record<string, number>>({})
+  const [projectPricing, setProjectPricing] = useState<ProjectPricingSummary | null>(null)
 
   const [currentView, setCurrentView] = useState<'projects' | 'project-workspace'>('projects')
   const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteWorkspaceTab>('units')
@@ -236,8 +311,13 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
   const [isLoadingProjects, setIsLoadingProjects] = useState(true)
   const [isLoadingQuotes, setIsLoadingQuotes] = useState(false)
   const [isLoadingUnits, setIsLoadingUnits] = useState(false)
+  const [isLoadingCuttingList, setIsLoadingCuttingList] = useState(false)
+  const [isLoadingQuoteExtras, setIsLoadingQuoteExtras] = useState(false)
+  const [isLoadingProjectPricing, setIsLoadingProjectPricing] = useState(false)
   const [isLoadingLibraries, setIsLoadingLibraries] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isSavingQuoteExtras, setIsSavingQuoteExtras] = useState(false)
+  const [isQuoteExtrasDirty, setIsQuoteExtrasDirty] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
   const [modalError, setModalError] = useState<string | null>(null)
@@ -249,6 +329,10 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
   const selectedQuote = useMemo(
     () => quotes.find((quote) => quote.id === selectedQuoteId) ?? null,
     [quotes, selectedQuoteId],
+  )
+  const selectedQuotePricing = useMemo(
+    () => projectPricing?.quotes.find((quote) => quote.quote_id === selectedQuoteId) ?? null,
+    [projectPricing, selectedQuoteId],
   )
 
   const boardLabel = useCallback(
@@ -262,20 +346,28 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
   )
 
   const isDrawerUnitDraft = resolvedUnitType(unitDraft).toLowerCase().includes('draw')
+  const cutlistRowCount = quoteCuttingList
+    ? quoteCuttingList.carcass.length +
+      quoteCuttingList.panels.length +
+      quoteCuttingList.hardware.length +
+      quoteCuttingList.extras.length
+    : 0
 
   const loadLibraries = useCallback(async () => {
     setIsLoadingLibraries(true)
     try {
-      const [boardRows, slideRows, hingeRows, handleRows] = await Promise.all([
+      const [boardRows, slideRows, hingeRows, handleRows, extraRows] = await Promise.all([
         apiRequest<BoardRow[]>('/api/v1/libraries/boards', { token: authToken }),
         apiRequest<SlideRow[]>('/api/v1/libraries/slides', { token: authToken }),
         apiRequest<HingeRow[]>('/api/v1/libraries/hinges', { token: authToken }),
         apiRequest<HandleRow[]>('/api/v1/libraries/handles', { token: authToken }),
+        apiRequest<ExtraRow[]>('/api/v1/libraries/extras', { token: authToken }),
       ])
       setBoards(boardRows)
       setSlides(slideRows)
       setHinges(hingeRows)
       setHandles(handleRows)
+      setExtras(extraRows)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load library defaults.')
     } finally {
@@ -335,6 +427,59 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
     [authToken],
   )
 
+  const loadQuoteCuttingList = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingCuttingList(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<QuoteCuttingList>(`/api/v1/quotes/${quoteId}/cutting-list`, { token: authToken })
+        setQuoteCuttingList(payload)
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not build cutting list.')
+      } finally {
+        setIsLoadingCuttingList(false)
+      }
+    },
+    [authToken],
+  )
+
+  const loadQuoteExtras = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingQuoteExtras(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<QuoteExtrasResponse>(`/api/v1/quotes/${quoteId}/extras`, { token: authToken })
+        const nextSelection = payload.items.reduce<Record<string, number>>((accumulator, item) => {
+          accumulator[item.extra_id] = item.quantity
+          return accumulator
+        }, {})
+        setQuoteExtrasSelection(nextSelection)
+        setIsQuoteExtrasDirty(false)
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load selected extras.')
+      } finally {
+        setIsLoadingQuoteExtras(false)
+      }
+    },
+    [authToken],
+  )
+
+  const loadProjectPricing = useCallback(
+    async (projectId: string) => {
+      setIsLoadingProjectPricing(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<ProjectPricingSummary>(`/api/v1/projects/${projectId}/pricing`, { token: authToken })
+        setProjectPricing(payload)
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load project pricing.')
+      } finally {
+        setIsLoadingProjectPricing(false)
+      }
+    },
+    [authToken],
+  )
+
   useEffect(() => {
     const handle = window.setTimeout(() => {
       void loadLibraries()
@@ -348,23 +493,30 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       if (!selectedProjectId) {
         setQuotes([])
         setSelectedQuoteId(null)
+        setProjectPricing(null)
         return
       }
       void loadQuotes(selectedProjectId)
+      void loadProjectPricing(selectedProjectId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadQuotes, selectedProjectId])
+  }, [loadProjectPricing, loadQuotes, selectedProjectId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
       if (!selectedQuoteId) {
         setUnits([])
+        setQuoteCuttingList(null)
+        setQuoteExtrasSelection({})
+        setIsQuoteExtrasDirty(false)
         return
       }
       void loadUnits(selectedQuoteId)
+      void loadQuoteCuttingList(selectedQuoteId)
+      void loadQuoteExtras(selectedQuoteId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadUnits, selectedQuoteId])
+  }, [loadQuoteCuttingList, loadQuoteExtras, loadUnits, selectedQuoteId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -463,6 +615,35 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
     setIsUnitModalOpen(true)
   }
 
+  async function handleSaveQuoteExtras() {
+    if (!selectedQuoteId) return
+    setIsSavingQuoteExtras(true)
+    setError(null)
+    try {
+      const items = Object.entries(quoteExtrasSelection)
+        .filter(([, quantity]) => quantity > 0)
+        .map(([extraId, quantity]) => ({ extra_id: extraId, quantity }))
+      const payload = await apiRequest<QuoteExtrasResponse>(`/api/v1/quotes/${selectedQuoteId}/extras`, {
+        method: 'PUT',
+        token: authToken,
+        body: { items },
+      })
+      const nextSelection = payload.items.reduce<Record<string, number>>((accumulator, item) => {
+        accumulator[item.extra_id] = item.quantity
+        return accumulator
+      }, {})
+      setQuoteExtrasSelection(nextSelection)
+      setIsQuoteExtrasDirty(false)
+      if (selectedProjectId) {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save selected extras.')
+    } finally {
+      setIsSavingQuoteExtras(false)
+    }
+  }
+
   async function handleProjectSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const trimmedName = projectDraft.name.trim()
@@ -530,6 +711,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       setIsQuoteModalOpen(false)
       await loadProjects(search)
       await loadQuotes(selectedProjectId)
+      await loadProjectPricing(selectedProjectId)
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Could not save quote.'
       setError(message)
@@ -563,8 +745,10 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       }
       setIsUnitModalOpen(false)
       await loadUnits(selectedQuoteId)
+      await loadQuoteCuttingList(selectedQuoteId)
       if (selectedProjectId) {
         await loadQuotes(selectedProjectId)
+        await loadProjectPricing(selectedProjectId)
       }
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Could not save unit.'
@@ -582,6 +766,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       if (selectedProjectId === projectId) {
         setSelectedProjectId(null)
         setSelectedQuoteId(null)
+        setProjectPricing(null)
         setCurrentView('projects')
       }
       await loadProjects(search)
@@ -597,6 +782,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       await apiRequest(`/api/v1/quotes/${quoteId}`, { method: 'DELETE', token: authToken })
       await loadProjects(search)
       await loadQuotes(selectedProjectId)
+      await loadProjectPricing(selectedProjectId)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not delete quote.')
     }
@@ -608,8 +794,10 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
     try {
       await apiRequest(`/api/v1/quotes/${selectedQuoteId}/units/${unitId}`, { method: 'DELETE', token: authToken })
       await loadUnits(selectedQuoteId)
+      await loadQuoteCuttingList(selectedQuoteId)
       if (selectedProjectId) {
         await loadQuotes(selectedProjectId)
+        await loadProjectPricing(selectedProjectId)
       }
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not delete unit.')
@@ -825,15 +1013,36 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                 </ControlGroupItem>
                 <ControlGroupItem
                   aria-pressed={activeQuoteTab === 'cutting-lists'}
-                  onClick={() => setActiveQuoteTab('cutting-lists')}
+                  onClick={() => {
+                    setActiveQuoteTab('cutting-lists')
+                    if (selectedQuoteId) {
+                      void loadQuoteCuttingList(selectedQuoteId)
+                    }
+                  }}
                 >
                   Cutting Lists
                 </ControlGroupItem>
                 <ControlGroupItem
                   aria-pressed={activeQuoteTab === 'extras'}
-                  onClick={() => setActiveQuoteTab('extras')}
+                  onClick={() => {
+                    setActiveQuoteTab('extras')
+                    if (selectedQuoteId) {
+                      void loadQuoteExtras(selectedQuoteId)
+                    }
+                  }}
                 >
                   Extras
+                </ControlGroupItem>
+                <ControlGroupItem
+                  aria-pressed={activeQuoteTab === 'pricing'}
+                  onClick={() => {
+                    setActiveQuoteTab('pricing')
+                    if (selectedProjectId) {
+                      void loadProjectPricing(selectedProjectId)
+                    }
+                  }}
+                >
+                  Pricing
                 </ControlGroupItem>
               </ControlGroup>
             </CardHeader>
@@ -892,13 +1101,204 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                   </TableContainer>
                 )
               ) : activeQuoteTab === 'cutting-lists' ? (
-                <Alert className="text-sm text-muted-foreground">
-                  Cutting lists tab placeholder. This panel is ready for the next feature iteration.
-                </Alert>
+                isLoadingCuttingList ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Building cutting list
+                  </div>
+                ) : cutlistRowCount === 0 ? (
+                  <Alert className="text-xs">No cutting-list rows yet. Add units to generate results.</Alert>
+                ) : (
+                  <div className="grid gap-4">
+                    <CutlistSection rows={quoteCuttingList?.carcass ?? []} title="Carcass" />
+                    <CutlistSection rows={quoteCuttingList?.panels ?? []} title="Panels" />
+                    <CutlistSection rows={quoteCuttingList?.hardware ?? []} title="Hardware" />
+                    <CutlistSection rows={quoteCuttingList?.extras ?? []} title="Extras" />
+                  </div>
+                )
+              ) : activeQuoteTab === 'extras' ? (
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-end">
+                    <Button
+                      disabled={!isQuoteExtrasDirty || isSavingQuoteExtras}
+                      onClick={() => void handleSaveQuoteExtras()}
+                      size="sm"
+                      type="button"
+                    >
+                      {isSavingQuoteExtras ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                      Save extras
+                    </Button>
+                  </div>
+                  {isLoadingQuoteExtras ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      Loading selected extras
+                    </div>
+                  ) : extras.length === 0 ? (
+                    <Alert className="text-xs">No extras in your library yet. Add extras in Libraries first.</Alert>
+                  ) : (
+                    <TableContainer>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-20">Use</TableHead>
+                            <TableHead>Extra</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead>Supplier / Code</TableHead>
+                            <TableHead className="w-32">Qty</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {extras.map((extra) => {
+                            const quantity = quoteExtrasSelection[extra.id] ?? 0
+                            const isSelected = quantity > 0
+                            return (
+                              <TableRow key={extra.id}>
+                                <TableCell>
+                                  <Checkbox
+                                    checked={isSelected}
+                                    onChange={(event) => {
+                                      const checked = event.target.checked
+                                      setQuoteExtrasSelection((current) => {
+                                        const next = { ...current }
+                                        if (checked) {
+                                          next[extra.id] = current[extra.id] ?? 1
+                                        } else {
+                                          delete next[extra.id]
+                                        }
+                                        return next
+                                      })
+                                      setIsQuoteExtrasDirty(true)
+                                    }}
+                                  />
+                                </TableCell>
+                                <TableCell>{extra.name}</TableCell>
+                                <TableCell>{extra.category_name}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{`${extra.supplier || '-'} / ${extra.code || '-'}`}</TableCell>
+                                <TableCell>
+                                  <Input
+                                    disabled={!isSelected}
+                                    min={1}
+                                    onChange={(event) => {
+                                      const parsed = Number(event.target.value)
+                                      setQuoteExtrasSelection((current) => ({
+                                        ...current,
+                                        [extra.id]: Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1,
+                                      }))
+                                      setIsQuoteExtrasDirty(true)
+                                    }}
+                                    type="number"
+                                    value={isSelected ? String(quantity) : '1'}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </div>
+              ) : isLoadingProjectPricing ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Loading pricing summary
+                </div>
+              ) : !projectPricing ? (
+                <Alert className="text-xs">No pricing summary available yet.</Alert>
               ) : (
-                <Alert className="text-sm text-muted-foreground">
-                  Extras tab placeholder. This panel is ready for extras workflows.
-                </Alert>
+                <div className="grid gap-4">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <Card className="p-3">
+                      <p className="text-xs text-muted-foreground">Subtotal</p>
+                      <p className="text-sm font-semibold">{formatCents(projectPricing.subtotal_cents)}</p>
+                    </Card>
+                    <Card className="p-3">
+                      <p className="text-xs text-muted-foreground">Before VAT</p>
+                      <p className="text-sm font-semibold">{formatCents(projectPricing.sell_before_vat_cents)}</p>
+                    </Card>
+                    <Card className="p-3">
+                      <p className="text-xs text-muted-foreground">VAT</p>
+                      <p className="text-sm font-semibold">{formatCents(projectPricing.vat_cents)}</p>
+                    </Card>
+                    <Card className="p-3">
+                      <p className="text-xs text-muted-foreground">Total</p>
+                      <p className="text-sm font-semibold">{formatCents(projectPricing.grand_total_cents)}</p>
+                    </Card>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Badge variant={projectPricing.is_complete ? 'outline' : 'warning'}>
+                      {projectPricing.is_complete ? 'Complete pricing' : 'Missing prices'}
+                    </Badge>
+                    <span>{`Markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
+                  </div>
+
+                  <TableContainer>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Quote</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {projectPricing.quotes.map((quotePricing) => (
+                          <TableRow key={quotePricing.quote_id}>
+                            <TableCell>{quotePricing.quote_name}</TableCell>
+                            <TableCell>
+                              <Badge variant={quotePricing.is_complete ? 'outline' : 'warning'}>
+                                {quotePricing.is_complete ? 'Complete' : 'Missing prices'}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">{formatCents(quotePricing.grand_total_cents)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+
+                  {selectedQuotePricing ? (
+                    <div className="grid gap-2">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">{`${selectedQuotePricing.quote_name} line items`}</p>
+                      <TableContainer>
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Item</TableHead>
+                              <TableHead>Component</TableHead>
+                              <TableHead className="text-right">Qty</TableHead>
+                              <TableHead className="text-right">Unit</TableHead>
+                              <TableHead className="text-right">Line</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {selectedQuotePricing.lines.length === 0 ? (
+                              <TableRow>
+                                <TableCell className="text-muted-foreground" colSpan={5}>
+                                  No priced lines yet.
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              selectedQuotePricing.lines.map((line) => (
+                                <TableRow key={`${line.item_key}:${line.price_component}`}>
+                                  <TableCell>
+                                    {line.description}
+                                    {line.missing ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
+                                  </TableCell>
+                                  <TableCell>{line.price_component}</TableCell>
+                                  <TableCell className="text-right">{line.qty.toFixed(2)}</TableCell>
+                                  <TableCell className="text-right">{line.unit_price_cents == null ? '-' : formatCents(line.unit_price_cents)}</TableCell>
+                                  <TableCell className="text-right">{line.line_total_cents == null ? '-' : formatCents(line.line_total_cents)}</TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1216,6 +1616,52 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       ) : null}
     </div>
   )
+}
+
+function CutlistSection({ title, rows }: { title: string; rows: CutlistRow[] }) {
+  if (rows.length === 0) return null
+  return (
+    <div className="grid gap-2">
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{title}</p>
+      <TableContainer>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>#</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead>Length (mm)</TableHead>
+              <TableHead>Width (mm)</TableHead>
+              <TableHead>Qty</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, index) => (
+              <TableRow key={`${title}-${index}-${row.unit_number}-${row.desc}`}>
+                <TableCell>{row.unit_number}</TableCell>
+                <TableCell>{row.desc}</TableCell>
+                <TableCell>{row.length}</TableCell>
+                <TableCell>{row.width}</TableCell>
+                <TableCell>{row.qty}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </div>
+  )
+}
+
+function formatCents(value: number | null): string {
+  if (value == null) return '-'
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  }).format(value / 100)
+}
+
+function formatPercentFromBps(bps: number): string {
+  return `${(bps / 100).toFixed(2)}%`
 }
 
 function ModalCard({
