@@ -129,6 +129,7 @@ Always run the relevant tests before finishing. For changes to shared business l
 ## Change Management
 
 - Keep changes scoped to the user request.
+- When working with libraries, frameworks, APIs, SDKs, packages, setup commands, or configuration, always use Context7 first to fetch current documentation before answering or editing code.
 - Do not add dependencies without explicit approval.
 - Do not change architecture, persistence strategy, deployment strategy, or public interfaces without explaining the plan first.
 - Add or update tests for business logic changes.
