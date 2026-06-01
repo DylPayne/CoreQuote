@@ -177,6 +177,7 @@ Only one price list may be `active` per company. Use `GET /api/v1/libraries/pric
 ```http
 GET    /api/v1/libraries/price-lists/{price_list_id}/items?include_history=false
 POST   /api/v1/libraries/price-lists/{price_list_id}/items
+POST   /api/v1/libraries/price-lists/{price_list_id}/items/upsert
 GET    /api/v1/libraries/price-lists/{price_list_id}/items/{item_id}
 PATCH  /api/v1/libraries/price-lists/{price_list_id}/items/{item_id}
 DELETE /api/v1/libraries/price-lists/{price_list_id}/items/{item_id}
@@ -187,8 +188,8 @@ Payload:
 ```json
 {
   "item_type": "slide",
-  "item_ref_id": null,
-  "item_key": "slide::Grass::Dynapro::DYN-500::500",
+  "item_ref_id": "slide-uuid",
+  "item_key": null,
   "price_component": "unit",
   "uom": "pairs",
   "unit_price_cents": 12500,
@@ -198,7 +199,12 @@ Payload:
 
 `item_type` is `board`, `slide`, `hinge`, `handle`, or `extra`.
 
-The `item_key` field identifies the item being priced. `price_component` identifies the specific cost component for that item. Common components are:
+At least one of `item_ref_id` or `item_key` is required.
+
+- Preferred: send `item_ref_id` (the library row UUID). The API validates the item belongs to the current company and derives `item_key` automatically as `<item_type>::<item_ref_id>`.
+- Backward-compatible: send `item_key` directly for legacy natural keys or imported data.
+
+`price_component` identifies the specific cost component for an item. Common components are:
 
 - `unit` for slides, hinges, handles, and extras.
 - `sheet`, `sqm`, `edging_m`, and `labour_board` for boards.
@@ -218,6 +224,13 @@ Updating a price item does not overwrite the old price. The API closes the old r
 ```
 
 Deleting a price item retires the active row by setting `effective_to`; it does not remove historical pricing.
+
+### Upsert Convenience Endpoint
+
+Use `POST /api/v1/libraries/price-lists/{price_list_id}/items/upsert` when the UI should save a price without checking first whether an active row already exists.
+
+- If an active row exists for the same `(item_type, item_key, price_component)`, the API versions it and returns the replacement row.
+- If no active row exists, the API creates a new row.
 
 ## Response Shape
 
