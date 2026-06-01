@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from corequote_api.auth import AuthenticatedUser
-from corequote_api.libraries import LibraryConflict, LibraryNotFound
+from corequote_api.libraries import LibraryConflict, LibraryNotFound, LibraryValidationError
 from corequote_api.main import app
 from corequote_api.routers import auth, libraries
 
@@ -195,19 +195,54 @@ class FakeLibraryStore:
 
     def create_price_list_item(self, company_id: str, price_list_id: str, payload: dict):
         self.price_item_payload = (price_list_id, payload)
-        return price_item("price-item-2", price_list_id, item_key=payload["item_key"])
+        if not payload.get("item_key") and not payload.get("item_ref_id"):
+            raise LibraryValidationError("Either item_ref_id or item_key is required")
+        item_key = payload.get("item_key") or f"{payload['item_type']}::{payload['item_ref_id']}"
+        return price_item(
+            "price-item-2",
+            price_list_id,
+            item_key=item_key,
+            item_ref_id=payload.get("item_ref_id"),
+            item_type=payload["item_type"],
+            price_component=payload["price_component"],
+            uom=payload["uom"],
+            unit_price_cents=payload["unit_price_cents"],
+        )
 
     def get_price_list_item(self, company_id: str, price_list_id: str, item_id: str):
         return price_item(item_id, price_list_id)
 
     def update_price_list_item(self, company_id: str, price_list_id: str, item_id: str, payload: dict):
         self.price_item_payload = (price_list_id, payload)
+        if not payload.get("item_key") and not payload.get("item_ref_id"):
+            raise LibraryValidationError("Either item_ref_id or item_key is required")
+        item_key = payload.get("item_key") or f"{payload['item_type']}::{payload['item_ref_id']}"
         return price_item(
             "price-item-3",
             price_list_id,
-            item_key=payload["item_key"],
+            item_key=item_key,
+            item_ref_id=payload.get("item_ref_id"),
+            item_type=payload["item_type"],
+            price_component=payload["price_component"],
+            uom=payload["uom"],
             unit_price_cents=payload["unit_price_cents"],
             replaces_id=item_id,
+        )
+
+    def upsert_price_list_item(self, company_id: str, price_list_id: str, payload: dict):
+        self.price_item_payload = (price_list_id, payload)
+        if not payload.get("item_key") and not payload.get("item_ref_id"):
+            raise LibraryValidationError("Either item_ref_id or item_key is required")
+        item_key = payload.get("item_key") or f"{payload['item_type']}::{payload['item_ref_id']}"
+        return price_item(
+            "price-item-upsert",
+            price_list_id,
+            item_key=item_key,
+            item_ref_id=payload.get("item_ref_id"),
+            item_type=payload["item_type"],
+            price_component=payload["price_component"],
+            uom=payload["uom"],
+            unit_price_cents=payload["unit_price_cents"],
         )
 
     def delete_price_list_item(self, company_id: str, price_list_id: str, item_id: str):
@@ -301,7 +336,10 @@ def price_item(
     price_list_id: str,
     *,
     item_key: str = "slide::Grass::Dynapro::DYN-500::500",
+    item_ref_id: str | None = None,
+    item_type: str = "slide",
     price_component: str = "unit",
+    uom: str = "pairs",
     unit_price_cents: int = 12500,
     effective_to: datetime | None = None,
     replaces_id: str | None = None,
@@ -309,11 +347,11 @@ def price_item(
     return {
         "id": item_id,
         "price_list_id": price_list_id,
-        "item_type": "slide",
-        "item_ref_id": None,
+        "item_type": item_type,
+        "item_ref_id": item_ref_id,
         "item_key": item_key,
         "price_component": price_component,
-        "uom": "pairs",
+        "uom": uom,
         "unit_price_cents": unit_price_cents,
         "effective_from": NOW,
         "effective_to": effective_to,
@@ -563,6 +601,82 @@ def test_price_list_item_crud():
     assert patch_response.json()["is_active"] is True
     assert delete_response.status_code == 204
     assert store.price_item_deleted == ("company-1", "price-list-1", item_id)
+
+
+def test_price_list_item_upsert_with_item_ref_id():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_type": "board",
+        "item_ref_id": "board-1",
+        "price_component": "sheet",
+        "uom": "sheet",
+        "unit_price_cents": 359900,
+    }
+    try:
+        response = client.post(
+            "/api/v1/libraries/price-lists/price-list-1/items/upsert",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["item_key"] == "board::board-1"
+    assert response.json()["item_ref_id"] == "board-1"
+    assert response.json()["price_component"] == "sheet"
+    assert store.price_item_payload == ("price-list-1", {**payload, "effective_from": None, "item_key": None})
+
+
+def test_price_list_item_create_with_item_ref_id():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_type": "extra",
+        "item_ref_id": "extra-1",
+        "price_component": "unit",
+        "uom": "pcs",
+        "unit_price_cents": 9900,
+    }
+    try:
+        response = client.post(
+            "/api/v1/libraries/price-lists/price-list-1/items",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert response.json()["item_key"] == "extra::extra-1"
+    assert response.json()["item_ref_id"] == "extra-1"
+    assert store.price_item_payload == ("price-list-1", {**payload, "effective_from": None, "item_key": None})
+
+
+def test_price_list_item_write_rejects_missing_item_identity():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_type": "slide",
+        "price_component": "unit",
+        "uom": "pairs",
+        "unit_price_cents": 14900,
+    }
+    try:
+        response = client.post(
+            "/api/v1/libraries/price-lists/price-list-1/items",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Either item_ref_id or item_key is required"}
 
 
 def auth_header() -> dict[str, str]:

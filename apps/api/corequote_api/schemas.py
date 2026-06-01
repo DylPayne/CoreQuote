@@ -443,7 +443,11 @@ class PriceListItemRequest(BaseModel):
 
     item_type: Literal["board", "slide", "hinge", "handle", "extra"]
     item_ref_id: str | None = Field(default=None, description="Optional UUID of the library item this price applies to.")
-    item_key: str = Field(min_length=1, max_length=240, description="Stable item identity key, without the price component.")
+    item_key: str | None = Field(
+        default=None,
+        max_length=240,
+        description="Optional stable item identity key, without the price component. If item_ref_id is provided the API derives this automatically.",
+    )
     price_component: str = Field(default="unit", min_length=1, max_length=80)
     uom: str = Field(min_length=1, max_length=40)
     unit_price_cents: int = Field(ge=0)
@@ -458,6 +462,7 @@ class PriceListItemResponse(PriceListItemRequest):
 
     id: str
     price_list_id: str
+    item_key: str
     effective_from: datetime
     effective_to: datetime | None
     replaces_id: str | None = None

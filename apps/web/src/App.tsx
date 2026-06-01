@@ -34,6 +34,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ChoiceCard, ChoiceCardContent } from '@/components/ui/choice-card'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { FormulaEditor } from '@/components/formula-editor'
+import { LibrariesPage } from '@/components/libraries-page'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -44,7 +45,7 @@ const AUTH_TOKEN_KEY = 'corequote.authToken'
 
 type AuthMode = 'login' | 'register'
 type AuthStatus = 'checking' | 'signed-in' | 'signed-out'
-type AppPage = 'workspace' | 'cutlist' | 'cutlist-tester' | 'appearance'
+type AppPage = 'workspace' | 'libraries' | 'cutlist' | 'cutlist-tester' | 'appearance'
 type ColourTheme =
   | 'neutral'
   | 'slate'
@@ -753,6 +754,7 @@ function Workspace({
 }) {
   const navItems = [
     { label: 'Workspace', icon: ClipboardList, page: 'workspace' as const },
+    { label: 'Libraries', icon: Building2, page: 'libraries' as const },
     { label: 'Cutlist', icon: Calculator, page: 'cutlist' as const },
     { label: 'Tester', icon: CopyPlus, page: 'cutlist-tester' as const },
     { label: 'Appearance', icon: Palette, page: 'appearance' as const },
@@ -760,6 +762,8 @@ function Workspace({
   const pageTitle =
     currentPage === 'appearance'
       ? 'Appearance'
+      : currentPage === 'libraries'
+        ? 'Libraries'
       : currentPage === 'cutlist'
         ? 'Cutlist'
         : currentPage === 'cutlist-tester'
@@ -768,6 +772,8 @@ function Workspace({
   const pageDescription =
     currentPage === 'appearance'
       ? 'Global style, colour, and mode controls'
+      : currentPage === 'libraries'
+        ? 'Manage catalog libraries and pricing'
       : currentPage === 'cutlist'
         ? 'Manage cutting rulesets and row formulas'
         : currentPage === 'cutlist-tester'
@@ -838,7 +844,7 @@ function Workspace({
           </div>
         </header>
 
-        <nav className="grid grid-cols-4 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
+        <nav className="grid grid-cols-5 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
           {navItems.map((item) => (
             <Button
               aria-pressed={item.page === currentPage}
@@ -866,6 +872,8 @@ function Workspace({
               themeMode={themeMode}
               uiStyle={uiStyle}
             />
+          ) : currentPage === 'libraries' ? (
+            <LibrariesPage authToken={authToken} />
           ) : currentPage === 'cutlist' ? (
             <CuttingRulesetsPage authToken={authToken} companyId={user.company_id} />
           ) : currentPage === 'cutlist-tester' ? (

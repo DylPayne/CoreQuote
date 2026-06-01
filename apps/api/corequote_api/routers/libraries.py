@@ -5,7 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from corequote_api.authorization import require_permission
-from corequote_api.libraries import LibraryConflict, LibraryNotFound, LibraryStore
+from corequote_api.libraries import LibraryConflict, LibraryNotFound, LibraryStore, LibraryValidationError
 from corequote_api.schemas import (
     AuthUserResponse,
     BoardTypeRequest,
@@ -299,6 +299,26 @@ def create_price_list_item(
     )
 
 
+@router.post(
+    "/price-lists/{price_list_id}/items/upsert",
+    response_model=PriceListItemResponse,
+    summary="Upsert a price list item",
+)
+def upsert_price_list_item(
+    price_list_id: str,
+    payload: PriceListItemRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> PriceListItemResponse:
+    return _create_response(
+        PriceListItemResponse,
+        store.upsert_price_list_item,
+        current_user.company_id,
+        price_list_id,
+        payload,
+    )
+
+
 @router.get(
     "/price-lists/{price_list_id}/items/{item_id}",
     response_model=PriceListItemResponse,
@@ -356,6 +376,8 @@ def _payload(payload: Any) -> dict[str, Any]:
 def _create_response(response_model, callback, *args):
     try:
         row = callback(*args[:-1], _payload(args[-1]))
+    except LibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except LibraryConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except LibraryNotFound as exc:
@@ -374,6 +396,8 @@ def _get_response(response_model, callback, *args):
 def _update_response(response_model, callback, *args):
     try:
         row = callback(*args[:-1], _payload(args[-1]))
+    except LibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except LibraryConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except LibraryNotFound as exc:

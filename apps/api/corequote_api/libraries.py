@@ -20,6 +20,10 @@ class LibraryConflict(LibraryError):
     pass
 
 
+class LibraryValidationError(LibraryError):
+    pass
+
+
 @dataclass(frozen=True)
 class ResourceConfig:
     table: str
@@ -86,6 +90,14 @@ PRICE_LIST_ITEM_CONFIG = ResourceConfig(
     ),
     order_by="item_type ASC, item_key ASC, price_component ASC, effective_from DESC",
 )
+
+PRICE_ITEM_TYPE_TABLES: dict[str, str] = {
+    "board": "board_types",
+    "slide": "slides",
+    "hinge": "hinges",
+    "handle": "handles",
+    "extra": "extras",
+}
 
 
 class LibraryStore:
@@ -363,7 +375,7 @@ class LibraryStore:
 
     def create_price_list_item(self, company_id: str, price_list_id: str, payload: dict[str, Any]) -> dict:
         self._ensure_price_list(company_id, price_list_id)
-        data = _clean_payload(payload)
+        data = self._normalize_price_item_payload(company_id, payload)
         try:
             with self._connect() as conn:
                 row = conn.execute(
@@ -415,7 +427,7 @@ class LibraryStore:
         payload: dict[str, Any],
     ) -> dict:
         self._ensure_price_list(company_id, price_list_id)
-        data = _clean_payload(payload)
+        data = self._normalize_price_item_payload(company_id, payload)
         try:
             with self._connect() as conn:
                 old_row = conn.execute(
@@ -472,6 +484,37 @@ class LibraryStore:
         except psycopg.errors.UniqueViolation as exc:
             raise LibraryConflict("Active price list item already exists") from exc
         return self.get_price_list_item(company_id, price_list_id, new_row["id"])
+
+    def upsert_price_list_item(self, company_id: str, price_list_id: str, payload: dict[str, Any]) -> dict:
+        self._ensure_price_list(company_id, price_list_id)
+        data = self._normalize_price_item_payload(company_id, payload)
+
+        with self._connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT id::text
+                FROM price_list_items
+                WHERE company_id = %s
+                  AND price_list_id = %s
+                  AND item_type = %s
+                  AND item_key = %s
+                  AND price_component = %s
+                  AND effective_to IS NULL
+                ORDER BY effective_from DESC
+                LIMIT 1
+                """,
+                (
+                    company_id,
+                    price_list_id,
+                    data["item_type"],
+                    data["item_key"],
+                    data["price_component"],
+                ),
+            ).fetchone()
+
+        if existing:
+            return self.update_price_list_item(company_id, price_list_id, existing["id"], data)
+        return self.create_price_list_item(company_id, price_list_id, data)
 
     def delete_price_list_item(self, company_id: str, price_list_id: str, item_id: str) -> None:
         self._ensure_price_list(company_id, price_list_id)
@@ -582,6 +625,47 @@ class LibraryStore:
     def _ensure_price_list(self, company_id: str, price_list_id: str) -> None:
         self._get(PRICE_LIST_CONFIG, company_id, price_list_id)
 
+    def _normalize_price_item_payload(self, company_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        data = _clean_payload(payload)
+        item_type = str(data.get("item_type") or "").strip().lower()
+        item_ref_id = str(data.get("item_ref_id") or "").strip()
+        item_key = str(data.get("item_key") or "").strip()
+
+        if item_ref_id:
+            self._ensure_price_item_reference(company_id, item_type, item_ref_id)
+            data["item_ref_id"] = item_ref_id
+            data["item_key"] = f"{item_type}::{item_ref_id}"
+            return data
+
+        if not item_key:
+            raise LibraryValidationError("Either item_ref_id or item_key is required")
+
+        data["item_key"] = item_key
+        derived_ref = _try_extract_ref_id(item_type, item_key)
+        if derived_ref:
+            self._ensure_price_item_reference(company_id, item_type, derived_ref)
+            data["item_ref_id"] = derived_ref
+
+        return data
+
+    def _ensure_price_item_reference(self, company_id: str, item_type: str, item_ref_id: str) -> None:
+        table = PRICE_ITEM_TYPE_TABLES.get(item_type)
+        if not table:
+            raise LibraryValidationError(f"Unsupported item_type: {item_type}")
+
+        with self._connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT id::text
+                FROM {table}
+                WHERE company_id = %s
+                  AND id = %s
+                """,
+                (company_id, item_ref_id),
+            ).fetchone()
+        if not row:
+            raise LibraryNotFound("Library row not found")
+
     def _connect(self):
         if not self.database_url:
             raise RuntimeError("DATABASE_URL is required for library database access")
@@ -603,3 +687,13 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if data.get("item_ref_id") == "":
         data["item_ref_id"] = None
     return data
+
+
+def _try_extract_ref_id(item_type: str, item_key: str) -> str | None:
+    prefix = f"{item_type}::"
+    if not item_key.startswith(prefix):
+        return None
+    raw_ref = item_key[len(prefix) :].strip()
+    if not raw_ref or "::" in raw_ref:
+        return None
+    return raw_ref
