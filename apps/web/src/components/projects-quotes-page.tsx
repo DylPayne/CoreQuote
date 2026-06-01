@@ -134,6 +134,62 @@ type QuoteExtrasResponse = {
   items: Array<{ extra_id: string; quantity: number }>
 }
 
+type PanelPresetKey =
+  | 'base_side_panel'
+  | 'base_side_filler'
+  | 'wall_side_panel'
+  | 'wall_side_filler'
+  | 'tall_side_panel'
+  | 'tall_side_filler'
+
+type QuoteCustomPanelPresetConfig = {
+  qty: number
+  board_type_id: string | null
+}
+
+type QuoteCustomPanelManualRow = {
+  name: string
+  length: number
+  width: number
+  qty: number
+  board_type_id: string | null
+}
+
+type QuoteCustomPanelAutoConfig = {
+  kicker_board_type_id: string | null
+  pelmet_board_type_id: string | null
+  kicker_return_count: number
+  kicker_return_depth_mm: number
+  kicker_override_on: boolean
+  kicker_override_qty: number
+  kicker_override_length: number
+  kicker_override_width: number
+  pelmet_override_on: boolean
+  pelmet_override_qty: number
+  pelmet_override_length: number
+  pelmet_override_width: number
+}
+
+type QuoteCustomPanelsState = {
+  presets: Partial<Record<PanelPresetKey, QuoteCustomPanelPresetConfig>>
+  manual: QuoteCustomPanelManualRow[]
+  auto: QuoteCustomPanelAutoConfig
+}
+
+type QuoteCustomPanelComputedRow = {
+  desc: string
+  length: number
+  width: number
+  qty: number
+  board_type_id: string | null
+}
+
+type QuoteCustomPanelsResponse = {
+  quote_id: string
+  custom_panels: QuoteCustomPanelsState
+  computed_rows: QuoteCustomPanelComputedRow[]
+}
+
 type PricingLine = {
   item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra'
   item_key: string
@@ -174,8 +230,8 @@ type ProjectPricingSummary = {
 
 type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
-type QuoteWorkspaceTab = 'units' | 'cutting-lists' | 'extras' | 'pricing'
-type CuttingListViewTab = 'carcass' | 'panels'
+type QuoteWorkspaceTab = 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
+type CuttingListViewTab = 'carcass' | 'panels' | 'extras'
 
 type ProjectDraft = {
   name: string
@@ -224,6 +280,30 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:800
 
 const unitPresets: UnitPresetKey[] = ['Base Draw', 'Base Door', 'Wall Door', 'Tall Door']
 const customUnitTypeValue = '__custom_unit_type__'
+const panelPresetKeys: PanelPresetKey[] = [
+  'base_side_panel',
+  'base_side_filler',
+  'wall_side_panel',
+  'wall_side_filler',
+  'tall_side_panel',
+  'tall_side_filler',
+]
+const panelPresetLabels: Record<PanelPresetKey, string> = {
+  base_side_panel: 'Base Side Panel',
+  base_side_filler: 'Base Side Filler',
+  wall_side_panel: 'Wall Side Panel',
+  wall_side_filler: 'Wall Side Filler',
+  tall_side_panel: 'Tall Side Panel',
+  tall_side_filler: 'Tall Side Filler',
+}
+const panelPresetFamily: Record<PanelPresetKey, 'base' | 'wall' | 'tall'> = {
+  base_side_panel: 'base',
+  base_side_filler: 'base',
+  wall_side_panel: 'wall',
+  wall_side_filler: 'wall',
+  tall_side_panel: 'tall',
+  tall_side_filler: 'tall',
+}
 
 const fallbackUnitDefaults: UnitDefaults = {
   'Base Draw': { height: 780, depth: 580 },
@@ -288,6 +368,8 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
 
   const [quoteCuttingList, setQuoteCuttingList] = useState<QuoteCuttingList | null>(null)
   const [quoteExtrasSelection, setQuoteExtrasSelection] = useState<Record<string, number>>({})
+  const [quoteCustomPanels, setQuoteCustomPanels] = useState<QuoteCustomPanelsState | null>(null)
+  const [quoteCustomPanelRows, setQuoteCustomPanelRows] = useState<QuoteCustomPanelComputedRow[]>([])
   const [projectPricing, setProjectPricing] = useState<ProjectPricingSummary | null>(null)
 
   const [currentView, setCurrentView] = useState<'projects' | 'project-workspace'>('projects')
@@ -314,11 +396,14 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
   const [isLoadingUnits, setIsLoadingUnits] = useState(false)
   const [isLoadingCuttingList, setIsLoadingCuttingList] = useState(false)
   const [isLoadingQuoteExtras, setIsLoadingQuoteExtras] = useState(false)
+  const [isLoadingQuoteCustomPanels, setIsLoadingQuoteCustomPanels] = useState(false)
   const [isLoadingProjectPricing, setIsLoadingProjectPricing] = useState(false)
   const [isLoadingLibraries, setIsLoadingLibraries] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingQuoteExtras, setIsSavingQuoteExtras] = useState(false)
+  const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
   const [isQuoteExtrasDirty, setIsQuoteExtrasDirty] = useState(false)
+  const [isQuoteCustomPanelsDirty, setIsQuoteCustomPanelsDirty] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
   const [modalError, setModalError] = useState<string | null>(null)
@@ -353,6 +438,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       quoteCuttingList.hardware.length +
       quoteCuttingList.extras.length
     : 0
+  const panelFamilyCounts = useMemo(() => countPanelFamilies(units), [units])
 
   const loadLibraries = useCallback(async () => {
     setIsLoadingLibraries(true)
@@ -465,6 +551,24 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
     [authToken],
   )
 
+  const loadQuoteCustomPanels = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingQuoteCustomPanels(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<QuoteCustomPanelsResponse>(`/api/v1/quotes/${quoteId}/custom-panels`, { token: authToken })
+        setQuoteCustomPanels(normalizeQuoteCustomPanelsState(payload.custom_panels, selectedQuote, units))
+        setQuoteCustomPanelRows(payload.computed_rows)
+        setIsQuoteCustomPanelsDirty(false)
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load quote panels.')
+      } finally {
+        setIsLoadingQuoteCustomPanels(false)
+      }
+    },
+    [authToken, selectedQuote, units],
+  )
+
   const loadProjectPricing = useCallback(
     async (projectId: string) => {
       setIsLoadingProjectPricing(true)
@@ -508,7 +612,10 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
         setUnits([])
         setQuoteCuttingList(null)
         setQuoteExtrasSelection({})
+        setQuoteCustomPanels(null)
+        setQuoteCustomPanelRows([])
         setIsQuoteExtrasDirty(false)
+        setIsQuoteCustomPanelsDirty(false)
         return
       }
       void loadUnits(selectedQuoteId)
@@ -611,6 +718,32 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
     })
     setIsUnitModalOpen(true)
+  }
+
+  async function handleSaveQuoteCustomPanels() {
+    if (!selectedQuoteId || !quoteCustomPanels) return
+    setIsSavingQuoteCustomPanels(true)
+    setError(null)
+    try {
+      const payload = await apiRequest<QuoteCustomPanelsResponse>(`/api/v1/quotes/${selectedQuoteId}/custom-panels`, {
+        method: 'PUT',
+        token: authToken,
+        body: quoteCustomPanels,
+      })
+      setQuoteCustomPanels(normalizeQuoteCustomPanelsState(payload.custom_panels, selectedQuote, units))
+      setQuoteCustomPanelRows(payload.computed_rows)
+      setIsQuoteCustomPanelsDirty(false)
+      if (activeQuoteTab === 'cutting-lists') {
+        await loadQuoteCuttingList(selectedQuoteId)
+      }
+      if (selectedProjectId && activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save quote panels.')
+    } finally {
+      setIsSavingQuoteCustomPanels(false)
+    }
   }
 
   async function handleSaveQuoteExtras() {
@@ -1025,6 +1158,19 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                     Units
                   </button>
                   <button
+                    aria-pressed={activeQuoteTab === 'panels'}
+                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'panels' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => {
+                      setActiveQuoteTab('panels')
+                      if (selectedQuoteId) {
+                        void loadQuoteCustomPanels(selectedQuoteId)
+                      }
+                    }}
+                    type="button"
+                  >
+                    Panels
+                  </button>
+                  <button
                     aria-pressed={activeQuoteTab === 'cutting-lists'}
                     className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'cutting-lists' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                     onClick={() => {
@@ -1121,6 +1267,32 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                     </Table>
                   </TableContainer>
                 )
+              ) : activeQuoteTab === 'panels' ? (
+                isLoadingQuoteCustomPanels ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Loading panel configuration
+                  </div>
+                ) : !quoteCustomPanels ? (
+                  <Alert className="text-xs">No panel configuration loaded for this quote yet.</Alert>
+                ) : (
+                  <QuotePanelsEditor
+                    boardLabel={boardLabel}
+                    boards={boards}
+                    defaultPanelBoardId={selectedQuote.default_panel_board_type_id}
+                    isSaving={isSavingQuoteCustomPanels}
+                    isSavedStateDirty={isQuoteCustomPanelsDirty}
+                    onChange={(next) => {
+                      setQuoteCustomPanels(next)
+                      setIsQuoteCustomPanelsDirty(true)
+                    }}
+                    onSave={() => void handleSaveQuoteCustomPanels()}
+                    panelRows={quoteCustomPanelRows}
+                    panelState={quoteCustomPanels}
+                    presetFamilyCounts={panelFamilyCounts}
+                    selectedQuote={selectedQuote}
+                  />
+                )
               ) : activeQuoteTab === 'cutting-lists' ? (
                 isLoadingCuttingList ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1150,6 +1322,15 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                       >
                         {`Panels (${quoteCuttingList?.panels.length ?? 0})`}
                       </Button>
+                      <Button
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setActiveCuttingListViewTab('extras')}
+                        size="sm"
+                        type="button"
+                        variant={activeCuttingListViewTab === 'extras' ? 'default' : 'outline'}
+                      >
+                        {`Custom (${quoteCuttingList?.extras.length ?? 0})`}
+                      </Button>
                     </div>
 
                     {activeCuttingListViewTab === 'carcass' ? (
@@ -1158,10 +1339,18 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                       ) : (
                         <Alert className="text-xs">No carcass rows for this quote.</Alert>
                       )
-                    ) : quoteCuttingList && quoteCuttingList.panels.length > 0 ? (
-                      <CutlistSection rows={quoteCuttingList.panels} title="Panels" />
                     ) : (
-                      <Alert className="text-xs">No panel rows for this quote.</Alert>
+                      activeCuttingListViewTab === 'panels' ? (
+                        quoteCuttingList && quoteCuttingList.panels.length > 0 ? (
+                          <CutlistSection rows={quoteCuttingList.panels} title="Panels" />
+                        ) : (
+                          <Alert className="text-xs">No panel rows for this quote.</Alert>
+                        )
+                      ) : quoteCuttingList && quoteCuttingList.extras.length > 0 ? (
+                        <CutlistSection rows={quoteCuttingList.extras} title="Quote Panels & Extras" />
+                      ) : (
+                        <Alert className="text-xs">No quote-level panel rows for this quote.</Alert>
+                      )
                     )}
                   </div>
                 )
@@ -1667,6 +1856,513 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
   )
 }
 
+function QuotePanelsEditor({
+  selectedQuote,
+  boards,
+  boardLabel,
+  panelState,
+  panelRows,
+  presetFamilyCounts,
+  defaultPanelBoardId,
+  isSavedStateDirty,
+  isSaving,
+  onChange,
+  onSave,
+}: {
+  selectedQuote: QuoteRow
+  boards: BoardRow[]
+  boardLabel: (boardId: string | null) => string
+  panelState: QuoteCustomPanelsState
+  panelRows: QuoteCustomPanelComputedRow[]
+  presetFamilyCounts: Record<'base' | 'wall' | 'tall', number>
+  defaultPanelBoardId: string | null
+  isSavedStateDirty: boolean
+  isSaving: boolean
+  onChange: (next: QuoteCustomPanelsState) => void
+  onSave: () => void
+}) {
+  const baseDoor = resolveDefaultDims(selectedQuote.unit_defaults, 'Base Door')
+  const wallDoor = resolveDefaultDims(selectedQuote.unit_defaults, 'Wall Door')
+  const tallDoor = resolveDefaultDims(selectedQuote.unit_defaults, 'Tall Door')
+  const defaultReturnDepth = baseDoor.depth
+
+  const defaultPresetConfig = useCallback(
+    (key: PanelPresetKey): QuoteCustomPanelPresetConfig => {
+      const family = panelPresetFamily[key]
+      const defaultQty = presetFamilyCounts[family] > 0 ? 1 : 0
+      return {
+        qty: defaultQty,
+        board_type_id: defaultPanelBoardId,
+      }
+    },
+    [defaultPanelBoardId, presetFamilyCounts],
+  )
+
+  const panelPresetDimensions: Record<PanelPresetKey, { length: number; width: number }> = {
+    base_side_panel: { length: baseDoor.height, width: baseDoor.depth },
+    base_side_filler: { length: baseDoor.height, width: 100 },
+    wall_side_panel: { length: wallDoor.height, width: wallDoor.depth },
+    wall_side_filler: { length: wallDoor.height, width: 100 },
+    tall_side_panel: { length: tallDoor.height, width: tallDoor.depth },
+    tall_side_filler: { length: tallDoor.height, width: 100 },
+  }
+
+  const kickerReturnsDepth = panelState.auto.kicker_return_depth_mm > 0
+    ? panelState.auto.kicker_return_depth_mm
+    : defaultReturnDepth
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Configure preset side panels/fillers, automatic kickers and pelmets, and custom manual panel rows.
+        </p>
+        <Button disabled={!isSavedStateDirty || isSaving} onClick={onSave} size="sm" type="button">
+          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+          Save panels
+        </Button>
+      </div>
+
+      <Alert className="text-xs">
+        Kicker length is based on total base-unit width, plus any optional return sections.
+      </Alert>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card className="p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Preset Panels</p>
+          <TableContainer className="mt-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Panel</TableHead>
+                  <TableHead className="w-24">Qty</TableHead>
+                  <TableHead className="w-28">Size (mm)</TableHead>
+                  <TableHead>Board</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {panelPresetKeys.map((key) => {
+                  const current = panelState.presets[key] ?? defaultPresetConfig(key)
+                  const dims = panelPresetDimensions[key]
+                  return (
+                    <TableRow key={key}>
+                      <TableCell>{panelPresetLabels[key]}</TableCell>
+                      <TableCell>
+                        <Input
+                          min={0}
+                          onChange={(event) => {
+                            const nextQty = parseNonNegativeInteger(event.target.value, 0)
+                            onChange({
+                              ...panelState,
+                              presets: {
+                                ...panelState.presets,
+                                [key]: { ...current, qty: nextQty },
+                              },
+                            })
+                          }}
+                          type="number"
+                          value={String(current.qty)}
+                        />
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{`${dims.length} x ${dims.width}`}</TableCell>
+                      <TableCell>
+                        <Select
+                          onChange={(event) =>
+                            onChange({
+                              ...panelState,
+                              presets: {
+                                ...panelState.presets,
+                                [key]: {
+                                  ...current,
+                                  board_type_id: optionalId(event.target.value),
+                                },
+                              },
+                            })
+                          }
+                          value={current.board_type_id ?? ''}
+                        >
+                          <option value="">Default panel board</option>
+                          {boards.map((board) => (
+                            <option key={board.id} value={board.id}>
+                              {`${board.brand} ${board.material} (${board.thickness}mm)`}
+                            </option>
+                          ))}
+                        </Select>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Card>
+
+        <Card className="p-3">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Auto Panels</p>
+          <div className="mt-2 grid gap-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <LibrarySelect
+                label="Kicker board"
+                onChange={(value) =>
+                  onChange({
+                    ...panelState,
+                    auto: { ...panelState.auto, kicker_board_type_id: optionalId(value) },
+                  })
+                }
+                options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
+                value={panelState.auto.kicker_board_type_id ?? ''}
+              />
+              <LibrarySelect
+                label="Wall pelmet board"
+                onChange={(value) =>
+                  onChange({
+                    ...panelState,
+                    auto: { ...panelState.auto, pelmet_board_type_id: optionalId(value) },
+                  })
+                }
+                options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
+                value={panelState.auto.pelmet_board_type_id ?? ''}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <Label className="grid gap-1.5">
+                Kicker returns (qty)
+                <Input
+                  min={0}
+                  onChange={(event) =>
+                    onChange({
+                      ...panelState,
+                      auto: { ...panelState.auto, kicker_return_count: parseNonNegativeInteger(event.target.value, 0) },
+                    })
+                  }
+                  type="number"
+                  value={String(panelState.auto.kicker_return_count)}
+                />
+              </Label>
+              <Label className="grid gap-1.5">
+                Return depth (mm)
+                <Input
+                  min={0}
+                  onChange={(event) =>
+                    onChange({
+                      ...panelState,
+                      auto: { ...panelState.auto, kicker_return_depth_mm: parseNonNegativeInteger(event.target.value, defaultReturnDepth) },
+                    })
+                  }
+                  type="number"
+                  value={String(kickerReturnsDepth)}
+                />
+              </Label>
+            </div>
+
+            <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3">
+              <Label className="flex items-center gap-2">
+                <Checkbox
+                  checked={panelState.auto.kicker_override_on}
+                  onChange={(event) =>
+                    onChange({
+                      ...panelState,
+                      auto: { ...panelState.auto, kicker_override_on: event.target.checked },
+                    })
+                  }
+                />
+                Kicker override
+              </Label>
+              {panelState.auto.kicker_override_on ? (
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Label className="grid gap-1.5">
+                    Qty
+                    <Input
+                      min={0}
+                      onChange={(event) =>
+                        onChange({
+                          ...panelState,
+                          auto: { ...panelState.auto, kicker_override_qty: parseNonNegativeInteger(event.target.value, 0) },
+                        })
+                      }
+                      type="number"
+                      value={String(panelState.auto.kicker_override_qty)}
+                    />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Length (mm)
+                    <Input
+                      min={0}
+                      onChange={(event) =>
+                        onChange({
+                          ...panelState,
+                          auto: { ...panelState.auto, kicker_override_length: parseNonNegativeInteger(event.target.value, 0) },
+                        })
+                      }
+                      type="number"
+                      value={String(panelState.auto.kicker_override_length)}
+                    />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Width (mm)
+                    <Input
+                      min={0}
+                      onChange={(event) =>
+                        onChange({
+                          ...panelState,
+                          auto: { ...panelState.auto, kicker_override_width: parseNonNegativeInteger(event.target.value, 100) },
+                        })
+                      }
+                      type="number"
+                      value={String(panelState.auto.kicker_override_width)}
+                    />
+                  </Label>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3">
+              <Label className="flex items-center gap-2">
+                <Checkbox
+                  checked={panelState.auto.pelmet_override_on}
+                  onChange={(event) =>
+                    onChange({
+                      ...panelState,
+                      auto: { ...panelState.auto, pelmet_override_on: event.target.checked },
+                    })
+                  }
+                />
+                Wall pelmet override
+              </Label>
+              {panelState.auto.pelmet_override_on ? (
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Label className="grid gap-1.5">
+                    Qty
+                    <Input
+                      min={0}
+                      onChange={(event) =>
+                        onChange({
+                          ...panelState,
+                          auto: { ...panelState.auto, pelmet_override_qty: parseNonNegativeInteger(event.target.value, 0) },
+                        })
+                      }
+                      type="number"
+                      value={String(panelState.auto.pelmet_override_qty)}
+                    />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Length (mm)
+                    <Input
+                      min={0}
+                      onChange={(event) =>
+                        onChange({
+                          ...panelState,
+                          auto: { ...panelState.auto, pelmet_override_length: parseNonNegativeInteger(event.target.value, 0) },
+                        })
+                      }
+                      type="number"
+                      value={String(panelState.auto.pelmet_override_length)}
+                    />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Width (mm)
+                    <Input
+                      min={0}
+                      onChange={(event) =>
+                        onChange({
+                          ...panelState,
+                          auto: { ...panelState.auto, pelmet_override_width: parseNonNegativeInteger(event.target.value, wallDoor.depth) },
+                        })
+                      }
+                      type="number"
+                      value={String(panelState.auto.pelmet_override_width)}
+                    />
+                  </Label>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <Card className="p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Manual Custom Rows</p>
+          <Button
+            onClick={() =>
+              onChange({
+                ...panelState,
+                manual: [
+                  ...panelState.manual,
+                  {
+                    name: 'Custom Panel',
+                    length: 0,
+                    width: 0,
+                    qty: 1,
+                    board_type_id: defaultPanelBoardId,
+                  },
+                ],
+              })
+            }
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add row
+          </Button>
+        </div>
+
+        {panelState.manual.length === 0 ? (
+          <Alert className="mt-2 text-xs">No manual rows yet.</Alert>
+        ) : (
+          <TableContainer className="mt-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="w-28">L (mm)</TableHead>
+                  <TableHead className="w-28">W (mm)</TableHead>
+                  <TableHead className="w-24">Qty</TableHead>
+                  <TableHead>Board</TableHead>
+                  <TableHead className="w-16" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {panelState.manual.map((row, index) => (
+                  <TableRow key={`manual-panel-${index}`}>
+                    <TableCell>
+                      <Input
+                        onChange={(event) =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.map((current, currentIndex) =>
+                              currentIndex === index ? { ...current, name: event.target.value } : current,
+                            ),
+                          })
+                        }
+                        value={row.name}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        min={0}
+                        onChange={(event) =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.map((current, currentIndex) =>
+                              currentIndex === index ? { ...current, length: parseNonNegativeInteger(event.target.value, 0) } : current,
+                            ),
+                          })
+                        }
+                        type="number"
+                        value={String(row.length)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        min={0}
+                        onChange={(event) =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.map((current, currentIndex) =>
+                              currentIndex === index ? { ...current, width: parseNonNegativeInteger(event.target.value, 0) } : current,
+                            ),
+                          })
+                        }
+                        type="number"
+                        value={String(row.width)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        min={0}
+                        onChange={(event) =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.map((current, currentIndex) =>
+                              currentIndex === index ? { ...current, qty: parseNonNegativeInteger(event.target.value, 0) } : current,
+                            ),
+                          })
+                        }
+                        type="number"
+                        value={String(row.qty)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        onChange={(event) =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.map((current, currentIndex) =>
+                              currentIndex === index ? { ...current, board_type_id: optionalId(event.target.value) } : current,
+                            ),
+                          })
+                        }
+                        value={row.board_type_id ?? ''}
+                      >
+                        <option value="">Default panel board</option>
+                        {boards.map((board) => (
+                          <option key={board.id} value={board.id}>
+                            {`${board.brand} ${board.material} (${board.thickness}mm)`}
+                          </option>
+                        ))}
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        onClick={() =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.filter((_, currentIndex) => currentIndex !== index),
+                          })
+                        }
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </Card>
+
+      <Card className="p-3">
+        <p className="text-xs font-semibold uppercase text-muted-foreground">Computed Rows</p>
+        {panelRows.length === 0 ? (
+          <Alert className="mt-2 text-xs">No computed rows yet. Save panel changes to refresh this preview.</Alert>
+        ) : (
+          <TableContainer className="mt-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-24">L (mm)</TableHead>
+                  <TableHead className="w-24">W (mm)</TableHead>
+                  <TableHead className="w-20">Qty</TableHead>
+                  <TableHead>Board</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {panelRows.map((row, index) => (
+                  <TableRow key={`panel-row-${index}-${row.desc}`}>
+                    <TableCell>{row.desc}</TableCell>
+                    <TableCell>{row.length}</TableCell>
+                    <TableCell>{row.width}</TableCell>
+                    <TableCell>{row.qty}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{boardLabel(row.board_type_id)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 function CutlistSection({ title, rows }: { title: string; rows: CutlistRow[] }) {
   if (rows.length === 0) return null
   const groupedRows = rows.reduce<Array<{ row: CutlistRow; showDivider: boolean }>>((accumulator, row, index) => {
@@ -1959,6 +2655,73 @@ function resolveDefaultDims(defaults: UnitDefaults, unitType: UnitPresetKey) {
   }
 }
 
+function countPanelFamilies(units: UnitRow[]): Record<'base' | 'wall' | 'tall', number> {
+  const counts: Record<'base' | 'wall' | 'tall', number> = { base: 0, wall: 0, tall: 0 }
+  for (const unit of units) {
+    const value = unit.unit_type_key.toLowerCase()
+    if (value.includes('base')) {
+      counts.base += 1
+      continue
+    }
+    if (value.includes('wall')) {
+      counts.wall += 1
+      continue
+    }
+    if (value.includes('tall')) {
+      counts.tall += 1
+    }
+  }
+  return counts
+}
+
+function normalizeQuoteCustomPanelsState(
+  state: QuoteCustomPanelsState | null | undefined,
+  quote: QuoteRow | null,
+  units: UnitRow[],
+): QuoteCustomPanelsState {
+  const familyCounts = countPanelFamilies(units)
+  const baseDoorDepth = resolveDefaultDims(quote?.unit_defaults ?? fallbackUnitDefaults, 'Base Door').depth
+  const wallDoorDepth = resolveDefaultDims(quote?.unit_defaults ?? fallbackUnitDefaults, 'Wall Door').depth
+  const defaultPanelBoardId = quote?.default_panel_board_type_id ?? null
+
+  const presets = panelPresetKeys.reduce<Partial<Record<PanelPresetKey, QuoteCustomPanelPresetConfig>>>((accumulator, key) => {
+    const family = panelPresetFamily[key]
+    const defaultQty = familyCounts[family] > 0 ? 1 : 0
+    const source = state?.presets?.[key]
+    accumulator[key] = {
+      qty: toNonNegativeInteger(source?.qty, defaultQty),
+      board_type_id: source?.board_type_id ?? defaultPanelBoardId,
+    }
+    return accumulator
+  }, {})
+
+  const manual = (state?.manual ?? []).map((row) => ({
+    name: (row.name || 'Custom Panel').trim() || 'Custom Panel',
+    length: toNonNegativeInteger(row.length, 0),
+    width: toNonNegativeInteger(row.width, 0),
+    qty: toNonNegativeInteger(row.qty, 0),
+    board_type_id: row.board_type_id ?? defaultPanelBoardId,
+  }))
+
+  const sourceAuto = state?.auto
+  const auto: QuoteCustomPanelAutoConfig = {
+    kicker_board_type_id: sourceAuto?.kicker_board_type_id ?? defaultPanelBoardId,
+    pelmet_board_type_id: sourceAuto?.pelmet_board_type_id ?? defaultPanelBoardId,
+    kicker_return_count: toNonNegativeInteger(sourceAuto?.kicker_return_count, 0),
+    kicker_return_depth_mm: toNonNegativeInteger(sourceAuto?.kicker_return_depth_mm, baseDoorDepth || 580),
+    kicker_override_on: Boolean(sourceAuto?.kicker_override_on),
+    kicker_override_qty: toNonNegativeInteger(sourceAuto?.kicker_override_qty, 0),
+    kicker_override_length: toNonNegativeInteger(sourceAuto?.kicker_override_length, 0),
+    kicker_override_width: toNonNegativeInteger(sourceAuto?.kicker_override_width, 100),
+    pelmet_override_on: Boolean(sourceAuto?.pelmet_override_on),
+    pelmet_override_qty: toNonNegativeInteger(sourceAuto?.pelmet_override_qty, 0),
+    pelmet_override_length: toNonNegativeInteger(sourceAuto?.pelmet_override_length, 0),
+    pelmet_override_width: toNonNegativeInteger(sourceAuto?.pelmet_override_width, wallDoorDepth || 330),
+  }
+
+  return { presets, manual, auto }
+}
+
 function numberFromExtra(extra: Record<string, unknown>, key: string, fallback: number): number {
   const value = extra[key]
   if (typeof value === 'number' && Number.isFinite(value)) return Math.floor(value)
@@ -1992,6 +2755,15 @@ function parseNonNegativeInteger(value: string, fallback: number): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed < 0) return fallback
   return Math.floor(parsed)
+}
+
+function toNonNegativeInteger(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return Math.floor(value)
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.floor(parsed)
+  }
+  return fallback
 }
 
 async function apiRequest<T = unknown>(

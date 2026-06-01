@@ -164,6 +164,8 @@ Permission: `quotes:read`
 
 This endpoint builds a live cutting list from the persisted quote units. It uses the same runtime engine as `POST /api/v1/cutlists/preview`, including ruleset runtime when `CUTLIST_USE_DB_RULESETS` is enabled.
 
+The `extras` collection also includes quote-level custom panel rows (for example side panels/fillers, kickers, pelmets, and manual panel rows) generated from the saved quote panel configuration.
+
 Response shape:
 
 ```json
@@ -176,8 +178,20 @@ Response shape:
     { "unit_number": 1, "desc": "Door", "length": 777, "width": 297, "qty": 2 }
   ],
   "hardware": [],
-  "extras": [],
-  "runtime_rows": [],
+  "extras": [
+    { "unit_number": 0, "desc": "Kicker", "length": 1760, "width": 100, "qty": 1 }
+  ],
+  "runtime_rows": [
+    {
+      "unit_number": 0,
+      "desc": "Kicker",
+      "length": 1760,
+      "width": 100,
+      "qty": 1,
+      "section": "extra_panel",
+      "board_type_id": "board-uuid"
+    }
+  ],
   "runtime_mode": "legacy",
   "unit_sources": []
 }
@@ -221,6 +235,70 @@ Response shape (`GET` and `PUT`):
   "items": [
     { "extra_id": "extra-uuid-1", "quantity": 2 },
     { "extra_id": "extra-uuid-2", "quantity": 1 }
+  ]
+}
+```
+
+## Quote Custom Panels
+
+```http
+GET /api/v1/quotes/{quote_id}/custom-panels
+PUT /api/v1/quotes/{quote_id}/custom-panels
+```
+
+Permissions:
+
+- Read: `quotes:read`
+- Replace configuration: `quotes:write`
+
+`PUT` stores quote-level panel configuration used by cutting-list extras and pricing board usage.
+
+Request payload for `PUT`:
+
+```json
+{
+  "presets": {
+    "base_side_panel": { "qty": 1, "board_type_id": "board-uuid" },
+    "wall_side_filler": { "qty": 1, "board_type_id": null }
+  },
+  "manual": [
+    { "name": "Feature End", "length": 2300, "width": 300, "qty": 1, "board_type_id": "board-uuid" }
+  ],
+  "auto": {
+    "kicker_board_type_id": "board-uuid",
+    "pelmet_board_type_id": "board-uuid",
+    "kicker_return_count": 1,
+    "kicker_return_depth_mm": 560,
+    "kicker_override_on": false,
+    "kicker_override_qty": 0,
+    "kicker_override_length": 0,
+    "kicker_override_width": 100,
+    "pelmet_override_on": false,
+    "pelmet_override_qty": 0,
+    "pelmet_override_length": 0,
+    "pelmet_override_width": 330
+  }
+}
+```
+
+Behavior notes:
+
+- `kicker_return_count` and `kicker_return_depth_mm` add optional kicker return segments on top of total base-run width.
+- Manual rows with non-positive length, width, or qty are ignored at save time.
+- Any supplied `board_type_id` must be visible to the current company.
+
+Response shape (`GET` and `PUT`):
+
+```json
+{
+  "quote_id": "quote-uuid",
+  "custom_panels": {
+    "presets": {},
+    "manual": [],
+    "auto": {}
+  },
+  "computed_rows": [
+    { "desc": "Kicker", "length": 1760, "width": 100, "qty": 1, "board_type_id": "board-uuid" }
   ]
 }
 ```
@@ -277,6 +355,7 @@ When a required item has no active price entry, it is returned in `missing_items
 - Project list can be loaded once via `GET /projects` and filtered with `search`.
 - Opening a project should call `GET /projects/{project_id}/quotes`.
 - Opening a quote should call `GET /quotes/{quote_id}/units`.
+- Panels tab can load and save quote panel config via `GET/PUT /quotes/{quote_id}/custom-panels`.
 - Cutting list tab can call `GET /quotes/{quote_id}/cutting-list`.
 - Extras tab can load and save quote-selected extras via `GET/PUT /quotes/{quote_id}/extras`.
 - Pricing tab can load project totals via `GET /projects/{project_id}/pricing`.

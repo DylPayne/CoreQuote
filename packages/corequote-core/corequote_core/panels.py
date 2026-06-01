@@ -91,7 +91,11 @@ def compute_panel_rows(
     _, wall_side_w = default_dims_for_panel_preset("wall_side_panel")
     _, wall_filler_w = default_dims_for_panel_preset("wall_side_filler")
     kicker_extra = (wall_side_panel_qty * int(wall_side_w)) + (wall_side_filler_qty * int(wall_filler_w))
-    kicker_run_total = int(base_total) + int(kicker_extra)
+    _, base_d = default_dims_for_unit_type("Base Door")
+    kicker_return_count = max(0, int(auto.get("kicker_return_count", 0) or 0))
+    kicker_return_depth_mm = max(0, int(auto.get("kicker_return_depth_mm", base_d) or base_d))
+    kicker_return_extra = kicker_return_count * kicker_return_depth_mm
+    kicker_run_total = int(base_total) + int(kicker_extra) + int(kicker_return_extra)
     wall_total = sum(int(u.get("width", 0) or 0) for u in units if "Wall" in str(u.get("unit_type", "")))
     _, wall_d = default_dims_for_unit_type("Wall Door")
 

@@ -9,6 +9,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from corequote_core.panels import PANEL_PRESET_KEYS, PANEL_PRESET_LABELS, compute_panel_rows
 from corequote_api.cutting_runtime import CutlistRuntimeService, canonical_unit_type_key
 
 
@@ -56,6 +57,7 @@ QUOTE_SELECT = """
     q.default_tall_handle_id::text,
     q.default_drawer_handle_id::text,
     q.unit_defaults,
+    q.custom_panels,
     COALESCE(count(qu.id), 0)::int AS unit_count,
     q.created_at,
     q.updated_at
@@ -506,8 +508,47 @@ class WorkspaceStore:
             units=units,
             runtime_service=runtime_service,
             use_rulesets=use_rulesets,
+            board_lookup=lookups["boards"],
             slide_lookup=lookups["slides"],
         )
+
+    def get_quote_custom_panels(self, company_id: str, quote_id: str) -> dict:
+        quote = self.get_quote(company_id, quote_id)
+        units = self.list_units(company_id, quote_id)
+        with self._connect() as conn:
+            lookups = self._load_company_item_lookups(conn, company_id)
+        state = _clean_custom_panels_payload(quote.get("custom_panels"))
+        rows = _compute_quote_custom_panel_rows(
+            quote=quote,
+            units=units,
+            state=state,
+            board_lookup=lookups["boards"],
+        )
+        return {
+            "quote_id": quote_id,
+            "custom_panels": state,
+            "computed_rows": [_custom_panel_row_response(row) for row in rows],
+        }
+
+    def replace_quote_custom_panels(self, company_id: str, quote_id: str, payload: dict[str, Any]) -> dict:
+        cleaned = _clean_custom_panels_payload(payload)
+        with self._connect() as conn:
+            with conn.transaction():
+                self._ensure_quote_visible(conn, company_id, quote_id)
+                self._validate_quote_custom_panels(conn, company_id, cleaned)
+                row = conn.execute(
+                    """
+                    UPDATE quotes
+                    SET custom_panels = %s
+                    WHERE company_id = %s
+                      AND id = %s
+                    RETURNING id::text
+                    """,
+                    (Jsonb(cleaned), company_id, quote_id),
+                ).fetchone()
+        if not row:
+            raise WorkspaceNotFound("Quote not found")
+        return self.get_quote_custom_panels(company_id, quote_id)
 
     def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
         try:
@@ -830,6 +871,39 @@ class WorkspaceStore:
             if extra_id not in visible:
                 raise WorkspaceValidationError(f"Extra is not visible for this company: {extra_id}")
 
+    def _validate_quote_custom_panels(self, conn, company_id: str, state: dict[str, Any]) -> None:
+        board_ids: set[str] = set()
+
+        presets = state.get("presets", {}) or {}
+        for config in presets.values():
+            if isinstance(config, dict):
+                board_id = str(config.get("board_type_id") or "").strip()
+                if board_id:
+                    board_ids.add(board_id)
+
+        for row in state.get("manual", []) or []:
+            if not isinstance(row, dict):
+                continue
+            board_id = str(row.get("board_type_id") or "").strip()
+            if board_id:
+                board_ids.add(board_id)
+
+        auto = state.get("auto", {}) or {}
+        if isinstance(auto, dict):
+            for key in ("kicker_board_type_id", "pelmet_board_type_id"):
+                board_id = str(auto.get(key) or "").strip()
+                if board_id:
+                    board_ids.add(board_id)
+
+        for board_id in sorted(board_ids):
+            self._ensure_library_item_visible(
+                conn,
+                company_id,
+                "board_types",
+                board_id,
+                "Custom panel board",
+            )
+
     def _ensure_project_visible(self, conn, company_id: str, project_id: str) -> None:
         row = conn.execute(
             """
@@ -992,6 +1066,168 @@ def _clean_quote_extras_items(items: list[dict[str, Any]]) -> list[dict[str, Any
     return [{"extra_id": extra_id, "quantity": quantity} for extra_id, quantity in sorted(totals.items())]
 
 
+def _default_dims_for_unit_type_from_quote(quote: dict[str, Any], unit_type: str) -> tuple[int, int]:
+    defaults = quote.get("unit_defaults", {}) or {}
+    item = defaults.get(unit_type, {}) if isinstance(defaults, dict) else {}
+
+    if unit_type == "Wall Door":
+        fallback_h, fallback_d = 720, 330
+    elif unit_type == "Tall Door":
+        fallback_h, fallback_d = 2100, 580
+    else:
+        fallback_h, fallback_d = 780, 580
+
+    return int(item.get("height", fallback_h)), int(item.get("depth", fallback_d))
+
+
+def _default_dims_for_panel_preset_from_quote(quote: dict[str, Any], key: str) -> tuple[int, int]:
+    base_h, base_d = _default_dims_for_unit_type_from_quote(quote, "Base Door")
+    wall_h, wall_d = _default_dims_for_unit_type_from_quote(quote, "Wall Door")
+    tall_h, tall_d = _default_dims_for_unit_type_from_quote(quote, "Tall Door")
+
+    if key == "base_side_panel":
+        return int(base_h), int(base_d)
+    if key == "base_side_filler":
+        return int(base_h), 100
+    if key == "wall_side_panel":
+        return int(wall_h), int(wall_d)
+    if key == "wall_side_filler":
+        return int(wall_h), 100
+    if key == "tall_side_panel":
+        return int(tall_h), int(tall_d)
+    if key == "tall_side_filler":
+        return int(tall_h), 100
+    return 0, 0
+
+
+def _non_negative_int(value: Any, *, field: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise WorkspaceValidationError(f"{field} must be a non-negative integer") from exc
+    if parsed < 0:
+        raise WorkspaceValidationError(f"{field} must be a non-negative integer")
+    return parsed
+
+
+def _clean_custom_panels_payload(payload: Any) -> dict[str, Any]:
+    value = payload or {}
+    if not isinstance(value, dict):
+        raise WorkspaceValidationError("custom_panels must be an object")
+
+    raw_presets = value.get("presets") or {}
+    if not isinstance(raw_presets, dict):
+        raise WorkspaceValidationError("custom_panels.presets must be an object")
+    cleaned_presets: dict[str, dict[str, Any]] = {}
+    for key in PANEL_PRESET_KEYS:
+        raw = raw_presets.get(key) or {}
+        if not isinstance(raw, dict):
+            raise WorkspaceValidationError(f"custom_panels.presets.{key} must be an object")
+        cleaned_presets[key] = {
+            "qty": _non_negative_int(raw.get("qty", 0), field=f"custom_panels.presets.{key}.qty"),
+            "board_type_id": _optional_uuid(raw.get("board_type_id")),
+        }
+
+    raw_manual = value.get("manual") or []
+    if not isinstance(raw_manual, list):
+        raise WorkspaceValidationError("custom_panels.manual must be an array")
+    cleaned_manual: list[dict[str, Any]] = []
+    for index, row in enumerate(raw_manual):
+        if not isinstance(row, dict):
+            raise WorkspaceValidationError(f"custom_panels.manual[{index}] must be an object")
+        cleaned_row = {
+            "name": str(row.get("name", "Custom Panel") or "Custom Panel").strip() or "Custom Panel",
+            "length": _non_negative_int(row.get("length", 0), field=f"custom_panels.manual[{index}].length"),
+            "width": _non_negative_int(row.get("width", 0), field=f"custom_panels.manual[{index}].width"),
+            "qty": _non_negative_int(row.get("qty", 0), field=f"custom_panels.manual[{index}].qty"),
+            "board_type_id": _optional_uuid(row.get("board_type_id")),
+        }
+        if cleaned_row["length"] > 0 and cleaned_row["width"] > 0 and cleaned_row["qty"] > 0:
+            cleaned_manual.append(cleaned_row)
+
+    raw_auto = value.get("auto") or {}
+    if not isinstance(raw_auto, dict):
+        raise WorkspaceValidationError("custom_panels.auto must be an object")
+    cleaned_auto = {
+        "kicker_board_type_id": _optional_uuid(raw_auto.get("kicker_board_type_id")),
+        "pelmet_board_type_id": _optional_uuid(raw_auto.get("pelmet_board_type_id")),
+        "kicker_return_count": _non_negative_int(raw_auto.get("kicker_return_count", 0), field="custom_panels.auto.kicker_return_count"),
+        "kicker_return_depth_mm": _non_negative_int(
+            raw_auto.get("kicker_return_depth_mm", 0),
+            field="custom_panels.auto.kicker_return_depth_mm",
+        ),
+        "kicker_override_on": bool(raw_auto.get("kicker_override_on", False)),
+        "kicker_override_qty": _non_negative_int(raw_auto.get("kicker_override_qty", 0), field="custom_panels.auto.kicker_override_qty"),
+        "kicker_override_length": _non_negative_int(
+            raw_auto.get("kicker_override_length", 0),
+            field="custom_panels.auto.kicker_override_length",
+        ),
+        "kicker_override_width": _non_negative_int(
+            raw_auto.get("kicker_override_width", 100),
+            field="custom_panels.auto.kicker_override_width",
+        ),
+        "pelmet_override_on": bool(raw_auto.get("pelmet_override_on", False)),
+        "pelmet_override_qty": _non_negative_int(raw_auto.get("pelmet_override_qty", 0), field="custom_panels.auto.pelmet_override_qty"),
+        "pelmet_override_length": _non_negative_int(
+            raw_auto.get("pelmet_override_length", 0),
+            field="custom_panels.auto.pelmet_override_length",
+        ),
+        "pelmet_override_width": _non_negative_int(
+            raw_auto.get("pelmet_override_width", 330),
+            field="custom_panels.auto.pelmet_override_width",
+        ),
+    }
+
+    return {
+        "presets": cleaned_presets,
+        "manual": cleaned_manual,
+        "auto": cleaned_auto,
+    }
+
+
+def _compute_quote_custom_panel_rows(
+    *,
+    quote: dict[str, Any],
+    units: list[dict[str, Any]],
+    state: dict[str, Any],
+    board_lookup: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized_units = [
+        {
+            "unit_type": str(unit.get("unit_type_key") or unit.get("unit_type") or ""),
+            "width": int(unit.get("width", 0) or 0),
+        }
+        for unit in units
+    ]
+
+    return compute_panel_rows(
+        units=normalized_units,
+        state=state,
+        default_panel_board_type_id=quote.get("default_panel_board_type_id"),
+        panel_preset_keys=PANEL_PRESET_KEYS,
+        panel_preset_labels=PANEL_PRESET_LABELS,
+        default_dims_for_panel_preset=lambda key: _default_dims_for_panel_preset_from_quote(quote, key),
+        default_dims_for_unit_type=lambda unit_type: _default_dims_for_unit_type_from_quote(quote, unit_type),
+        board_length_for=lambda board_type_id: int(
+            (
+                board_lookup.get(str(board_type_id or "").strip())
+                or {}
+            ).get("length_mm", 0)
+            or 0
+        ),
+    )
+
+
+def _custom_panel_row_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "desc": str(row.get("Desc", "")),
+        "length": int(row.get("L", 0) or 0),
+        "width": int(row.get("W", 0) or 0),
+        "qty": int(row.get("Qty", 0) or 0),
+        "board_type_id": _optional_uuid(row.get("board_type_id")),
+    }
+
+
 def _build_cutting_list_preview(
     *,
     company_id: str,
@@ -999,10 +1235,19 @@ def _build_cutting_list_preview(
     units: list[dict[str, Any]],
     runtime_service: CutlistRuntimeService,
     use_rulesets: bool,
+    board_lookup: dict[str, dict[str, Any]],
     slide_lookup: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    if not units:
-        return {
+    default_slide = slide_lookup.get(str(quote.get("default_slide_id") or ""))
+    payload_units = [_to_runtime_unit(unit, default_slide=default_slide) for unit in units]
+    preview = runtime_service.build_preview(
+        company_id=company_id,
+        units=payload_units,
+        use_db_rulesets=use_rulesets,
+    )
+
+    if not preview:
+        preview = {
             "carcass": [],
             "panels": [],
             "hardware": [],
@@ -1012,13 +1257,35 @@ def _build_cutting_list_preview(
             "unit_sources": [],
         }
 
-    default_slide = slide_lookup.get(str(quote.get("default_slide_id") or ""))
-    payload_units = [_to_runtime_unit(unit, default_slide=default_slide) for unit in units]
-    return runtime_service.build_preview(
-        company_id=company_id,
-        units=payload_units,
-        use_db_rulesets=use_rulesets,
+    state = _clean_custom_panels_payload(quote.get("custom_panels"))
+    custom_rows = _compute_quote_custom_panel_rows(
+        quote=quote,
+        units=units,
+        state=state,
+        board_lookup=board_lookup,
     )
+    for row in custom_rows:
+        compact = {
+            "unit_number": 0,
+            "desc": str(row["Desc"]),
+            "length": int(row["L"]),
+            "width": int(row["W"]),
+            "qty": int(row["Qty"]),
+        }
+        preview.setdefault("extras", []).append(compact)
+        preview.setdefault("runtime_rows", []).append(
+            {
+                **compact,
+                "section": "extra_panel",
+                "edge_long_1": False,
+                "edge_long_2": False,
+                "edge_short_1": False,
+                "edge_short_2": False,
+                "board_type_id": row.get("board_type_id"),
+            }
+        )
+
+    return preview
 
 
 def _to_runtime_unit(unit: dict[str, Any], *, default_slide: dict[str, Any] | None) -> dict[str, Any]:
@@ -1066,6 +1333,7 @@ def _price_quote(
         units=units,
         runtime_service=runtime_service,
         use_rulesets=use_rulesets,
+        board_lookup=board_lookup,
         slide_lookup=slide_lookup,
     )
 
@@ -1104,7 +1372,7 @@ def _price_quote(
     for row in cutting_list.get("runtime_rows", []):
         section = str(row.get("section", ""))
         unit = units_by_number.get(int(row.get("unit_number", 0)))
-        if not unit:
+        if section in {"carcass", "panel"} and not unit:
             continue
 
         board_id: str | None
@@ -1113,9 +1381,10 @@ def _price_quote(
         elif section == "panel":
             board_id = str(unit.get("door_board_type_id") or quote.get("default_door_board_type_id") or "")
         elif section == "extra_panel":
-            board_id = str(
+            explicit_board_id = str(row.get("board_type_id") or "").strip()
+            board_id = explicit_board_id or str(
                 quote.get("default_panel_board_type_id")
-                or unit.get("door_board_type_id")
+                or (unit or {}).get("door_board_type_id")
                 or quote.get("default_door_board_type_id")
                 or ""
             )
