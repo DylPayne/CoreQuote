@@ -35,6 +35,7 @@ import { ChoiceCard, ChoiceCardContent } from '@/components/ui/choice-card'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { FormulaEditor } from '@/components/formula-editor'
 import { LibrariesPage } from '@/components/libraries-page'
+import { ProjectsQuotesPage } from '@/components/projects-quotes-page'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -45,7 +46,7 @@ const AUTH_TOKEN_KEY = 'corequote.authToken'
 
 type AuthMode = 'login' | 'register'
 type AuthStatus = 'checking' | 'signed-in' | 'signed-out'
-type AppPage = 'workspace' | 'libraries' | 'cutlist' | 'cutlist-tester' | 'appearance'
+type AppPage = 'projects' | 'workspace' | 'libraries' | 'cutlist' | 'cutlist-tester' | 'appearance'
 type ColourTheme =
   | 'neutral'
   | 'slate'
@@ -395,7 +396,7 @@ function App() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>(() => (getStoredAuthToken() ? 'checking' : 'signed-out'))
   const [authError, setAuthError] = useState<string | null>(null)
   const [colourTheme, setColourTheme] = useState<ColourTheme>('neutral')
-  const [currentPage, setCurrentPage] = useState<AppPage>('workspace')
+  const [currentPage, setCurrentPage] = useState<AppPage>('projects')
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [themeMode, setThemeMode] = useState<ThemeMode>('light')
@@ -753,6 +754,7 @@ function Workspace({
   user: AuthUser
 }) {
   const navItems = [
+    { label: 'Projects', icon: ClipboardList, page: 'projects' as const },
     { label: 'Workspace', icon: ClipboardList, page: 'workspace' as const },
     { label: 'Libraries', icon: Building2, page: 'libraries' as const },
     { label: 'Cutlist', icon: Calculator, page: 'cutlist' as const },
@@ -762,6 +764,8 @@ function Workspace({
   const pageTitle =
     currentPage === 'appearance'
       ? 'Appearance'
+      : currentPage === 'projects'
+        ? 'Projects'
       : currentPage === 'libraries'
         ? 'Libraries'
       : currentPage === 'cutlist'
@@ -772,6 +776,8 @@ function Workspace({
   const pageDescription =
     currentPage === 'appearance'
       ? 'Global style, colour, and mode controls'
+      : currentPage === 'projects'
+        ? 'Projects, quotes, and unit layouts'
       : currentPage === 'libraries'
         ? 'Manage catalog libraries and pricing'
       : currentPage === 'cutlist'
@@ -844,7 +850,7 @@ function Workspace({
           </div>
         </header>
 
-        <nav className="grid grid-cols-5 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
+        <nav className="grid grid-cols-6 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
           {navItems.map((item) => (
             <Button
               aria-pressed={item.page === currentPage}
@@ -872,6 +878,8 @@ function Workspace({
               themeMode={themeMode}
               uiStyle={uiStyle}
             />
+          ) : currentPage === 'projects' ? (
+            <ProjectsQuotesPage authToken={authToken} />
           ) : currentPage === 'libraries' ? (
             <LibrariesPage authToken={authToken} />
           ) : currentPage === 'cutlist' ? (
@@ -3358,6 +3366,7 @@ async function apiRequest<T = unknown>(
     token?: string
   } = {},
 ): Promise<T> {
+  const requestUrl = `${API_BASE_URL}${path}`
   const headers = new Headers()
   headers.set('Accept', 'application/json')
 
@@ -3369,14 +3378,20 @@ async function apiRequest<T = unknown>(
     headers.set('Authorization', `Bearer ${options.token}`)
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    headers,
-    method: options.method ?? 'GET',
-  })
+  let response: Response
+  try {
+    response = await fetch(requestUrl, {
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      headers,
+      method: options.method ?? 'GET',
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`Network error while calling ${requestUrl}: ${detail}`, { cause: error })
+  }
 
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response))
+    throw new Error(await getApiErrorMessage(response, requestUrl))
   }
 
   if (response.status === 204) {
@@ -3386,16 +3401,35 @@ async function apiRequest<T = unknown>(
   return response.json() as Promise<T>
 }
 
-async function getApiErrorMessage(response: Response) {
+async function getApiErrorMessage(response: Response, requestUrl: string) {
+  const statusPrefix = `${response.status} ${response.statusText || ''}`.trim()
   try {
-    const body = (await response.json()) as { detail?: unknown }
-    if (typeof body.detail === 'string') return body.detail
-    if (Array.isArray(body.detail)) return body.detail.map((item) => item.msg ?? String(item)).join(', ')
+    const body = (await response.json()) as { detail?: unknown } | Record<string, unknown>
+    if (typeof (body as { detail?: unknown }).detail === 'string') {
+      return `${statusPrefix}: ${(body as { detail: string }).detail} (url: ${requestUrl})`
+    }
+    if (Array.isArray((body as { detail?: unknown }).detail)) {
+      const detailRows = (body as { detail: Array<Record<string, unknown>> }).detail
+      const joined = detailRows.map((item) => String(item.msg ?? JSON.stringify(item))).join(', ')
+      return `${statusPrefix}: ${joined} (url: ${requestUrl})`
+    }
+    if ((body as { detail?: unknown }).detail && typeof (body as { detail?: unknown }).detail === 'object') {
+      return `${statusPrefix}: ${JSON.stringify((body as { detail: unknown }).detail)} (url: ${requestUrl})`
+    }
+    if (body && typeof body === 'object') {
+      return `${statusPrefix}: ${JSON.stringify(body)} (url: ${requestUrl})`
+    }
   } catch {
-    return `Request failed with status ${response.status}`
+    try {
+      const raw = await response.text()
+      if (raw.trim()) return `${statusPrefix}: ${raw.trim()} (url: ${requestUrl})`
+    } catch {
+      // ignore and use fallback
+    }
+    return `Request failed: ${statusPrefix} (url: ${requestUrl})`
   }
 
-  return `Request failed with status ${response.status}`
+  return `Request failed: ${statusPrefix} (url: ${requestUrl})`
 }
 
 function createThemeVars(theme: ThemeSpec, mode: ThemeMode, uiStyle: UiStyle): ThemeVars {

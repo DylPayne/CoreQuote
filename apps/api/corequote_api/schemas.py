@@ -133,6 +133,84 @@ class CompanyResponse(BaseModel):
     updated_at: datetime = Field(description="UTC timestamp when the company was last updated.")
 
 
+class UnitDefaultsDimensions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    height: int = Field(gt=0)
+    depth: int = Field(gt=0)
+
+
+class ProjectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    client: str = Field(default="", max_length=160)
+    address: str = Field(default="", max_length=320)
+    description: str = Field(default="", max_length=2000)
+
+
+class ProjectResponse(ProjectRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    company_id: str
+    quote_count: int = Field(default=0, ge=0)
+    created_at: datetime
+    updated_at: datetime
+
+
+class QuoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    notes: str = Field(default="", max_length=4000)
+    default_carcass_board_type_id: str | None = None
+    default_door_board_type_id: str | None = None
+    default_panel_board_type_id: str | None = None
+    default_slide_id: str | None = None
+    default_hinge_id: str | None = None
+    default_base_handle_id: str | None = None
+    default_wall_handle_id: str | None = None
+    default_tall_handle_id: str | None = None
+    default_drawer_handle_id: str | None = None
+    unit_defaults: dict[str, UnitDefaultsDimensions] = Field(default_factory=dict)
+
+
+class QuoteResponse(QuoteRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    company_id: str
+    project_id: str
+    unit_count: int = Field(default=0, ge=0)
+    created_at: datetime
+    updated_at: datetime
+
+
+class QuoteUnitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unit_type_key: str = Field(min_length=1, max_length=120)
+    height: int = Field(gt=0)
+    width: int = Field(gt=0)
+    depth: int = Field(gt=0)
+    thickness: int = Field(default=16, gt=0)
+    carcass_board_type_id: str | None = None
+    door_board_type_id: str | None = None
+    extra_params: dict[str, Any] = Field(default_factory=dict)
+
+
+class QuoteUnitResponse(QuoteUnitRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    company_id: str
+    quote_id: str
+    unit_number: int = Field(ge=1)
+    created_at: datetime
+    updated_at: datetime
+
+
 class CutlistUnitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

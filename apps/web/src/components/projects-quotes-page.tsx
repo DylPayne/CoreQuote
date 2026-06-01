@@ -1,0 +1,1457 @@
+import {
+  LoaderCircle,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+
+import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Textarea } from '@/components/ui/textarea'
+
+type UnitDefaults = Record<string, { height: number; depth: number }>
+
+type ProjectRow = {
+  id: string
+  company_id: string
+  name: string
+  client: string
+  address: string
+  description: string
+  quote_count: number
+  created_at: string
+  updated_at: string
+}
+
+type QuoteRow = {
+  id: string
+  company_id: string
+  project_id: string
+  name: string
+  notes: string
+  default_carcass_board_type_id: string | null
+  default_door_board_type_id: string | null
+  default_panel_board_type_id: string | null
+  default_slide_id: string | null
+  default_hinge_id: string | null
+  default_base_handle_id: string | null
+  default_wall_handle_id: string | null
+  default_tall_handle_id: string | null
+  default_drawer_handle_id: string | null
+  unit_defaults: UnitDefaults
+  unit_count: number
+  created_at: string
+  updated_at: string
+}
+
+type UnitRow = {
+  id: string
+  company_id: string
+  quote_id: string
+  unit_number: number
+  unit_type_key: string
+  height: number
+  width: number
+  depth: number
+  thickness: number
+  carcass_board_type_id: string | null
+  door_board_type_id: string | null
+  extra_params: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+type BoardRow = {
+  id: string
+  brand: string
+  material: string
+  thickness: number
+  length_mm: number
+  width_mm: number
+}
+
+type SlideRow = {
+  id: string
+  brand: string
+  model: string
+  code: string
+  length: number
+}
+
+type HingeRow = {
+  id: string
+  brand: string
+  model: string
+  code: string
+  opening_angle_deg: number
+}
+
+type HandleRow = {
+  id: string
+  name: string
+  supplier: string
+  code: string
+}
+
+type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
+
+type ProjectDraft = {
+  name: string
+  client: string
+  address: string
+  description: string
+}
+
+type QuoteDraft = {
+  name: string
+  notes: string
+  default_carcass_board_type_id: string
+  default_door_board_type_id: string
+  default_panel_board_type_id: string
+  default_slide_id: string
+  default_hinge_id: string
+  default_base_handle_id: string
+  default_wall_handle_id: string
+  default_tall_handle_id: string
+  default_drawer_handle_id: string
+  base_draw_height: string
+  base_draw_depth: string
+  base_door_height: string
+  base_door_depth: string
+  wall_door_height: string
+  wall_door_depth: string
+  tall_door_height: string
+  tall_door_depth: string
+}
+
+type UnitDraft = {
+  unit_type_key: string
+  custom_unit_type_key: string
+  height: string
+  width: string
+  depth: string
+  thickness: string
+  carcass_board_type_id: string
+  door_board_type_id: string
+  num_drawers: string
+  num_doors: string
+  num_shelves: string
+}
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
+
+const unitPresets: UnitPresetKey[] = ['Base Draw', 'Base Door', 'Wall Door', 'Tall Door']
+const customUnitTypeValue = '__custom_unit_type__'
+
+const fallbackUnitDefaults: UnitDefaults = {
+  'Base Draw': { height: 780, depth: 580 },
+  'Base Door': { height: 780, depth: 580 },
+  'Wall Door': { height: 720, depth: 330 },
+  'Tall Door': { height: 2100, depth: 580 },
+}
+
+const defaultProjectDraft: ProjectDraft = {
+  name: '',
+  client: '',
+  address: '',
+  description: '',
+}
+
+const defaultQuoteDraft: QuoteDraft = {
+  name: '',
+  notes: '',
+  default_carcass_board_type_id: '',
+  default_door_board_type_id: '',
+  default_panel_board_type_id: '',
+  default_slide_id: '',
+  default_hinge_id: '',
+  default_base_handle_id: '',
+  default_wall_handle_id: '',
+  default_tall_handle_id: '',
+  default_drawer_handle_id: '',
+  base_draw_height: String(fallbackUnitDefaults['Base Draw'].height),
+  base_draw_depth: String(fallbackUnitDefaults['Base Draw'].depth),
+  base_door_height: String(fallbackUnitDefaults['Base Door'].height),
+  base_door_depth: String(fallbackUnitDefaults['Base Door'].depth),
+  wall_door_height: String(fallbackUnitDefaults['Wall Door'].height),
+  wall_door_depth: String(fallbackUnitDefaults['Wall Door'].depth),
+  tall_door_height: String(fallbackUnitDefaults['Tall Door'].height),
+  tall_door_depth: String(fallbackUnitDefaults['Tall Door'].depth),
+}
+
+const defaultUnitDraft: UnitDraft = {
+  unit_type_key: 'Base Draw',
+  custom_unit_type_key: '',
+  height: String(fallbackUnitDefaults['Base Draw'].height),
+  width: '600',
+  depth: String(fallbackUnitDefaults['Base Draw'].depth),
+  thickness: '16',
+  carcass_board_type_id: '',
+  door_board_type_id: '',
+  num_drawers: '3',
+  num_doors: '2',
+  num_shelves: '1',
+}
+
+export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
+  const [projects, setProjects] = useState<ProjectRow[]>([])
+  const [quotes, setQuotes] = useState<QuoteRow[]>([])
+  const [units, setUnits] = useState<UnitRow[]>([])
+
+  const [boards, setBoards] = useState<BoardRow[]>([])
+  const [slides, setSlides] = useState<SlideRow[]>([])
+  const [hinges, setHinges] = useState<HingeRow[]>([])
+  const [handles, setHandles] = useState<HandleRow[]>([])
+
+  const [search, setSearch] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
+
+  const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft)
+  const [quoteDraft, setQuoteDraft] = useState<QuoteDraft>(defaultQuoteDraft)
+  const [unitDraft, setUnitDraft] = useState<UnitDraft>(defaultUnitDraft)
+
+  const [projectEditId, setProjectEditId] = useState<string | null>(null)
+  const [quoteEditId, setQuoteEditId] = useState<string | null>(null)
+  const [unitEditId, setUnitEditId] = useState<string | null>(null)
+
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
+  const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false)
+  const [isUnitModalOpen, setIsUnitModalOpen] = useState(false)
+
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true)
+  const [isLoadingQuotes, setIsLoadingQuotes] = useState(false)
+  const [isLoadingUnits, setIsLoadingUnits] = useState(false)
+  const [isLoadingLibraries, setIsLoadingLibraries] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const [error, setError] = useState<string | null>(null)
+  const [modalError, setModalError] = useState<string | null>(null)
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) ?? null,
+    [projects, selectedProjectId],
+  )
+  const selectedQuote = useMemo(
+    () => quotes.find((quote) => quote.id === selectedQuoteId) ?? null,
+    [quotes, selectedQuoteId],
+  )
+
+  const boardLabel = useCallback(
+    (boardId: string | null) => {
+      if (!boardId) return 'None'
+      const board = boards.find((row) => row.id === boardId)
+      if (!board) return 'Unknown'
+      return `${board.brand} ${board.material} (${board.thickness}mm)`
+    },
+    [boards],
+  )
+
+  const isDrawerUnitDraft = resolvedUnitType(unitDraft).toLowerCase().includes('draw')
+
+  const loadLibraries = useCallback(async () => {
+    setIsLoadingLibraries(true)
+    try {
+      const [boardRows, slideRows, hingeRows, handleRows] = await Promise.all([
+        apiRequest<BoardRow[]>('/api/v1/libraries/boards', { token: authToken }),
+        apiRequest<SlideRow[]>('/api/v1/libraries/slides', { token: authToken }),
+        apiRequest<HingeRow[]>('/api/v1/libraries/hinges', { token: authToken }),
+        apiRequest<HandleRow[]>('/api/v1/libraries/handles', { token: authToken }),
+      ])
+      setBoards(boardRows)
+      setSlides(slideRows)
+      setHinges(hingeRows)
+      setHandles(handleRows)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load library defaults.')
+    } finally {
+      setIsLoadingLibraries(false)
+    }
+  }, [authToken])
+
+  const loadProjects = useCallback(
+    async (searchValue?: string) => {
+      setIsLoadingProjects(true)
+      setError(null)
+      try {
+        const query = (searchValue ?? search).trim()
+        const path = query ? `/api/v1/projects?search=${encodeURIComponent(query)}` : '/api/v1/projects'
+        const rows = await apiRequest<ProjectRow[]>(path, { token: authToken })
+        setProjects(rows)
+        setSelectedProjectId((current) => (current && rows.some((row) => row.id === current) ? current : rows[0]?.id ?? null))
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load projects.')
+      } finally {
+        setIsLoadingProjects(false)
+      }
+    },
+    [authToken, search],
+  )
+
+  const loadQuotes = useCallback(
+    async (projectId: string) => {
+      setIsLoadingQuotes(true)
+      setError(null)
+      try {
+        const rows = await apiRequest<QuoteRow[]>(`/api/v1/projects/${projectId}/quotes`, { token: authToken })
+        setQuotes(rows)
+        setSelectedQuoteId((current) => (current && rows.some((row) => row.id === current) ? current : rows[0]?.id ?? null))
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load quotes.')
+      } finally {
+        setIsLoadingQuotes(false)
+      }
+    },
+    [authToken],
+  )
+
+  const loadUnits = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingUnits(true)
+      setError(null)
+      try {
+        const rows = await apiRequest<UnitRow[]>(`/api/v1/quotes/${quoteId}/units`, { token: authToken })
+        setUnits(rows)
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load units.')
+      } finally {
+        setIsLoadingUnits(false)
+      }
+    },
+    [authToken],
+  )
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      void loadLibraries()
+      void loadProjects('')
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [loadLibraries, loadProjects])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (!selectedProjectId) {
+        setQuotes([])
+        setSelectedQuoteId(null)
+        return
+      }
+      void loadQuotes(selectedProjectId)
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [loadQuotes, selectedProjectId])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (!selectedQuoteId) {
+        setUnits([])
+        return
+      }
+      void loadUnits(selectedQuoteId)
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [loadUnits, selectedQuoteId])
+
+  function openCreateProjectModal() {
+    setProjectEditId(null)
+    setModalError(null)
+    setProjectDraft(defaultProjectDraft)
+    setIsProjectModalOpen(true)
+  }
+
+  function openEditProjectModal(project: ProjectRow) {
+    setProjectEditId(project.id)
+    setModalError(null)
+    setProjectDraft({
+      name: project.name,
+      client: project.client,
+      address: project.address,
+      description: project.description,
+    })
+    setIsProjectModalOpen(true)
+  }
+
+  function openCreateQuoteModal() {
+    setQuoteEditId(null)
+    setModalError(null)
+    setQuoteDraft(defaultQuoteDraft)
+    setIsQuoteModalOpen(true)
+  }
+
+  function openEditQuoteModal(quote: QuoteRow) {
+    setQuoteEditId(quote.id)
+    setModalError(null)
+    setQuoteDraft(toQuoteDraft(quote))
+    setIsQuoteModalOpen(true)
+  }
+
+  function openCopyQuoteModal(quote: QuoteRow) {
+    setQuoteEditId(null)
+    setModalError(null)
+    const sourceDraft = toQuoteDraft(quote)
+    const hasCopyLabel = /\bcopy\b/i.test(sourceDraft.name)
+    setQuoteDraft({
+      ...sourceDraft,
+      name: hasCopyLabel ? sourceDraft.name : `${sourceDraft.name} (Copy)`,
+    })
+    setIsQuoteModalOpen(true)
+  }
+
+  function openCreateUnitModal() {
+    if (!selectedQuote) return
+    setUnitEditId(null)
+    setModalError(null)
+    const base = defaultUnitDraft
+    const preferredType: UnitPresetKey = 'Base Draw'
+    const dims = resolveDefaultDims(selectedQuote.unit_defaults, preferredType)
+    setUnitDraft({
+      ...base,
+      height: String(dims.height),
+      depth: String(dims.depth),
+      carcass_board_type_id: selectedQuote.default_carcass_board_type_id ?? '',
+      door_board_type_id: selectedQuote.default_door_board_type_id ?? '',
+    })
+    setIsUnitModalOpen(true)
+  }
+
+  function openEditUnitModal(unit: UnitRow) {
+    const unitTypeIsPreset = unitPresets.includes(unit.unit_type_key as UnitPresetKey)
+    setUnitEditId(unit.id)
+    setModalError(null)
+    setUnitDraft({
+      unit_type_key: unitTypeIsPreset ? unit.unit_type_key : customUnitTypeValue,
+      custom_unit_type_key: unitTypeIsPreset ? '' : unit.unit_type_key,
+      height: String(unit.height),
+      width: String(unit.width),
+      depth: String(unit.depth),
+      thickness: String(unit.thickness),
+      carcass_board_type_id: unit.carcass_board_type_id ?? '',
+      door_board_type_id: unit.door_board_type_id ?? '',
+      num_drawers: String(numberFromExtra(unit.extra_params, 'num_drawers', 3)),
+      num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
+      num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
+    })
+    setIsUnitModalOpen(true)
+  }
+
+  async function handleProjectSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const trimmedName = projectDraft.name.trim()
+    if (!trimmedName) {
+      setModalError('Project name is required.')
+      return
+    }
+    setIsSaving(true)
+    setError(null)
+    setModalError(null)
+    try {
+      const payload = {
+        name: trimmedName,
+        client: projectDraft.client.trim(),
+        address: projectDraft.address.trim(),
+        description: projectDraft.description.trim(),
+      }
+      if (projectEditId) {
+        await apiRequest<ProjectRow>(`/api/v1/projects/${projectEditId}`, {
+          method: 'PATCH',
+          token: authToken,
+          body: payload,
+        })
+      } else {
+        await apiRequest<ProjectRow>('/api/v1/projects', {
+          method: 'POST',
+          token: authToken,
+          body: payload,
+        })
+      }
+      setIsProjectModalOpen(false)
+      setSearch('')
+      await loadProjects('')
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Could not save project.'
+      setError(message)
+      setModalError(message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleQuoteSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedProjectId) return
+
+    setIsSaving(true)
+    setError(null)
+    setModalError(null)
+    try {
+      const payload = quotePayloadFromDraft(quoteDraft)
+      if (quoteEditId) {
+        await apiRequest<QuoteRow>(`/api/v1/quotes/${quoteEditId}`, {
+          method: 'PATCH',
+          token: authToken,
+          body: payload,
+        })
+      } else {
+        await apiRequest<QuoteRow>(`/api/v1/projects/${selectedProjectId}/quotes`, {
+          method: 'POST',
+          token: authToken,
+          body: payload,
+        })
+      }
+      setIsQuoteModalOpen(false)
+      await loadProjects(search)
+      await loadQuotes(selectedProjectId)
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Could not save quote.'
+      setError(message)
+      setModalError(message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleUnitSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedQuoteId) return
+
+    setIsSaving(true)
+    setError(null)
+    setModalError(null)
+    try {
+      const payload = unitPayloadFromDraft(unitDraft)
+      if (unitEditId) {
+        await apiRequest<UnitRow>(`/api/v1/quotes/${selectedQuoteId}/units/${unitEditId}`, {
+          method: 'PATCH',
+          token: authToken,
+          body: payload,
+        })
+      } else {
+        await apiRequest<UnitRow>(`/api/v1/quotes/${selectedQuoteId}/units`, {
+          method: 'POST',
+          token: authToken,
+          body: payload,
+        })
+      }
+      setIsUnitModalOpen(false)
+      await loadUnits(selectedQuoteId)
+      if (selectedProjectId) {
+        await loadQuotes(selectedProjectId)
+      }
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Could not save unit.'
+      setError(message)
+      setModalError(message)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function handleDeleteProject(projectId: string) {
+    setError(null)
+    try {
+      await apiRequest(`/api/v1/projects/${projectId}`, { method: 'DELETE', token: authToken })
+      await loadProjects(search)
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Could not delete project.')
+    }
+  }
+
+  async function handleDeleteQuote(quoteId: string) {
+    if (!selectedProjectId) return
+    setError(null)
+    try {
+      await apiRequest(`/api/v1/quotes/${quoteId}`, { method: 'DELETE', token: authToken })
+      await loadProjects(search)
+      await loadQuotes(selectedProjectId)
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Could not delete quote.')
+    }
+  }
+
+  async function handleDeleteUnit(unitId: string) {
+    if (!selectedQuoteId) return
+    setError(null)
+    try {
+      await apiRequest(`/api/v1/quotes/${selectedQuoteId}/units/${unitId}`, { method: 'DELETE', token: authToken })
+      await loadUnits(selectedQuoteId)
+      if (selectedProjectId) {
+        await loadQuotes(selectedProjectId)
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Could not delete unit.')
+    }
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <Card>
+        <CardHeader className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>Projects</CardTitle>
+            <Button onClick={openCreateProjectModal} size="sm" type="button">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New
+            </Button>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search projects"
+              value={search}
+            />
+            <Button
+              onClick={() => void loadProjects(search)}
+              type="button"
+              variant="outline"
+            >
+              Find
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {isLoadingProjects ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Loading projects
+            </div>
+          ) : projects.length > 0 ? (
+            projects.map((project) => (
+              <button
+                className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${project.id === selectedProjectId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
+                key={project.id}
+                onClick={() => setSelectedProjectId(project.id)}
+                type="button"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{project.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{project.client || 'No client'}</p>
+                  </div>
+                  <Badge variant="outline">{project.quote_count}</Badge>
+                </div>
+                <p className="mt-2 truncate text-xs text-muted-foreground">{project.address || 'No address'}</p>
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <Button
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      openEditProjectModal(project)
+                    }}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                  <Button
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void handleDeleteProject(project.id)
+                    }}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              </button>
+            ))
+          ) : (
+            <Alert className="text-xs">No projects yet. Create one to start quoting.</Alert>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid min-w-0 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-3">
+            <div>
+              <CardTitle>{selectedProject ? selectedProject.name : 'Select a project'}</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {selectedProject
+                  ? `${selectedProject.client || 'No client'} · ${selectedProject.address || 'No address'}`
+                  : 'Projects hold client context and group all quote revisions.'}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                disabled={!selectedProject}
+                onClick={openCreateQuoteModal}
+                type="button"
+                variant="outline"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                New quote
+              </Button>
+              <Button
+                disabled={!selectedQuote}
+                onClick={openCreateUnitModal}
+                type="button"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Add unit
+              </Button>
+            </div>
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            {selectedProject?.description ? (
+              <p className="text-sm text-muted-foreground">{selectedProject.description}</p>
+            ) : null}
+
+            <div className="grid gap-2">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">Quotes</p>
+              {isLoadingQuotes ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Loading quotes
+                </div>
+              ) : quotes.length > 0 ? (
+                quotes.map((quote) => (
+                  <button
+                    className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${quote.id === selectedQuoteId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
+                    key={quote.id}
+                    onClick={() => setSelectedQuoteId(quote.id)}
+                    type="button"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{quote.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">{quote.notes || 'No notes'}</p>
+                      </div>
+                      <Badge variant="outline">{quote.unit_count} units</Badge>
+                    </div>
+                    <div className="mt-2 flex items-center justify-end gap-2">
+                      <Button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openCopyQuoteModal(quote)
+                        }}
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                      >
+                        Copy
+                      </Button>
+                      <Button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openEditQuoteModal(quote)
+                        }}
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                      <Button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void handleDeleteQuote(quote.id)
+                        }}
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <Alert className="text-xs">No quotes in this project yet.</Alert>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Units</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {selectedQuote
+                ? `Quote: ${selectedQuote.name}. Units are stored in explicit order and renumber automatically after deletion.`
+                : 'Select a quote to manage units.'}
+            </p>
+          </CardHeader>
+          <CardContent>
+            {selectedQuote ? (
+              isLoadingUnits ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Loading units
+                </div>
+              ) : (
+                <TableContainer>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>#</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Dimensions (mm)</TableHead>
+                        <TableHead>Boards</TableHead>
+                        <TableHead>Extra Params</TableHead>
+                        <TableHead className="w-24" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {units.length === 0 ? (
+                        <TableRow>
+                          <TableCell className="text-muted-foreground" colSpan={6}>
+                            No units yet.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        units.map((unit) => (
+                          <TableRow key={unit.id}>
+                            <TableCell>{unit.unit_number}</TableCell>
+                            <TableCell>{unit.unit_type_key}</TableCell>
+                            <TableCell>{`${unit.height} x ${unit.width} x ${unit.depth} · t${unit.thickness}`}</TableCell>
+                            <TableCell>{`${boardLabel(unit.carcass_board_type_id)} / ${boardLabel(unit.door_board_type_id)}`}</TableCell>
+                            <TableCell className="max-w-72 truncate text-xs text-muted-foreground">{formatExtraParams(unit.extra_params)}</TableCell>
+                            <TableCell>
+                              <div className="flex justify-end gap-1">
+                                <Button onClick={() => openEditUnitModal(unit)} size="icon" type="button" variant="ghost">
+                                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                                </Button>
+                                <Button onClick={() => void handleDeleteUnit(unit.id)} size="icon" type="button" variant="ghost">
+                                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )
+            ) : (
+              <Alert className="text-xs">No quote selected.</Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        {error ? <Alert variant="destructive">{error}</Alert> : null}
+        {isLoadingLibraries ? (
+          <Alert className="text-xs">Loading library defaults for quote setup.</Alert>
+        ) : null}
+      </div>
+
+      {isProjectModalOpen ? (
+        <ModalCard title={projectEditId ? 'Edit Project' : 'Create Project'} onClose={() => setIsProjectModalOpen(false)}>
+          <form className="grid gap-3" onSubmit={handleProjectSubmit}>
+            {modalError ? <Alert variant="destructive">{modalError}</Alert> : null}
+            <Label className="grid gap-1.5">
+              Project name
+              <Input
+                onChange={(event) => setProjectDraft((current) => ({ ...current, name: event.target.value }))}
+                required
+                value={projectDraft.name}
+              />
+            </Label>
+            <Label className="grid gap-1.5">
+              Client
+              <Input
+                onChange={(event) => setProjectDraft((current) => ({ ...current, client: event.target.value }))}
+                value={projectDraft.client}
+              />
+            </Label>
+            <Label className="grid gap-1.5">
+              Address
+              <Input
+                onChange={(event) => setProjectDraft((current) => ({ ...current, address: event.target.value }))}
+                value={projectDraft.address}
+              />
+            </Label>
+            <Label className="grid gap-1.5">
+              Description
+              <Textarea
+                onChange={(event) => setProjectDraft((current) => ({ ...current, description: event.target.value }))}
+                rows={4}
+                value={projectDraft.description}
+              />
+            </Label>
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setIsProjectModalOpen(false)} type="button" variant="outline">
+                Cancel
+              </Button>
+              <Button disabled={isSaving} type="submit">
+                {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                Save project
+              </Button>
+            </div>
+          </form>
+        </ModalCard>
+      ) : null}
+
+      {isQuoteModalOpen ? (
+        <ModalCard title={quoteEditId ? 'Edit Quote' : 'Create Quote'} onClose={() => setIsQuoteModalOpen(false)}>
+          <form className="grid gap-3" onSubmit={handleQuoteSubmit}>
+            {modalError ? <Alert variant="destructive">{modalError}</Alert> : null}
+            <Label className="grid gap-1.5">
+              Quote name
+              <Input
+                onChange={(event) => setQuoteDraft((current) => ({ ...current, name: event.target.value }))}
+                required
+                value={quoteDraft.name}
+              />
+            </Label>
+            <Label className="grid gap-1.5">
+              Notes
+              <Textarea
+                onChange={(event) => setQuoteDraft((current) => ({ ...current, notes: event.target.value }))}
+                rows={3}
+                value={quoteDraft.notes}
+              />
+            </Label>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <LibrarySelect
+                label="Carcass board"
+                options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_carcass_board_type_id: value }))}
+                value={quoteDraft.default_carcass_board_type_id}
+              />
+              <LibrarySelect
+                label="Door board"
+                options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_door_board_type_id: value }))}
+                value={quoteDraft.default_door_board_type_id}
+              />
+              <LibrarySelect
+                label="Panel board"
+                options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_panel_board_type_id: value }))}
+                value={quoteDraft.default_panel_board_type_id}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <LibrarySelect
+                label="Default slide"
+                options={slides.map((slide) => ({ value: slide.id, label: `${slide.brand} ${slide.model}${slide.code ? ` (${slide.code})` : ''}` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_slide_id: value }))}
+                value={quoteDraft.default_slide_id}
+              />
+              <LibrarySelect
+                label="Default hinge"
+                options={hinges.map((hinge) => ({ value: hinge.id, label: `${hinge.brand} ${hinge.model} (${hinge.opening_angle_deg}deg)` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_hinge_id: value }))}
+                value={quoteDraft.default_hinge_id}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <LibrarySelect
+                label="Base handle"
+                options={handles.map((handle) => ({ value: handle.id, label: `${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_base_handle_id: value }))}
+                value={quoteDraft.default_base_handle_id}
+              />
+              <LibrarySelect
+                label="Wall handle"
+                options={handles.map((handle) => ({ value: handle.id, label: `${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_wall_handle_id: value }))}
+                value={quoteDraft.default_wall_handle_id}
+              />
+              <LibrarySelect
+                label="Tall handle"
+                options={handles.map((handle) => ({ value: handle.id, label: `${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_tall_handle_id: value }))}
+                value={quoteDraft.default_tall_handle_id}
+              />
+              <LibrarySelect
+                label="Drawer handle"
+                options={handles.map((handle) => ({ value: handle.id, label: `${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}` }))}
+                onChange={(value) => setQuoteDraft((current) => ({ ...current, default_drawer_handle_id: value }))}
+                value={quoteDraft.default_drawer_handle_id}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">Default unit dimensions</p>
+              <QuoteDefaultDimensionGrid draft={quoteDraft} setDraft={setQuoteDraft} />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setIsQuoteModalOpen(false)} type="button" variant="outline">
+                Cancel
+              </Button>
+              <Button disabled={isSaving} type="submit">
+                {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                Save quote
+              </Button>
+            </div>
+          </form>
+        </ModalCard>
+      ) : null}
+
+      {isUnitModalOpen ? (
+        <ModalCard title={unitEditId ? 'Edit Unit' : 'Add Unit'} onClose={() => setIsUnitModalOpen(false)}>
+          <form className="grid gap-3" onSubmit={handleUnitSubmit}>
+            {modalError ? <Alert variant="destructive">{modalError}</Alert> : null}
+            <Label className="grid gap-1.5">
+              Unit type
+              <Select
+                onChange={(event) => {
+                  const nextValue = event.target.value
+                  if (nextValue === customUnitTypeValue) {
+                    setUnitDraft((current) => ({ ...current, unit_type_key: customUnitTypeValue }))
+                    return
+                  }
+                  const nextType = nextValue as UnitPresetKey
+                  const dims = resolveDefaultDims(selectedQuote?.unit_defaults ?? fallbackUnitDefaults, nextType)
+                  setUnitDraft((current) => ({
+                    ...current,
+                    unit_type_key: nextValue,
+                    height: String(dims.height),
+                    depth: String(dims.depth),
+                  }))
+                }}
+                value={unitDraft.unit_type_key}
+              >
+                {unitPresets.map((unitType) => (
+                  <option key={unitType} value={unitType}>
+                    {unitType}
+                  </option>
+                ))}
+                <option value={customUnitTypeValue}>Custom unit type</option>
+              </Select>
+            </Label>
+
+            {unitDraft.unit_type_key === customUnitTypeValue ? (
+              <Label className="grid gap-1.5">
+                Custom unit type key
+                <Input
+                  onChange={(event) =>
+                    setUnitDraft((current) => ({
+                      ...current,
+                      custom_unit_type_key: event.target.value,
+                    }))
+                  }
+                  required
+                  value={unitDraft.custom_unit_type_key}
+                />
+              </Label>
+            ) : null}
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <Label className="grid gap-1.5">
+                Width (mm)
+                <Input
+                  min={1}
+                  onChange={(event) => setUnitDraft((current) => ({ ...current, width: event.target.value }))}
+                  required
+                  type="number"
+                  value={unitDraft.width}
+                />
+              </Label>
+              <Label className="grid gap-1.5">
+                Height (mm)
+                <Input
+                  min={1}
+                  onChange={(event) => setUnitDraft((current) => ({ ...current, height: event.target.value }))}
+                  required
+                  type="number"
+                  value={unitDraft.height}
+                />
+              </Label>
+              <Label className="grid gap-1.5">
+                Depth (mm)
+                <Input
+                  min={1}
+                  onChange={(event) => setUnitDraft((current) => ({ ...current, depth: event.target.value }))}
+                  required
+                  type="number"
+                  value={unitDraft.depth}
+                />
+              </Label>
+              <Label className="grid gap-1.5">
+                Thickness (mm)
+                <Input
+                  min={1}
+                  onChange={(event) => setUnitDraft((current) => ({ ...current, thickness: event.target.value }))}
+                  required
+                  type="number"
+                  value={unitDraft.thickness}
+                />
+              </Label>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <LibrarySelect
+                label="Carcass board"
+                options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
+                onChange={(value) => setUnitDraft((current) => ({ ...current, carcass_board_type_id: value }))}
+                value={unitDraft.carcass_board_type_id}
+              />
+              <LibrarySelect
+                label="Door board"
+                options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
+                onChange={(value) => setUnitDraft((current) => ({ ...current, door_board_type_id: value }))}
+                value={unitDraft.door_board_type_id}
+              />
+            </div>
+
+            {isDrawerUnitDraft ? (
+              <Label className="grid gap-1.5">
+                Number of drawers
+                <Input
+                  min={1}
+                  onChange={(event) => setUnitDraft((current) => ({ ...current, num_drawers: event.target.value }))}
+                  required
+                  type="number"
+                  value={unitDraft.num_drawers}
+                />
+              </Label>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                <Label className="grid gap-1.5">
+                  Number of doors
+                  <Input
+                    min={1}
+                    onChange={(event) => setUnitDraft((current) => ({ ...current, num_doors: event.target.value }))}
+                    required
+                    type="number"
+                    value={unitDraft.num_doors}
+                  />
+                </Label>
+                <Label className="grid gap-1.5">
+                  Number of shelves
+                  <Input
+                    min={0}
+                    onChange={(event) => setUnitDraft((current) => ({ ...current, num_shelves: event.target.value }))}
+                    required
+                    type="number"
+                    value={unitDraft.num_shelves}
+                  />
+                </Label>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setIsUnitModalOpen(false)} type="button" variant="outline">
+                Cancel
+              </Button>
+              <Button disabled={isSaving} type="submit">
+                {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                Save unit
+              </Button>
+            </div>
+          </form>
+        </ModalCard>
+      ) : null}
+    </div>
+  )
+}
+
+function ModalCard({
+  title,
+  children,
+  onClose,
+}: {
+  title: string
+  children: React.ReactNode
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Card className="w-full max-w-4xl">
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <CardTitle>{title}</CardTitle>
+          <Button onClick={onClose} type="button" variant="ghost">
+            Close
+          </Button>
+        </CardHeader>
+        <CardContent>{children}</CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function LibrarySelect({
+  label,
+  options,
+  onChange,
+  value,
+}: {
+  label: string
+  options: Array<{ value: string; label: string }>
+  onChange: (value: string) => void
+  value: string
+}) {
+  return (
+    <Label className="grid gap-1.5">
+      {label}
+      <Select onChange={(event) => onChange(event.target.value)} value={value}>
+        <option value="">None</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </Select>
+    </Label>
+  )
+}
+
+function QuoteDefaultDimensionGrid({
+  draft,
+  setDraft,
+}: {
+  draft: QuoteDraft
+  setDraft: React.Dispatch<React.SetStateAction<QuoteDraft>>
+}) {
+  return (
+    <div className="grid gap-2">
+      <DimensionRow
+        depthKey="base_draw_depth"
+        draft={draft}
+        heightKey="base_draw_height"
+        label="Base Draw"
+        setDraft={setDraft}
+      />
+      <DimensionRow
+        depthKey="base_door_depth"
+        draft={draft}
+        heightKey="base_door_height"
+        label="Base Door"
+        setDraft={setDraft}
+      />
+      <DimensionRow
+        depthKey="wall_door_depth"
+        draft={draft}
+        heightKey="wall_door_height"
+        label="Wall Door"
+        setDraft={setDraft}
+      />
+      <DimensionRow
+        depthKey="tall_door_depth"
+        draft={draft}
+        heightKey="tall_door_height"
+        label="Tall Door"
+        setDraft={setDraft}
+      />
+    </div>
+  )
+}
+
+function DimensionRow({
+  label,
+  draft,
+  setDraft,
+  heightKey,
+  depthKey,
+}: {
+  label: string
+  draft: QuoteDraft
+  setDraft: React.Dispatch<React.SetStateAction<QuoteDraft>>
+  heightKey:
+    | 'base_draw_height'
+    | 'base_door_height'
+    | 'wall_door_height'
+    | 'tall_door_height'
+  depthKey: 'base_draw_depth' | 'base_door_depth' | 'wall_door_depth' | 'tall_door_depth'
+}) {
+  return (
+    <div className="grid grid-cols-[140px_1fr_1fr] items-center gap-2">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <Input
+        min={1}
+        onChange={(event) => setDraft((current) => ({ ...current, [heightKey]: event.target.value }))}
+        type="number"
+        value={draft[heightKey]}
+      />
+      <Input
+        min={1}
+        onChange={(event) => setDraft((current) => ({ ...current, [depthKey]: event.target.value }))}
+        type="number"
+        value={draft[depthKey]}
+      />
+    </div>
+  )
+}
+
+function resolvedUnitType(draft: UnitDraft): string {
+  if (draft.unit_type_key === customUnitTypeValue) {
+    return draft.custom_unit_type_key.trim() || 'Custom Unit'
+  }
+  return draft.unit_type_key
+}
+
+function unitPayloadFromDraft(draft: UnitDraft) {
+  const unitType = resolvedUnitType(draft)
+  const isDrawer = unitType.toLowerCase().includes('draw')
+  return {
+    unit_type_key: unitType,
+    height: parsePositiveInteger(draft.height, 780),
+    width: parsePositiveInteger(draft.width, 600),
+    depth: parsePositiveInteger(draft.depth, 580),
+    thickness: parsePositiveInteger(draft.thickness, 16),
+    carcass_board_type_id: optionalId(draft.carcass_board_type_id),
+    door_board_type_id: optionalId(draft.door_board_type_id),
+    extra_params: isDrawer
+      ? {
+          num_drawers: parsePositiveInteger(draft.num_drawers, 3),
+        }
+      : {
+          num_doors: parsePositiveInteger(draft.num_doors, 2),
+          num_shelves: parseNonNegativeInteger(draft.num_shelves, 1),
+        },
+  }
+}
+
+function quotePayloadFromDraft(draft: QuoteDraft) {
+  return {
+    name: draft.name.trim(),
+    notes: draft.notes.trim(),
+    default_carcass_board_type_id: optionalId(draft.default_carcass_board_type_id),
+    default_door_board_type_id: optionalId(draft.default_door_board_type_id),
+    default_panel_board_type_id: optionalId(draft.default_panel_board_type_id),
+    default_slide_id: optionalId(draft.default_slide_id),
+    default_hinge_id: optionalId(draft.default_hinge_id),
+    default_base_handle_id: optionalId(draft.default_base_handle_id),
+    default_wall_handle_id: optionalId(draft.default_wall_handle_id),
+    default_tall_handle_id: optionalId(draft.default_tall_handle_id),
+    default_drawer_handle_id: optionalId(draft.default_drawer_handle_id),
+    unit_defaults: {
+      'Base Draw': {
+        height: parsePositiveInteger(draft.base_draw_height, fallbackUnitDefaults['Base Draw'].height),
+        depth: parsePositiveInteger(draft.base_draw_depth, fallbackUnitDefaults['Base Draw'].depth),
+      },
+      'Base Door': {
+        height: parsePositiveInteger(draft.base_door_height, fallbackUnitDefaults['Base Door'].height),
+        depth: parsePositiveInteger(draft.base_door_depth, fallbackUnitDefaults['Base Door'].depth),
+      },
+      'Wall Door': {
+        height: parsePositiveInteger(draft.wall_door_height, fallbackUnitDefaults['Wall Door'].height),
+        depth: parsePositiveInteger(draft.wall_door_depth, fallbackUnitDefaults['Wall Door'].depth),
+      },
+      'Tall Door': {
+        height: parsePositiveInteger(draft.tall_door_height, fallbackUnitDefaults['Tall Door'].height),
+        depth: parsePositiveInteger(draft.tall_door_depth, fallbackUnitDefaults['Tall Door'].depth),
+      },
+    },
+  }
+}
+
+function toQuoteDraft(quote: QuoteRow): QuoteDraft {
+  const baseDraw = resolveDefaultDims(quote.unit_defaults, 'Base Draw')
+  const baseDoor = resolveDefaultDims(quote.unit_defaults, 'Base Door')
+  const wallDoor = resolveDefaultDims(quote.unit_defaults, 'Wall Door')
+  const tallDoor = resolveDefaultDims(quote.unit_defaults, 'Tall Door')
+
+  return {
+    name: quote.name,
+    notes: quote.notes,
+    default_carcass_board_type_id: quote.default_carcass_board_type_id ?? '',
+    default_door_board_type_id: quote.default_door_board_type_id ?? '',
+    default_panel_board_type_id: quote.default_panel_board_type_id ?? '',
+    default_slide_id: quote.default_slide_id ?? '',
+    default_hinge_id: quote.default_hinge_id ?? '',
+    default_base_handle_id: quote.default_base_handle_id ?? '',
+    default_wall_handle_id: quote.default_wall_handle_id ?? '',
+    default_tall_handle_id: quote.default_tall_handle_id ?? '',
+    default_drawer_handle_id: quote.default_drawer_handle_id ?? '',
+    base_draw_height: String(baseDraw.height),
+    base_draw_depth: String(baseDraw.depth),
+    base_door_height: String(baseDoor.height),
+    base_door_depth: String(baseDoor.depth),
+    wall_door_height: String(wallDoor.height),
+    wall_door_depth: String(wallDoor.depth),
+    tall_door_height: String(tallDoor.height),
+    tall_door_depth: String(tallDoor.depth),
+  }
+}
+
+function resolveDefaultDims(defaults: UnitDefaults, unitType: UnitPresetKey) {
+  const row = defaults[unitType]
+  if (!row) return fallbackUnitDefaults[unitType]
+  return {
+    height: row.height > 0 ? row.height : fallbackUnitDefaults[unitType].height,
+    depth: row.depth > 0 ? row.depth : fallbackUnitDefaults[unitType].depth,
+  }
+}
+
+function numberFromExtra(extra: Record<string, unknown>, key: string, fallback: number): number {
+  const value = extra[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.floor(value)
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return Math.floor(parsed)
+  }
+  return fallback
+}
+
+function formatExtraParams(extra: Record<string, unknown>): string {
+  const entries = Object.entries(extra)
+  if (entries.length === 0) return '-'
+  return entries
+    .map(([key, value]) => `${key}:${String(value)}`)
+    .join(', ')
+}
+
+function optionalId(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function parsePositiveInteger(value: string, fallback: number): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return Math.floor(parsed)
+}
+
+function parseNonNegativeInteger(value: string, fallback: number): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback
+  return Math.floor(parsed)
+}
+
+async function apiRequest<T = unknown>(
+  path: string,
+  {
+    token,
+    method = 'GET',
+    body,
+  }: {
+    token: string
+    method?: ApiMethod
+    body?: unknown
+  },
+): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  })
+
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`
+    try {
+      const payload = (await response.json()) as { detail?: string }
+      if (payload.detail) message = payload.detail
+    } catch {
+      // no-op
+    }
+    throw new Error(message)
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  return (await response.json()) as T
+}
