@@ -1,235 +1,190 @@
 # CoreQuote
 
-CoreQuote is a **Streamlit-based cabinetry quoting and cutlist system** designed for kitchen, built-in, and board-based joinery workflows.
+CoreQuote is a FastAPI + React cabinetry quoting and cutlist system for kitchen, built-in, and board-based joinery workflows.
 
 It combines:
 
-- project + quote management,
+- project and quote management,
 - unit-by-unit cabinet configuration,
-- board/hardware libraries,
-- automated carcass and panel calculations,
-- and downloadable PDF cut lists.
+- board and hardware libraries,
+- cutlist generation,
+- component counting,
+- and PDF output.
 
-In short: **you define a project, build a quote from units, and CoreQuote generates production-ready cutting and component schedules.**
+## Status
 
----
+CoreQuote is actively developed as:
 
-## What this project does
+- API: FastAPI (`apps/api`)
+- Frontend: React + Vite (`apps/web`)
+- Shared logic: `corequote_core` package (`packages/corequote-core`)
+- Database: PostgreSQL with SQL migrations (`infra/db/migrations`)
 
-CoreQuote helps convert design intent into shop-floor output.
+Legacy surfaces:
 
-### 1) Project and quote management
-- Create projects with client, address, and notes.
-- Create multiple quotes per project (e.g., revisions/options).
-- Store quote-level defaults for materials, dimensions, and hardware.
+- `apps/streamlit` is deprecated and not a current product development target.
+- SQLite (`packages/corequote-core/corequote_core/database.py`, `data/corequote.db`, `data/slides.csv`) is deprecated and migration-only.
 
-### 2) Unit-based cabinet configuration
-- Add units to a quote (base drawer, base door, wall door, tall units).
-- Configure dimensions per unit (H/W/D), board assignments, and thickness.
-- Apply hardware (slides, hinges, handles) with override controls.
-- Support advanced drawer-front distributions (equal/custom/manual heights).
-
-### 3) Library-driven defaults
-- Manage reusable libraries for:
-  - **Boards** (brand, material, thickness, sheet size)
-  - **Slides** (length, side clearances, uplift)
-  - **Hinges** (opening angle)
-  - **Handles** (name/supplier/code)
-- Use libraries to set sensible defaults at quote level and per-unit level.
-
-### 4) Cutting list generation
-- Build carcass and panel schedules from all units in a quote.
-- Aggregate boards into tabular cut lists.
-- Export cut lists to PDF.
-
-### 5) Component counting
-- Automatically compute hardware counts (e.g., slide pairs, hinge totals, handle totals)
-  based on unit definitions and dimensions.
-
----
-
-## Application flow (high level)
-
-1. Open **Projects** → create/select a project.
-2. Open **Quotes** → create a quote and set defaults.
-3. Open **Quote Detail**:
-   - add/edit units,
-   - configure panel presets/manual extras,
-   - view cutting lists and component counts,
-   - download PDF outputs.
-4. Use **Tools/Libraries** pages to maintain boards/slides/hinges/handles.
-
----
-
-## Architecture overview
-
-CoreQuote is split into clear layers:
-
-- **Streamlit app (`apps/streamlit`)**
-  - Streamlit multipage app, forms, dialogs, list/edit screens.
-  - Reusable library-page engine (`ui/library_engine.py`) for CRUD-style inventory pages.
-
-- **Reusable logic package (`packages/corequote-core/corequote_core`)**
-  - Datamodels (`models.py`) for typed entities such as `Board` and `Slide`.
-  - Unit model definitions (`units/`) and a **strategy-based cutting engine** (`cutting/`).
-  - Cutlist integration (`cutlist.py`) to transform units → DataFrames.
-  - PDF generation (`pdf_gen.py`) for downloadable schedules.
-
-- **Persistence layer (`corequote_core/database.py`)**
-  - SQLite-backed storage for projects, quotes, units, board types, slides, hinges, handles.
-  - Lightweight schema migrations at startup.
-  - Legacy CSV-to-DB seeding for slides.
-
-- **Future apps (`apps/api`, `apps/web`)**
-  - Reserved for the FastAPI backend and Next.js frontend.
-
-### Cutting engine design
-
-The cutting system uses a **strategy dispatcher**:
-
-- `CuttingEngine` selects a strategy based on unit type.
-- Strategy classes contain all dimension formulas.
-- Adding a new unit type is mostly additive (new strategy + registration), keeping core engine stable.
-
-This keeps calculation logic modular and easier to extend/test.
-
----
-
-## Tech stack
-
-- **Python 3.14+**
-- **Streamlit** (application UI)
-- **SQLite** (local persistence)
-- **pandas** (tabular cutlist shaping)
-- **fpdf2** (PDF output)
-
----
-
-## Repository structure
+## Repository Layout
 
 ```text
 CoreQuote/
 ├── apps/
-│   ├── api/                    # FastAPI backend placeholder
-│   ├── streamlit/              # existing Streamlit app
-│   │   ├── main.py             # Streamlit app entry + navigation
-│   │   ├── pages/              # Projects, Quotes, Quote Detail, Calculator, libraries
-│   │   ├── ui/                 # shared Streamlit UI helpers
-│   │   └── components/         # Streamlit visual assets
-│   └── web/                    # future Next.js frontend placeholder
-├── data/
-│   ├── corequote.db            # runtime SQLite database
-│   └── slides.csv              # legacy slide seed source
-├── infra/                      # future Docker/Alembic/deployment config
+│   ├── api/                              # FastAPI application
+│   │   └── corequote_api/
+│   ├── web/                              # React + Vite frontend
+│   └── streamlit/                        # Deprecated legacy UI
 ├── packages/
 │   └── corequote-core/
-│       └── corequote_core/     # reusable Python logic package
+│       └── corequote_core/               # Shared domain/business logic
+├── infra/
+│   └── db/
+│       ├── migrations/                   # PostgreSQL SQL migrations
+│       ├── apply_migrations.py           # Migration runner
+│       └── import_sqlite_libraries.py    # Legacy import helper
+├── docs/
+│   └── api/                              # API contracts
 ├── tests/
-│   └── unit/                   # unit tests for core logic and UI helpers
-├── pyproject.toml
+│   ├── api/
+│   └── unit/
+├── compose.yml                           # Local Postgres service
 └── README.md
 ```
 
----
+## Prerequisites
 
-## Getting started
+- Python 3.14+
+- Node.js 20+
+- Docker (for local Postgres)
+- `uv` (recommended) or `pip` + virtualenv
 
-### 1) Clone
+## Quick Start
+
+1. Clone and enter the repo.
 
 ```bash
 git clone https://github.com/DylPayne/CoreQuote.git
 cd CoreQuote
 ```
 
-### 2) Create and activate a virtual environment
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3) Install dependencies
-
-Using pip:
-
-```bash
-pip install -e .
-```
-
-Or with uv:
+2. Install Python dependencies.
 
 ```bash
 uv sync
 ```
 
-### 4) Run the app
+Alternative setup:
 
 ```bash
-streamlit run apps/streamlit/main.py
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
-Open the URL shown in your terminal (typically `http://localhost:8501`).
-
----
-
-## Data and persistence notes
-
-- Main runtime database: `data/corequote.db`
-- On startup, the app ensures schema/table availability and applies lightweight migrations.
-- If `slides` table is empty, data can be imported from `data/slides.csv` once.
-
-### Local Postgres
-
-The repo includes a Docker Compose service for a local Postgres database. The existing app still uses SQLite until the persistence layer is migrated, but new API/auth work should target Postgres.
-
-1. Copy the example environment file:
+3. Configure environment.
 
 ```bash
 cp .env.example .env
 ```
 
-2. Start Postgres:
+4. Start local Postgres.
 
 ```bash
 docker compose up -d postgres
 ```
 
-3. Check that it is healthy:
+5. Apply database migrations.
 
 ```bash
-docker compose ps
+DATABASE_URL=postgresql://corequote:corequote_dev_password@localhost:5433/corequote_dev \
+uv run python infra/db/apply_migrations.py
 ```
 
-The default local connection string is:
+6. Install frontend dependencies.
 
-```text
-postgresql://corequote:corequote_dev_password@localhost:5433/corequote_dev
+```bash
+cd apps/web
+npm install
+cd ../..
 ```
 
-The database is stored in the `corequote-postgres-data` Docker volume so it survives container restarts.
+## Run Locally
 
----
+Start the API from the repository root:
 
-## Current scope and intent
+```bash
+uv run uvicorn corequote_api.main:app --app-dir apps/api --reload --port 8000
+```
 
-CoreQuote is currently focused on **local, single-user workflow support** for cabinetry estimation and production prep. The design favors practical shop usage:
+Start the frontend in a second terminal:
 
-- fast data entry,
-- repeatable defaults,
-- predictable board/hardware outputs,
-- and simple local deployment.
+```bash
+cd apps/web
+npm run dev
+```
 
----
+By default, the frontend targets `http://localhost:8000`. Override with:
 
-## Contributing
+```bash
+VITE_API_BASE_URL=http://localhost:8000 npm run dev
+```
 
-1. Create a feature branch.
-2. Keep changes focused and well-scoped.
-3. Add/update tests where applicable.
-4. Open a pull request with a clear summary.
+## Local Test Login
 
----
+For frontend QA with seeded local data:
+
+- Company: `CoreQuote Test Co`
+- Name: `Test Owner`
+- Email: `test.owner@corequote.local`
+- Password: `CoreQuoteTestPass123!`
+
+If login fails, verify the API is connected to your local Postgres database.
+
+## Testing
+
+Run the full suite:
+
+```bash
+uv run pytest
+```
+
+Focused runs:
+
+```bash
+uv run pytest tests/unit
+uv run pytest tests/api
+```
+
+## API Notes
+
+- API base path: `/api/v1`
+- Auth contract: `docs/api/auth.md`
+- RBAC contract: `docs/api/rbac.md`
+- Libraries API: `docs/api/libraries.md`
+- Cutlists API: `docs/api/cutlists.md`
+
+Bearer auth is required for protected endpoints:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+## Database and Migrations
+
+- Product database is PostgreSQL.
+- Migrations are forward-only SQL files in `infra/db/migrations`.
+- The migration runner tracks applied files in `schema_migrations`.
+- Legacy SQLite import exists only for explicit migration support.
+
+See: `infra/db/README.md`.
+
+## Development Guidelines
+
+- Keep API code in `apps/api`, frontend code in `apps/web`, and shared logic in `packages/corequote-core/corequote_core`.
+- Use shared frontend primitives in `apps/web/src/components/ui`.
+- Scope company-owned data by authenticated `company_id`.
+- Add or update tests with behavior changes.
 
 ## License
 
-No license file is currently included. If you want this project to be openly reusable, add a `LICENSE` file (for example MIT) and update this section.
+No license file is currently included.
