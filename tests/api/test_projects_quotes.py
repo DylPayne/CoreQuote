@@ -43,7 +43,9 @@ class FakeWorkspaceStore:
         self.updated_unit_payload: tuple[str, str, str, dict] | None = None
         self.deleted_unit: tuple[str, str, str] | None = None
         self.replaced_quote_extras_payload: tuple[str, str, list[dict]] | None = None
+        self.replaced_quote_custom_panels_payload: tuple[str, str, dict] | None = None
         self.requested_cutting_list: tuple[str, str] | None = None
+        self.requested_quote_custom_panels: tuple[str, str] | None = None
         self.requested_project_pricing: tuple[str, str] | None = None
 
     def list_projects(self, company_id: str, search: str | None = None) -> list[dict]:
@@ -161,6 +163,22 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Quote not found")
         self.replaced_quote_extras_payload = (company_id, quote_id, items)
         return items
+
+    def get_quote_custom_panels(self, company_id: str, quote_id: str) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.requested_quote_custom_panels = (company_id, quote_id)
+        return quote_custom_panels_response(quote_id)
+
+    def replace_quote_custom_panels(self, company_id: str, quote_id: str, payload: dict) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.replaced_quote_custom_panels_payload = (company_id, quote_id, payload)
+        return {
+            "quote_id": quote_id,
+            "custom_panels": payload,
+            "computed_rows": quote_custom_panels_response(quote_id)["computed_rows"],
+        }
 
     def get_project_pricing(self, company_id: str, project_id: str, runtime_service=None) -> dict:
         if project_id == "missing":
@@ -359,6 +377,43 @@ def test_replace_quote_extras_requires_quotes_write_permission():
     assert response.json() == {"detail": "Missing permission: quotes:write"}
 
 
+def test_quote_custom_panels_read_and_replace():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = quote_custom_panels_state()
+    try:
+        read_response = client.get("/api/v1/quotes/quote-1/custom-panels", headers=auth_header())
+        replace_response = client.put("/api/v1/quotes/quote-1/custom-panels", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert read_response.status_code == 200
+    assert read_response.json()["quote_id"] == "quote-1"
+    assert len(read_response.json()["computed_rows"]) == 2
+    assert replace_response.status_code == 200
+    assert replace_response.json()["custom_panels"]["auto"]["kicker_return_count"] == 1
+    assert store.requested_quote_custom_panels == ("company-1", "quote-1")
+    assert store.replaced_quote_custom_panels_payload == ("company-1", "quote-1", payload)
+
+
+def test_replace_quote_custom_panels_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.put(
+            "/api/v1/quotes/quote-1/custom-panels",
+            json=quote_custom_panels_state(),
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+
+
 def test_get_project_pricing_requires_pricing_read_permission():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
@@ -508,6 +563,43 @@ def unit_payload(*, unit_type_key: str = "Base Draw", width: int = 900) -> dict:
         "carcass_board_type_id": None,
         "door_board_type_id": None,
         "extra_params": {"num_drawers": 3},
+    }
+
+
+def quote_custom_panels_state() -> dict:
+    return {
+        "presets": {
+            "base_side_panel": {"qty": 1, "board_type_id": None},
+            "wall_side_filler": {"qty": 1, "board_type_id": None},
+        },
+        "manual": [
+            {"name": "Feature End", "length": 2300, "width": 300, "qty": 1, "board_type_id": None},
+        ],
+        "auto": {
+            "kicker_board_type_id": None,
+            "pelmet_board_type_id": None,
+            "kicker_return_count": 1,
+            "kicker_return_depth_mm": 560,
+            "kicker_override_on": False,
+            "kicker_override_qty": 0,
+            "kicker_override_length": 0,
+            "kicker_override_width": 100,
+            "pelmet_override_on": False,
+            "pelmet_override_qty": 0,
+            "pelmet_override_length": 0,
+            "pelmet_override_width": 330,
+        },
+    }
+
+
+def quote_custom_panels_response(quote_id: str) -> dict:
+    return {
+        "quote_id": quote_id,
+        "custom_panels": quote_custom_panels_state(),
+        "computed_rows": [
+            {"desc": "Kicker", "length": 1760, "width": 100, "qty": 1, "board_type_id": None},
+            {"desc": "Feature End", "length": 2300, "width": 300, "qty": 1, "board_type_id": None},
+        ],
     }
 
 

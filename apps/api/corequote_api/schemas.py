@@ -183,6 +183,7 @@ class QuoteResponse(QuoteRequest):
     company_id: str
     project_id: str
     unit_count: int = Field(default=0, ge=0)
+    custom_panels: "QuoteCustomPanelsRequest" = Field(default_factory=lambda: QuoteCustomPanelsRequest())
     created_at: datetime
     updated_at: datetime
 
@@ -236,6 +237,72 @@ class QuoteExtrasResponse(BaseModel):
     items: list[QuoteExtraSelectionResponse] = Field(default_factory=list)
 
 
+QuoteCustomPanelPresetKey = Literal[
+    "base_side_panel",
+    "base_side_filler",
+    "wall_side_panel",
+    "wall_side_filler",
+    "tall_side_panel",
+    "tall_side_filler",
+]
+
+
+class QuoteCustomPanelPresetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    qty: int = Field(default=0, ge=0)
+    board_type_id: str | None = None
+
+
+class QuoteCustomPanelManualRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="Custom Panel", min_length=1, max_length=120)
+    length: int = Field(default=0, ge=0)
+    width: int = Field(default=0, ge=0)
+    qty: int = Field(default=0, ge=0)
+    board_type_id: str | None = None
+
+
+class QuoteCustomPanelAutoConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kicker_board_type_id: str | None = None
+    pelmet_board_type_id: str | None = None
+    kicker_return_count: int = Field(default=0, ge=0)
+    kicker_return_depth_mm: int = Field(default=0, ge=0)
+    kicker_override_on: bool = False
+    kicker_override_qty: int = Field(default=0, ge=0)
+    kicker_override_length: int = Field(default=0, ge=0)
+    kicker_override_width: int = Field(default=100, ge=0)
+    pelmet_override_on: bool = False
+    pelmet_override_qty: int = Field(default=0, ge=0)
+    pelmet_override_length: int = Field(default=0, ge=0)
+    pelmet_override_width: int = Field(default=330, ge=0)
+
+
+class QuoteCustomPanelsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    presets: dict[QuoteCustomPanelPresetKey, QuoteCustomPanelPresetConfig] = Field(default_factory=dict)
+    manual: list[QuoteCustomPanelManualRow] = Field(default_factory=list)
+    auto: QuoteCustomPanelAutoConfig = Field(default_factory=QuoteCustomPanelAutoConfig)
+
+
+class QuoteCustomPanelComputedRowResponse(BaseModel):
+    desc: str
+    length: int = Field(ge=0)
+    width: int = Field(ge=0)
+    qty: int = Field(ge=0)
+    board_type_id: str | None = None
+
+
+class QuoteCustomPanelsResponse(BaseModel):
+    quote_id: str
+    custom_panels: QuoteCustomPanelsRequest
+    computed_rows: list[QuoteCustomPanelComputedRowResponse] = Field(default_factory=list)
+
+
 class CutlistUnitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -268,6 +335,7 @@ class CutlistRuntimeRowResponse(CutlistRowResponse):
     edge_long_2: bool = False
     edge_short_1: bool = False
     edge_short_2: bool = False
+    board_type_id: str | None = None
 
 
 class CutlistUnitSourceResponse(BaseModel):

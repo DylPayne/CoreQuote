@@ -17,6 +17,8 @@ from corequote_api.schemas import (
     ProjectPricingResponse,
     ProjectRequest,
     ProjectResponse,
+    QuoteCustomPanelsRequest,
+    QuoteCustomPanelsResponse,
     QuoteCuttingListResponse,
     QuoteExtrasRequest,
     QuoteExtrasResponse,
@@ -285,6 +287,45 @@ def replace_quote_extras(
     except WorkspaceValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     return QuoteExtrasResponse.model_validate({"quote_id": quote_id, "items": rows})
+
+
+@router.get(
+    "/quotes/{quote_id}/custom-panels",
+    response_model=QuoteCustomPanelsResponse,
+    summary="Get quote custom panel configuration",
+)
+def get_quote_custom_panels(
+    quote_id: str,
+    current_user: QuotesReader,
+    store: StoreDep,
+) -> QuoteCustomPanelsResponse:
+    try:
+        payload = store.get_quote_custom_panels(current_user.company_id, quote_id)
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return QuoteCustomPanelsResponse.model_validate(payload)
+
+
+@router.put(
+    "/quotes/{quote_id}/custom-panels",
+    response_model=QuoteCustomPanelsResponse,
+    summary="Replace quote custom panel configuration",
+)
+def replace_quote_custom_panels(
+    quote_id: str,
+    payload: QuoteCustomPanelsRequest,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> QuoteCustomPanelsResponse:
+    try:
+        result = store.replace_quote_custom_panels(current_user.company_id, quote_id, _payload(payload))
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return QuoteCustomPanelsResponse.model_validate(result)
 
 
 @router.get("/projects/{project_id}/pricing", response_model=ProjectPricingResponse, summary="Build project pricing summary")

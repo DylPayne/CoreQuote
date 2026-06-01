@@ -113,3 +113,32 @@ def test_compute_panel_rows_uses_override_values_when_enabled():
     pelmet = next(r for r in rows if r["Desc"] == "Wall Pelmet")
     assert kicker["L"] == 1800 and kicker["W"] == 120 and kicker["Qty"] == 2
     assert pelmet["L"] == 900 and pelmet["W"] == 280 and pelmet["Qty"] == 1
+
+
+def test_compute_panel_rows_adds_optional_kicker_returns_to_run_length():
+    rows = compute_panel_rows(
+        units=[
+            {"unit_type": "Base Door", "width": 600},
+            {"unit_type": "Base Drawer", "width": 600},
+        ],
+        state={
+            "presets": {},
+            "manual": [],
+            "auto": {
+                "kicker_board_type_id": 9,
+                "kicker_return_count": 2,
+                "kicker_return_depth_mm": 560,
+            },
+        },
+        default_panel_board_type_id=9,
+        panel_preset_keys=PANEL_PRESET_KEYS,
+        panel_preset_labels=PANEL_PRESET_LABELS,
+        default_dims_for_panel_preset=lambda _k: (1, 1),
+        default_dims_for_unit_type=lambda _u: (720, 330),
+        board_length_for=lambda _bid: 3000,
+    )
+
+    kicker = next(r for r in rows if r["Desc"] == "Kicker")
+    assert kicker["L"] == 2320
+    assert kicker["W"] == 100
+    assert kicker["Qty"] == 1
