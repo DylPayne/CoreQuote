@@ -6,7 +6,7 @@ function TableContainer({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
       className={cn(
-        'min-w-0 overflow-x-auto rounded-[var(--card-radius)] border border-border bg-card text-card-foreground shadow-[var(--shadow-card)]',
+        'min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-[var(--card-radius)] border border-border bg-card text-card-foreground shadow-[var(--shadow-card)]',
         className,
       )}
       {...props}
