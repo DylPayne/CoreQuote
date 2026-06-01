@@ -81,6 +81,10 @@ uv run pytest tests/api
 
 Always run the relevant tests before finishing. For changes to shared business logic, run the full suite unless there is a clear reason not to.
 
+- Use the configured MCP servers when helpful for development and QA: use Playwright MCP for frontend/browser testing, Docker MCP Gateway for container and local runtime inspection, and Postgres MCP (read-only) for safe database inspection.
+- Prefer this MCP order of operations: Context7 first for docs/API/package/config guidance, Playwright MCP for frontend/browser validation after UI changes, Postgres MCP (read-only) for database inspection, and Docker MCP Gateway for local container/runtime diagnostics.
+- When frontend behavior or styling changes, run at least a brief Playwright MCP smoke test before finishing when feasible.
+
 ## Code Style
 
 - Follow the existing Python style in the touched files.
@@ -89,6 +93,15 @@ Always run the relevant tests before finishing. For changes to shared business l
 - Keep React UI code in `apps/web`, API code in `apps/api`, and reusable business logic in `packages/corequote-core/corequote_core`.
 - Do not introduce a new formatter, linter, framework, or architectural pattern without approval.
 - TODO: Add the canonical formatter/linter command if the project adopts one.
+
+## Context7 Documentation Targets
+
+- Use Context7 first and target the official docs for the exact libraries in this repo before answering or editing code.
+- Prefer docs that match the major versions in this project; if exact versions are unavailable in Context7, use the nearest stable version and state that assumption.
+- Backend priority docs: FastAPI (`fastapi[standard]`), Pydantic models used by FastAPI, psycopg v3, and pytest.
+- Frontend priority docs: React 19, React DOM 19, Vite 8, TypeScript, Tailwind CSS 4, `@tailwindcss/vite`, `@radix-ui/react-slot`, and shadcn/ui.
+- Editor/UI helper docs when touched: `@uiw/react-codemirror`, CodeMirror 6 packages, `class-variance-authority`, `clsx`, `tailwind-merge`, and `lucide-react`.
+- If a task involves Dockerized local services or runtime behavior, use Docker MCP Gateway guidance alongside Context7 package/framework docs.
 
 ## Frontend Styling
 
@@ -101,10 +114,12 @@ Always run the relevant tests before finishing. For changes to shared business l
 ## Database and Migration Rules
 
 - The product database is PostgreSQL. Design schema and persistence behavior for PostgreSQL first.
+- Use Postgres MCP in restricted read-only mode for inspection and troubleshooting; limit usage to SELECT/introspection queries.
 - Database migrations live in `infra/db/migrations` and are applied with `infra/db/apply_migrations.py`.
 - Do not add new SQLite tables, migrations, helpers, or tests. SQLite files and `apps/streamlit` are legacy migration references only.
 - Do not hand-edit `data/corequote.db` unless the user explicitly asks for legacy data recovery.
 - Do not run destructive database commands, data wipes, bulk updates, or migration rewrites without explicit confirmation.
+- Do not use Postgres MCP for schema or data mutations; implement database changes through reviewed migrations and tests.
 - Keep schema changes small, backwards-compatible where possible, and covered by tests when they affect business behavior.
 - Explain any migration strategy before implementing it.
 
@@ -144,6 +159,8 @@ Always run the relevant tests before finishing. For changes to shared business l
 - Do not run destructive commands without explicit confirmation. This includes commands that delete files, reset Git state, wipe databases, modify production data, or alter deployed infrastructure.
 - Treat commands involving `rm`, `git reset`, `git clean`, database deletion, AWS CLI, Terraform, Docker deployment, or production credentials as confirmation-required.
 - If a command could affect data or infrastructure outside the local working tree, stop and ask first.
+- If local services fail, use Docker MCP Gateway inspection (status/logs/config) before proposing runtime fixes when available.
+- If an MCP server is unavailable, state that explicitly, use the safest local fallback, and continue with the task.
 
 ## Final Response Format
 
@@ -151,6 +168,7 @@ When finishing a task, respond with:
 
 - A short summary of what changed.
 - The tests or checks run, with results.
+- When MCP tools are used, include a short evidence summary of what was checked (for example docs source via Context7, Playwright page flow verified, Docker runtime inspected, or Postgres query scope reviewed).
 - Any commands intentionally not run and why.
 - Any remaining TODOs, risks, or follow-up recommendations.
 - Relevant file paths using absolute paths when possible.
