@@ -510,49 +510,55 @@ class WorkspaceStore:
         )
 
     def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
-        with self._connect() as conn:
-            self._ensure_quote_visible(conn, company_id, quote_id)
-            return conn.execute(
-                """
-                SELECT extra_id::text, quantity
-                FROM quote_extras
-                WHERE company_id = %s
-                  AND quote_id = %s
-                ORDER BY created_at ASC, id ASC
-                """,
-                (company_id, quote_id),
-            ).fetchall()
+        try:
+            with self._connect() as conn:
+                self._ensure_quote_visible(conn, company_id, quote_id)
+                return conn.execute(
+                    """
+                    SELECT extra_id::text, quantity
+                    FROM quote_extras
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (company_id, quote_id),
+                ).fetchall()
+        except psycopg.errors.UndefinedTable:
+            return []
 
     def replace_quote_extras(self, company_id: str, quote_id: str, items: list[dict[str, Any]]) -> list[dict]:
         cleaned_items = _clean_quote_extras_items(items)
-        with self._connect() as conn:
-            with conn.transaction():
-                self._ensure_quote_visible(conn, company_id, quote_id)
-                self._validate_quote_extras(conn, company_id, cleaned_items)
-                conn.execute(
-                    """
-                    DELETE FROM quote_extras
-                    WHERE company_id = %s
-                      AND quote_id = %s
-                    """,
-                    (company_id, quote_id),
-                )
-                if cleaned_items:
-                    conn.executemany(
+        try:
+            with self._connect() as conn:
+                with conn.transaction():
+                    self._ensure_quote_visible(conn, company_id, quote_id)
+                    self._validate_quote_extras(conn, company_id, cleaned_items)
+                    conn.execute(
                         """
-                        INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
-                        VALUES (%s, %s, %s, %s)
+                        DELETE FROM quote_extras
+                        WHERE company_id = %s
+                          AND quote_id = %s
                         """,
-                        [
-                            (
-                                company_id,
-                                quote_id,
-                                row["extra_id"],
-                                row["quantity"],
-                            )
-                            for row in cleaned_items
-                        ],
+                        (company_id, quote_id),
                     )
+                    if cleaned_items:
+                        conn.executemany(
+                            """
+                            INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
+                            VALUES (%s, %s, %s, %s)
+                            """,
+                            [
+                                (
+                                    company_id,
+                                    quote_id,
+                                    row["extra_id"],
+                                    row["quantity"],
+                                )
+                                for row in cleaned_items
+                            ],
+                        )
+        except psycopg.errors.UndefinedTable as exc:
+            raise WorkspaceValidationError("Quote extras storage is not available. Apply the latest DB migrations.") from exc
         return self.list_quote_extras(company_id, quote_id)
 
     def get_project_pricing(
@@ -589,16 +595,20 @@ class WorkspaceStore:
                 ).fetchall():
                     units_by_quote.setdefault(row["quote_id"], []).append(row)
 
-                for row in conn.execute(
-                    """
-                    SELECT quote_id::text, extra_id::text, quantity
-                    FROM quote_extras
-                    WHERE company_id = %s
-                      AND quote_id = ANY(%s::uuid[])
-                    ORDER BY quote_id ASC, created_at ASC, id ASC
-                    """,
-                    (company_id, quote_ids),
-                ).fetchall():
+                try:
+                    extra_rows = conn.execute(
+                        """
+                        SELECT quote_id::text, extra_id::text, quantity
+                        FROM quote_extras
+                        WHERE company_id = %s
+                          AND quote_id = ANY(%s::uuid[])
+                        ORDER BY quote_id ASC, created_at ASC, id ASC
+                        """,
+                        (company_id, quote_ids),
+                    ).fetchall()
+                except psycopg.errors.UndefinedTable:
+                    extra_rows = []
+                for row in extra_rows:
                     extras_by_quote.setdefault(row["quote_id"], []).append(row)
 
         quote_summaries = [

@@ -6,14 +6,13 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -176,6 +175,7 @@ type ProjectPricingSummary = {
 type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
 type QuoteWorkspaceTab = 'units' | 'cutting-lists' | 'extras' | 'pricing'
+type CuttingListViewTab = 'carcass' | 'panels'
 
 type ProjectDraft = {
   name: string
@@ -292,6 +292,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
 
   const [currentView, setCurrentView] = useState<'projects' | 'project-workspace'>('projects')
   const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteWorkspaceTab>('units')
+  const [activeCuttingListViewTab, setActiveCuttingListViewTab] = useState<CuttingListViewTab>('carcass')
   const [search, setSearch] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
@@ -497,10 +498,9 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
         return
       }
       void loadQuotes(selectedProjectId)
-      void loadProjectPricing(selectedProjectId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadProjectPricing, loadQuotes, selectedProjectId])
+  }, [loadQuotes, selectedProjectId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -512,11 +512,9 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
         return
       }
       void loadUnits(selectedQuoteId)
-      void loadQuoteCuttingList(selectedQuoteId)
-      void loadQuoteExtras(selectedQuoteId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadQuoteCuttingList, loadQuoteExtras, loadUnits, selectedQuoteId])
+  }, [loadUnits, selectedQuoteId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -634,7 +632,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       }, {})
       setQuoteExtrasSelection(nextSelection)
       setIsQuoteExtrasDirty(false)
-      if (selectedProjectId) {
+      if (selectedProjectId && activeQuoteTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
     } catch (saveError) {
@@ -711,7 +709,9 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       setIsQuoteModalOpen(false)
       await loadProjects(search)
       await loadQuotes(selectedProjectId)
-      await loadProjectPricing(selectedProjectId)
+      if (activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Could not save quote.'
       setError(message)
@@ -745,10 +745,14 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       }
       setIsUnitModalOpen(false)
       await loadUnits(selectedQuoteId)
-      await loadQuoteCuttingList(selectedQuoteId)
+      if (activeQuoteTab === 'cutting-lists') {
+        await loadQuoteCuttingList(selectedQuoteId)
+      }
       if (selectedProjectId) {
         await loadQuotes(selectedProjectId)
-        await loadProjectPricing(selectedProjectId)
+        if (activeQuoteTab === 'pricing') {
+          await loadProjectPricing(selectedProjectId)
+        }
       }
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Could not save unit.'
@@ -782,7 +786,9 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
       await apiRequest(`/api/v1/quotes/${quoteId}`, { method: 'DELETE', token: authToken })
       await loadProjects(search)
       await loadQuotes(selectedProjectId)
-      await loadProjectPricing(selectedProjectId)
+      if (activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not delete quote.')
     }
@@ -794,10 +800,14 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
     try {
       await apiRequest(`/api/v1/quotes/${selectedQuoteId}/units/${unitId}`, { method: 'DELETE', token: authToken })
       await loadUnits(selectedQuoteId)
-      await loadQuoteCuttingList(selectedQuoteId)
+      if (activeQuoteTab === 'cutting-lists') {
+        await loadQuoteCuttingList(selectedQuoteId)
+      }
       if (selectedProjectId) {
         await loadQuotes(selectedProjectId)
-        await loadProjectPricing(selectedProjectId)
+        if (activeQuoteTab === 'pricing') {
+          await loadProjectPricing(selectedProjectId)
+        }
       }
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not delete unit.')
@@ -1004,47 +1014,58 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                 </Button>
               </div>
 
-              <ControlGroup className="w-full sm:w-auto">
-                <ControlGroupItem
-                  aria-pressed={activeQuoteTab === 'units'}
-                  onClick={() => setActiveQuoteTab('units')}
-                >
-                  Units
-                </ControlGroupItem>
-                <ControlGroupItem
-                  aria-pressed={activeQuoteTab === 'cutting-lists'}
-                  onClick={() => {
-                    setActiveQuoteTab('cutting-lists')
-                    if (selectedQuoteId) {
-                      void loadQuoteCuttingList(selectedQuoteId)
-                    }
-                  }}
-                >
-                  Cutting Lists
-                </ControlGroupItem>
-                <ControlGroupItem
-                  aria-pressed={activeQuoteTab === 'extras'}
-                  onClick={() => {
-                    setActiveQuoteTab('extras')
-                    if (selectedQuoteId) {
-                      void loadQuoteExtras(selectedQuoteId)
-                    }
-                  }}
-                >
-                  Extras
-                </ControlGroupItem>
-                <ControlGroupItem
-                  aria-pressed={activeQuoteTab === 'pricing'}
-                  onClick={() => {
-                    setActiveQuoteTab('pricing')
-                    if (selectedProjectId) {
-                      void loadProjectPricing(selectedProjectId)
-                    }
-                  }}
-                >
-                  Pricing
-                </ControlGroupItem>
-              </ControlGroup>
+              <div className="border-b border-border">
+                <div className="flex flex-wrap items-center gap-1">
+                  <button
+                    aria-pressed={activeQuoteTab === 'units'}
+                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'units' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => setActiveQuoteTab('units')}
+                    type="button"
+                  >
+                    Units
+                  </button>
+                  <button
+                    aria-pressed={activeQuoteTab === 'cutting-lists'}
+                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'cutting-lists' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => {
+                      setActiveQuoteTab('cutting-lists')
+                      setActiveCuttingListViewTab('carcass')
+                      if (selectedQuoteId) {
+                        void loadQuoteCuttingList(selectedQuoteId)
+                      }
+                    }}
+                    type="button"
+                  >
+                    Cutting Lists
+                  </button>
+                  <button
+                    aria-pressed={activeQuoteTab === 'extras'}
+                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'extras' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => {
+                      setActiveQuoteTab('extras')
+                      if (selectedQuoteId) {
+                        void loadQuoteExtras(selectedQuoteId)
+                      }
+                    }}
+                    type="button"
+                  >
+                    Extras
+                  </button>
+                  <button
+                    aria-pressed={activeQuoteTab === 'pricing'}
+                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'pricing' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    onClick={() => {
+                      setActiveQuoteTab('pricing')
+                      if (selectedProjectId) {
+                        void loadProjectPricing(selectedProjectId)
+                      }
+                    }}
+                    type="button"
+                  >
+                    Pricing
+                  </button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {!selectedQuote ? (
@@ -1110,10 +1131,38 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                   <Alert className="text-xs">No cutting-list rows yet. Add units to generate results.</Alert>
                 ) : (
                   <div className="grid gap-4">
-                    <CutlistSection rows={quoteCuttingList?.carcass ?? []} title="Carcass" />
-                    <CutlistSection rows={quoteCuttingList?.panels ?? []} title="Panels" />
-                    <CutlistSection rows={quoteCuttingList?.hardware ?? []} title="Hardware" />
-                    <CutlistSection rows={quoteCuttingList?.extras ?? []} title="Extras" />
+                    <div className="flex items-center gap-1">
+                      <Button
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setActiveCuttingListViewTab('carcass')}
+                        size="sm"
+                        type="button"
+                        variant={activeCuttingListViewTab === 'carcass' ? 'default' : 'outline'}
+                      >
+                        {`Carcass (${quoteCuttingList?.carcass.length ?? 0})`}
+                      </Button>
+                      <Button
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setActiveCuttingListViewTab('panels')}
+                        size="sm"
+                        type="button"
+                        variant={activeCuttingListViewTab === 'panels' ? 'default' : 'outline'}
+                      >
+                        {`Panels (${quoteCuttingList?.panels.length ?? 0})`}
+                      </Button>
+                    </div>
+
+                    {activeCuttingListViewTab === 'carcass' ? (
+                      quoteCuttingList && quoteCuttingList.carcass.length > 0 ? (
+                        <CutlistSection rows={quoteCuttingList.carcass} title="Carcass" />
+                      ) : (
+                        <Alert className="text-xs">No carcass rows for this quote.</Alert>
+                      )
+                    ) : quoteCuttingList && quoteCuttingList.panels.length > 0 ? (
+                      <CutlistSection rows={quoteCuttingList.panels} title="Panels" />
+                    ) : (
+                      <Alert className="text-xs">No panel rows for this quote.</Alert>
+                    )}
                   </div>
                 )
               ) : activeQuoteTab === 'extras' ? (
@@ -1620,29 +1669,47 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
 
 function CutlistSection({ title, rows }: { title: string; rows: CutlistRow[] }) {
   if (rows.length === 0) return null
+  const groupedRows = rows.reduce<Array<{ row: CutlistRow; showDivider: boolean }>>((accumulator, row, index) => {
+    const previous = rows[index - 1]
+    accumulator.push({
+      row,
+      showDivider: index > 0 && previous?.unit_number !== row.unit_number,
+    })
+    return accumulator
+  }, [])
+
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-1">
       <p className="text-xs font-semibold uppercase text-muted-foreground">{title}</p>
       <TableContainer>
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead>#</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Length (mm)</TableHead>
-              <TableHead>Width (mm)</TableHead>
-              <TableHead>Qty</TableHead>
+            <TableRow className="h-8">
+              <TableHead className="px-2 py-1">#</TableHead>
+              <TableHead className="px-2 py-1">Description</TableHead>
+              <TableHead className="px-2 py-1">L</TableHead>
+              <TableHead className="px-2 py-1">W</TableHead>
+              <TableHead className="px-2 py-1">Qty</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((row, index) => (
-              <TableRow key={`${title}-${index}-${row.unit_number}-${row.desc}`}>
-                <TableCell>{row.unit_number}</TableCell>
-                <TableCell>{row.desc}</TableCell>
-                <TableCell>{row.length}</TableCell>
-                <TableCell>{row.width}</TableCell>
-                <TableCell>{row.qty}</TableCell>
-              </TableRow>
+            {groupedRows.map(({ row, showDivider }, index) => (
+              <Fragment key={`${title}-group-${index}-${row.unit_number}-${row.desc}`}>
+                {showDivider ? (
+                  <TableRow className="h-2 border-0">
+                    <TableCell className="border-0 p-0" colSpan={5}>
+                      <div className="my-1 h-px w-full bg-border" />
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                <TableRow className="h-8">
+                  <TableCell className="px-2 py-1 text-xs">{row.unit_number}</TableCell>
+                  <TableCell className="px-2 py-1 text-xs">{row.desc}</TableCell>
+                  <TableCell className="px-2 py-1 text-xs">{row.length}</TableCell>
+                  <TableCell className="px-2 py-1 text-xs">{row.width}</TableCell>
+                  <TableCell className="px-2 py-1 text-xs">{row.qty}</TableCell>
+                </TableRow>
+              </Fragment>
             ))}
           </TableBody>
         </Table>
