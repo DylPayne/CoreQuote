@@ -25,7 +25,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_headers=["Accept", "Authorization", "Content-Type"],
-        allow_methods=["DELETE", "GET", "OPTIONS", "PATCH", "POST"],
+        allow_methods=["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"],
         allow_origin_regex=os.environ.get("COREQUOTE_CORS_ORIGIN_REGEX") or DEFAULT_CORS_ORIGIN_REGEX,
         allow_origins=_cors_origins(),
     )

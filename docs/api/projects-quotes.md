@@ -22,6 +22,7 @@ All rows are scoped to `current_user.company_id`.
 - Project create/update/delete: `projects:write`
 - Quote and unit read: `quotes:read`
 - Quote and unit create/update/delete: `quotes:write`
+- Project pricing summary read: `pricing:read`
 
 The API returns:
 
@@ -153,9 +154,130 @@ Response shape:
 
 Unit numbering is sequential per quote. On delete, remaining units are automatically renumbered to keep a gapless order for UI display and cutlist workflows.
 
+## Quote Cutting List
+
+```http
+GET /api/v1/quotes/{quote_id}/cutting-list
+```
+
+Permission: `quotes:read`
+
+This endpoint builds a live cutting list from the persisted quote units. It uses the same runtime engine as `POST /api/v1/cutlists/preview`, including ruleset runtime when `CUTLIST_USE_DB_RULESETS` is enabled.
+
+Response shape:
+
+```json
+{
+  "quote_id": "quote-uuid",
+  "carcass": [
+    { "unit_number": 1, "desc": "Side", "length": 748, "width": 564, "qty": 2 }
+  ],
+  "panels": [
+    { "unit_number": 1, "desc": "Door", "length": 777, "width": 297, "qty": 2 }
+  ],
+  "hardware": [],
+  "extras": [],
+  "runtime_rows": [],
+  "runtime_mode": "legacy",
+  "unit_sources": []
+}
+```
+
+## Quote Extras Selection
+
+```http
+GET /api/v1/quotes/{quote_id}/extras
+PUT /api/v1/quotes/{quote_id}/extras
+```
+
+Permissions:
+
+- Read: `quotes:read`
+- Replace selection: `quotes:write`
+
+Request payload for `PUT`:
+
+```json
+{
+  "items": [
+    { "extra_id": "extra-uuid-1", "quantity": 2 },
+    { "extra_id": "extra-uuid-2", "quantity": 1 }
+  ]
+}
+```
+
+Behavior notes:
+
+- `PUT` is replace-all for the quote selection.
+- Duplicate `extra_id` rows are merged server-side.
+- `quantity` must be a positive integer.
+- Extra IDs must be visible in the current company.
+
+Response shape (`GET` and `PUT`):
+
+```json
+{
+  "quote_id": "quote-uuid",
+  "items": [
+    { "extra_id": "extra-uuid-1", "quantity": 2 },
+    { "extra_id": "extra-uuid-2", "quantity": 1 }
+  ]
+}
+```
+
+## Project Pricing Summary
+
+```http
+GET /api/v1/projects/{project_id}/pricing
+```
+
+Permission: `pricing:read`
+
+The endpoint builds a live project pricing summary by combining:
+
+- Project quotes and units.
+- Quote-selected extras.
+- Active price-list items (`effective_to IS NULL`) if an active price list exists.
+- Pricing settings (`vat_rate_bps`, `default_markup_bps`).
+
+Response shape:
+
+```json
+{
+  "project_id": "project-uuid",
+  "project_name": "Smith Kitchen",
+  "active_price_list_id": "price-list-uuid",
+  "vat_rate_bps": 1500,
+  "markup_bps": 2500,
+  "is_complete": true,
+  "subtotal_cents": 346783,
+  "sell_before_vat_cents": 433479,
+  "vat_cents": 65021,
+  "grand_total_cents": 498000,
+  "quotes": [
+    {
+      "quote_id": "quote-uuid",
+      "quote_name": "Kitchen Quote v1",
+      "is_complete": true,
+      "missing_items": [],
+      "subtotal_cents": 346783,
+      "sell_before_vat_cents": 433479,
+      "vat_cents": 65021,
+      "grand_total_cents": 498000,
+      "lines": []
+    }
+  ]
+}
+```
+
+When a required item has no active price entry, it is returned in `missing_items`, line totals are omitted for that line, and `is_complete` is `false`.
+
 ## Frontend Integration Notes
 
 - Project list can be loaded once via `GET /projects` and filtered with `search`.
 - Opening a project should call `GET /projects/{project_id}/quotes`.
 - Opening a quote should call `GET /quotes/{quote_id}/units`.
+- Cutting list tab can call `GET /quotes/{quote_id}/cutting-list`.
+- Extras tab can load and save quote-selected extras via `GET/PUT /quotes/{quote_id}/extras`.
+- Pricing tab can load project totals via `GET /projects/{project_id}/pricing`.
 - Quote defaults are designed for fast unit creation UX: set defaults once on quote, then apply during add-unit flows.
