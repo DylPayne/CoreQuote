@@ -166,6 +166,7 @@
 
   html {
     font-family: var(--font-sans);
+    overflow-x: hidden;
   }
 
   body {
@@ -174,6 +175,12 @@
     color: var(--foreground);
     font-size: 16px;
     letter-spacing: 0;
+    overflow-x: hidden;
+  }
+
+  #root {
+    min-height: 100%;
+    overflow-x: hidden;
   }
 
   button,

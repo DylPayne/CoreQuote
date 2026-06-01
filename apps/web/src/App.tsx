@@ -33,11 +33,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ChoiceCard, ChoiceCardContent } from '@/components/ui/choice-card'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
+import { FormulaEditor } from '@/components/formula-editor'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { cn } from '@/lib/utils'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 const AUTH_TOKEN_KEY = 'corequote.authToken'
@@ -814,7 +814,7 @@ function Workspace({
         </div>
       </aside>
 
-      <div className="lg:pl-64">
+      <div className="overflow-x-hidden lg:pl-64">
         <header className="sticky top-0 z-10 flex min-h-14 items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-2 backdrop-blur md:px-6">
           <div>
             <h1 className="text-lg font-semibold">{pageTitle}</h1>
@@ -855,7 +855,7 @@ function Workspace({
           ))}
         </nav>
 
-        <main className="mx-auto grid max-w-7xl gap-[var(--section-gap)] p-4 md:p-5">
+        <main className="mx-auto grid min-w-0 max-w-7xl gap-[var(--section-gap)] overflow-x-hidden p-4 md:p-5">
           {currentPage === 'appearance' ? (
             <AppearancePage
               colourTheme={colourTheme}
@@ -1449,8 +1449,8 @@ function CuttingRulesetsPage({ authToken, companyId }: { authToken: string; comp
   const canCreateRuleset = Boolean(selectedUnitTypeKey && selectedUnitConfig)
 
   return (
-    <div className="grid gap-4">
-      <Card>
+    <div className="grid min-w-0 gap-4 overflow-x-hidden">
+      <Card className="min-w-0 overflow-x-hidden">
       <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <CardTitle>Cutting rulesets</CardTitle>
@@ -1482,8 +1482,8 @@ function CuttingRulesetsPage({ authToken, companyId }: { authToken: string; comp
         </div>
       </CardHeader>
 
-      <CardContent>
-        <div className="grid gap-4">
+      <CardContent className="min-w-0">
+        <div className="grid min-w-0 gap-4">
           <div className="grid content-start gap-4 rounded-[var(--card-radius)] border border-border bg-muted/40 p-[var(--card-padding)]">
             <Label className="grid gap-1.5">
               Unit type
@@ -1543,7 +1543,7 @@ function CuttingRulesetsPage({ authToken, companyId }: { authToken: string; comp
               Loading ruleset
             </Alert>
           ) : draft ? (
-            <div className="grid gap-4">
+            <div className="grid min-w-0 gap-4">
                 <div className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-card p-[var(--card-padding)] md:grid-cols-3">
                   <Label className="grid min-w-0 gap-1.5">
                     Ruleset name
@@ -1691,70 +1691,46 @@ function CuttingRulesetsPage({ authToken, companyId }: { authToken: string; comp
                             />
                           </TableCell>
                           <TableCell>
-                            <Input
-                              aria-invalid={Boolean(formulaErrors[row.id]?.length_formula)}
-                              className={cn(
-                                'h-8 min-w-[220px]',
-                                formulaErrors[row.id]?.length_formula ? 'border-destructive focus-visible:ring-destructive' : '',
-                              )}
+                            <FormulaEditor
                               disabled={!selectedRulesetIsCompanyOwned}
-                              onBlur={(event) =>
-                                updateDraftRow(row.id, 'length_formula', event.target.value.trim())
-                              }
-                              onChange={(event) => updateDraftRow(row.id, 'length_formula', event.target.value)}
+                              error={formulaErrors[row.id]?.length_formula}
+                              onBlur={(value) => updateDraftRow(row.id, 'length_formula', value.trim())}
+                              onChange={(value) => updateDraftRow(row.id, 'length_formula', value)}
                               placeholder="h - (2 * t)"
-                              title={formulaErrors[row.id]?.length_formula ?? ''}
+                              suggestions={availableFormulaVariables}
                               value={row.length_formula}
                             />
                           </TableCell>
                           <TableCell>
-                            <Input
-                              aria-invalid={Boolean(formulaErrors[row.id]?.width_formula)}
-                              className={cn(
-                                'h-8 min-w-[220px]',
-                                formulaErrors[row.id]?.width_formula ? 'border-destructive focus-visible:ring-destructive' : '',
-                              )}
+                            <FormulaEditor
                               disabled={!selectedRulesetIsCompanyOwned}
-                              onBlur={(event) =>
-                                updateDraftRow(row.id, 'width_formula', event.target.value.trim())
-                              }
-                              onChange={(event) => updateDraftRow(row.id, 'width_formula', event.target.value)}
+                              error={formulaErrors[row.id]?.width_formula}
+                              onBlur={(value) => updateDraftRow(row.id, 'width_formula', value.trim())}
+                              onChange={(value) => updateDraftRow(row.id, 'width_formula', value)}
                               placeholder="w - (2 * t)"
-                              title={formulaErrors[row.id]?.width_formula ?? ''}
+                              suggestions={availableFormulaVariables}
                               value={row.width_formula}
                             />
                           </TableCell>
                           <TableCell>
-                            <Input
-                              aria-invalid={Boolean(formulaErrors[row.id]?.qty_formula)}
-                              className={cn(
-                                'h-8 min-w-[180px]',
-                                formulaErrors[row.id]?.qty_formula ? 'border-destructive focus-visible:ring-destructive' : '',
-                              )}
+                            <FormulaEditor
                               disabled={!selectedRulesetIsCompanyOwned}
-                              onBlur={(event) =>
-                                updateDraftRow(row.id, 'qty_formula', event.target.value.trim())
-                              }
-                              onChange={(event) => updateDraftRow(row.id, 'qty_formula', event.target.value)}
+                              error={formulaErrors[row.id]?.qty_formula}
+                              onBlur={(value) => updateDraftRow(row.id, 'qty_formula', value.trim())}
+                              onChange={(value) => updateDraftRow(row.id, 'qty_formula', value)}
                               placeholder="1"
-                              title={formulaErrors[row.id]?.qty_formula ?? ''}
+                              suggestions={availableFormulaVariables}
                               value={row.qty_formula}
                             />
                           </TableCell>
                           <TableCell>
-                            <Input
-                              aria-invalid={Boolean(formulaErrors[row.id]?.condition_formula)}
-                              className={cn(
-                                'h-8 min-w-[220px]',
-                                formulaErrors[row.id]?.condition_formula ? 'border-destructive focus-visible:ring-destructive' : '',
-                              )}
+                            <FormulaEditor
                               disabled={!selectedRulesetIsCompanyOwned}
-                              onBlur={(event) =>
-                                updateDraftRow(row.id, 'condition_formula', event.target.value.trim())
-                              }
-                              onChange={(event) => updateDraftRow(row.id, 'condition_formula', event.target.value)}
+                              error={formulaErrors[row.id]?.condition_formula}
+                              onBlur={(value) => updateDraftRow(row.id, 'condition_formula', value.trim())}
+                              onChange={(value) => updateDraftRow(row.id, 'condition_formula', value)}
                               placeholder="num_doors > 0"
-                              title={formulaErrors[row.id]?.condition_formula ?? ''}
+                              suggestions={availableFormulaVariables}
                               value={row.condition_formula}
                             />
                           </TableCell>
