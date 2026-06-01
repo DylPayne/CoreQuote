@@ -1,4 +1,6 @@
 import {
+  ArrowLeft,
+  Copy,
   LoaderCircle,
   Pencil,
   Plus,
@@ -10,6 +12,7 @@ import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -102,6 +105,7 @@ type HandleRow = {
 
 type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
+type QuoteWorkspaceTab = 'units' | 'cutting-lists' | 'extras'
 
 type ProjectDraft = {
   name: string
@@ -211,6 +215,8 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
   const [hinges, setHinges] = useState<HingeRow[]>([])
   const [handles, setHandles] = useState<HandleRow[]>([])
 
+  const [currentView, setCurrentView] = useState<'projects' | 'project-workspace'>('projects')
+  const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteWorkspaceTab>('units')
   const [search, setSearch] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
@@ -360,11 +366,26 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
     return () => window.clearTimeout(handle)
   }, [loadUnits, selectedQuoteId])
 
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (currentView === 'project-workspace' && !selectedProjectId) {
+        setCurrentView('projects')
+      }
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [currentView, selectedProjectId])
+
   function openCreateProjectModal() {
     setProjectEditId(null)
     setModalError(null)
     setProjectDraft(defaultProjectDraft)
     setIsProjectModalOpen(true)
+  }
+
+  function openProjectWorkspace(projectId: string) {
+    setSelectedProjectId(projectId)
+    setCurrentView('project-workspace')
+    setActiveQuoteTab('units')
   }
 
   function openEditProjectModal(project: ProjectRow) {
@@ -558,6 +579,11 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
     setError(null)
     try {
       await apiRequest(`/api/v1/projects/${projectId}`, { method: 'DELETE', token: authToken })
+      if (selectedProjectId === projectId) {
+        setSelectedProjectId(null)
+        setSelectedQuoteId(null)
+        setCurrentView('projects')
+      }
       await loadProjects(search)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not delete project.')
@@ -591,124 +617,116 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <Card>
-        <CardHeader className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle>Projects</CardTitle>
-            <Button onClick={openCreateProjectModal} size="sm" type="button">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              New
-            </Button>
-          </div>
-          <div className="flex gap-2">
-            <Input
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search projects"
-              value={search}
-            />
-            <Button
-              onClick={() => void loadProjects(search)}
-              type="button"
-              variant="outline"
-            >
-              Find
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {isLoadingProjects ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Loading projects
-            </div>
-          ) : projects.length > 0 ? (
-            projects.map((project) => (
-              <button
-                className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${project.id === selectedProjectId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
-                key={project.id}
-                onClick={() => setSelectedProjectId(project.id)}
-                type="button"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{project.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{project.client || 'No client'}</p>
-                  </div>
-                  <Badge variant="outline">{project.quote_count}</Badge>
-                </div>
-                <p className="mt-2 truncate text-xs text-muted-foreground">{project.address || 'No address'}</p>
-                <div className="mt-3 flex items-center justify-end gap-2">
-                  <Button
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      openEditProjectModal(project)
-                    }}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Pencil className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                  <Button
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void handleDeleteProject(project.id)
-                    }}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              </button>
-            ))
-          ) : (
-            <Alert className="text-xs">No projects yet. Create one to start quoting.</Alert>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid min-w-0 gap-4">
+    <div className="grid gap-4">
+      {currentView === 'projects' ? (
         <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-3">
-            <div>
-              <CardTitle>{selectedProject ? selectedProject.name : 'Select a project'}</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {selectedProject
-                  ? `${selectedProject.client || 'No client'} · ${selectedProject.address || 'No address'}`
-                  : 'Projects hold client context and group all quote revisions.'}
-              </p>
+          <CardHeader className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle>Projects</CardTitle>
+              <Button onClick={openCreateProjectModal} size="sm" type="button">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                New
+              </Button>
             </div>
             <div className="flex gap-2">
-              <Button
-                disabled={!selectedProject}
-                onClick={openCreateQuoteModal}
-                type="button"
-                variant="outline"
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                New quote
-              </Button>
-              <Button
-                disabled={!selectedQuote}
-                onClick={openCreateUnitModal}
-                type="button"
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                Add unit
+              <Input
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search projects"
+                value={search}
+              />
+              <Button onClick={() => void loadProjects(search)} type="button" variant="outline">
+                Find
               </Button>
             </div>
           </CardHeader>
-
-          <CardContent className="space-y-4">
-            {selectedProject?.description ? (
-              <p className="text-sm text-muted-foreground">{selectedProject.description}</p>
-            ) : null}
-
-            <div className="grid gap-2">
-              <p className="text-xs font-semibold uppercase text-muted-foreground">Quotes</p>
+          <CardContent className="grid gap-2">
+            {isLoadingProjects ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                Loading projects
+              </div>
+            ) : projects.length > 0 ? (
+              projects.map((project) => (
+                <div
+                  className="rounded-[var(--card-radius)] border border-border bg-card p-3 transition hover:border-primary/50"
+                  key={project.id}
+                  onClick={() => openProjectWorkspace(project.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      openProjectWorkspace(project.id)
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{project.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{project.client || 'No client'}</p>
+                    </div>
+                    <Badge variant="outline">{project.quote_count} quotes</Badge>
+                  </div>
+                  <p className="mt-2 truncate text-xs text-muted-foreground">{project.address || 'No address'}</p>
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    <Button
+                      aria-label="Edit project"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openEditProjectModal(project)
+                      }}
+                      size="icon"
+                      title="Edit project"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      aria-label="Delete project"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleDeleteProject(project.id)
+                      }}
+                      size="icon"
+                      title="Delete project"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <Alert className="text-xs">No projects yet. Create one to start quoting.</Alert>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+          <Card>
+            <CardHeader className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <Button onClick={() => setCurrentView('projects')} type="button" variant="outline">
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  Projects
+                </Button>
+                <Button disabled={!selectedProject} onClick={openCreateQuoteModal} size="sm" type="button">
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  New quote
+                </Button>
+              </div>
+              <div>
+                <CardTitle className="truncate">{selectedProject?.name ?? 'Project'}</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selectedProject
+                    ? `${selectedProject.client || 'No client'} · ${selectedProject.address || 'No address'}`
+                    : 'No project selected.'}
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-2">
               {isLoadingQuotes ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -719,7 +737,10 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                   <button
                     className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${quote.id === selectedQuoteId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
                     key={quote.id}
-                    onClick={() => setSelectedQuoteId(quote.id)}
+                    onClick={() => {
+                      setSelectedQuoteId(quote.id)
+                      setActiveQuoteTab('units')
+                    }}
                     type="button"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -727,37 +748,43 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                         <p className="truncate text-sm font-semibold">{quote.name}</p>
                         <p className="truncate text-xs text-muted-foreground">{quote.notes || 'No notes'}</p>
                       </div>
-                      <Badge variant="outline">{quote.unit_count} units</Badge>
+                      <Badge variant="outline">{quote.unit_count}</Badge>
                     </div>
-                    <div className="mt-2 flex items-center justify-end gap-2">
+                    <div className="mt-2 flex items-center justify-end gap-1">
                       <Button
+                        aria-label="Copy quote"
                         onClick={(event) => {
                           event.stopPropagation()
                           openCopyQuoteModal(quote)
                         }}
-                        size="sm"
+                        size="icon"
+                        title="Copy quote"
                         type="button"
-                        variant="outline"
+                        variant="ghost"
                       >
-                        Copy
+                        <Copy className="h-4 w-4" aria-hidden="true" />
                       </Button>
                       <Button
+                        aria-label="Edit quote"
                         onClick={(event) => {
                           event.stopPropagation()
                           openEditQuoteModal(quote)
                         }}
                         size="icon"
+                        title="Edit quote"
                         type="button"
                         variant="ghost"
                       >
                         <Pencil className="h-4 w-4" aria-hidden="true" />
                       </Button>
                       <Button
+                        aria-label="Delete quote"
                         onClick={(event) => {
                           event.stopPropagation()
                           void handleDeleteQuote(quote.id)
                         }}
                         size="icon"
+                        title="Delete quote"
                         type="button"
                         variant="ghost"
                       >
@@ -769,82 +796,119 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
               ) : (
                 <Alert className="text-xs">No quotes in this project yet.</Alert>
               )}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Units</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {selectedQuote
-                ? `Quote: ${selectedQuote.name}. Units are stored in explicit order and renumber automatically after deletion.`
-                : 'Select a quote to manage units.'}
-            </p>
-          </CardHeader>
-          <CardContent>
-            {selectedQuote ? (
-              isLoadingUnits ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  Loading units
+          <Card>
+            <CardHeader className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <CardTitle>{selectedQuote ? selectedQuote.name : 'Select a quote'}</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {selectedQuote
+                      ? `Quote tabs provide room for growth as features are added.`
+                      : 'Choose a quote from the left pane to begin.'}
+                  </p>
                 </div>
-              ) : (
-                <TableContainer>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>#</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Dimensions (mm)</TableHead>
-                        <TableHead>Boards</TableHead>
-                        <TableHead>Extra Params</TableHead>
-                        <TableHead className="w-24" />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {units.length === 0 ? (
+                <Button disabled={!selectedQuote} onClick={openCreateUnitModal} type="button">
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Add unit
+                </Button>
+              </div>
+
+              <ControlGroup className="w-full sm:w-auto">
+                <ControlGroupItem
+                  aria-pressed={activeQuoteTab === 'units'}
+                  onClick={() => setActiveQuoteTab('units')}
+                >
+                  Units
+                </ControlGroupItem>
+                <ControlGroupItem
+                  aria-pressed={activeQuoteTab === 'cutting-lists'}
+                  onClick={() => setActiveQuoteTab('cutting-lists')}
+                >
+                  Cutting Lists
+                </ControlGroupItem>
+                <ControlGroupItem
+                  aria-pressed={activeQuoteTab === 'extras'}
+                  onClick={() => setActiveQuoteTab('extras')}
+                >
+                  Extras
+                </ControlGroupItem>
+              </ControlGroup>
+            </CardHeader>
+            <CardContent>
+              {!selectedQuote ? (
+                <Alert className="text-xs">No quote selected.</Alert>
+              ) : activeQuoteTab === 'units' ? (
+                isLoadingUnits ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Loading units
+                  </div>
+                ) : (
+                  <TableContainer>
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell className="text-muted-foreground" colSpan={6}>
-                            No units yet.
-                          </TableCell>
+                          <TableHead>#</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Dimensions (mm)</TableHead>
+                          <TableHead>Boards</TableHead>
+                          <TableHead>Extra Params</TableHead>
+                          <TableHead className="w-24" />
                         </TableRow>
-                      ) : (
-                        units.map((unit) => (
-                          <TableRow key={unit.id}>
-                            <TableCell>{unit.unit_number}</TableCell>
-                            <TableCell>{unit.unit_type_key}</TableCell>
-                            <TableCell>{`${unit.height} x ${unit.width} x ${unit.depth} · t${unit.thickness}`}</TableCell>
-                            <TableCell>{`${boardLabel(unit.carcass_board_type_id)} / ${boardLabel(unit.door_board_type_id)}`}</TableCell>
-                            <TableCell className="max-w-72 truncate text-xs text-muted-foreground">{formatExtraParams(unit.extra_params)}</TableCell>
-                            <TableCell>
-                              <div className="flex justify-end gap-1">
-                                <Button onClick={() => openEditUnitModal(unit)} size="icon" type="button" variant="ghost">
-                                  <Pencil className="h-4 w-4" aria-hidden="true" />
-                                </Button>
-                                <Button onClick={() => void handleDeleteUnit(unit.id)} size="icon" type="button" variant="ghost">
-                                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                                </Button>
-                              </div>
+                      </TableHeader>
+                      <TableBody>
+                        {units.length === 0 ? (
+                          <TableRow>
+                            <TableCell className="text-muted-foreground" colSpan={6}>
+                              No units yet.
                             </TableCell>
                           </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )
-            ) : (
-              <Alert className="text-xs">No quote selected.</Alert>
-            )}
-          </CardContent>
-        </Card>
+                        ) : (
+                          units.map((unit) => (
+                            <TableRow key={unit.id}>
+                              <TableCell>{unit.unit_number}</TableCell>
+                              <TableCell>{unit.unit_type_key}</TableCell>
+                              <TableCell>{`${unit.height} x ${unit.width} x ${unit.depth} · t${unit.thickness}`}</TableCell>
+                              <TableCell>{`${boardLabel(unit.carcass_board_type_id)} / ${boardLabel(unit.door_board_type_id)}`}</TableCell>
+                              <TableCell className="max-w-72 truncate text-xs text-muted-foreground">{formatExtraParams(unit.extra_params)}</TableCell>
+                              <TableCell>
+                                <div className="flex justify-end gap-1">
+                                  <Button onClick={() => openEditUnitModal(unit)} size="icon" type="button" variant="ghost">
+                                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                                  </Button>
+                                  <Button onClick={() => void handleDeleteUnit(unit.id)} size="icon" type="button" variant="ghost">
+                                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )
+              ) : activeQuoteTab === 'cutting-lists' ? (
+                <Alert className="text-sm text-muted-foreground">
+                  Cutting lists tab placeholder. This panel is ready for the next feature iteration.
+                </Alert>
+              ) : (
+                <Alert className="text-sm text-muted-foreground">
+                  Extras tab placeholder. This panel is ready for extras workflows.
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-        {error ? <Alert variant="destructive">{error}</Alert> : null}
-        {isLoadingLibraries ? (
-          <Alert className="text-xs">Loading library defaults for quote setup.</Alert>
-        ) : null}
-      </div>
+      {error ? <Alert variant="destructive">{error}</Alert> : null}
+      {isLoadingLibraries ? (
+        <Alert className="text-xs">Loading library defaults for quote setup.</Alert>
+      ) : null}
 
       {isProjectModalOpen ? (
         <ModalCard title={projectEditId ? 'Edit Project' : 'Create Project'} onClose={() => setIsProjectModalOpen(false)}>
