@@ -140,11 +140,44 @@ Payload:
 ```json
 {
   "vat_rate_bps": 1500,
-  "default_markup_bps": 2500
+  "default_markup_bps": 2500,
+  "carcass_markup_bps": 2500,
+  "door_panel_markup_bps": 2500,
+  "component_markup_bps": 2500,
+  "handle_markup_bps": 2500,
+  "extras_markup_bps": 2500,
+  "fabrication_markup_bps": 2500,
+  "install_markup_bps": 2500,
+  "delivery_markup_bps": 2500,
+  "joinery_commission_bps": 0,
+  "labour_cents_per_m2": 2000,
+  "consumables_cents_per_m2": 1000,
+  "install_day_cost_cents": 190000,
+  "delivery_base_cents": 95000,
+  "install_units_per_day": 3,
+  "delivery_units_per_trip": 20,
+  "minimum_install_days_bps": 5000,
+  "minimum_delivery_trips_bps": 5000
 }
 ```
 
-Rates are stored in basis points. `1500` means 15.00%, and `2500` means 25.00%.
+Rates are stored in basis points. `1500` means 15.00%, and `2500` means
+25.00%. Monetary settings are stored in cents in the company currency.
+
+Detailed pricing uses the active price list as base cost inputs, then applies
+these bucket-specific settings:
+
+- `carcass_markup_bps` for carcass board material and related base material.
+- `door_panel_markup_bps` for doors, drawer fronts, flaps, and visible panels.
+- `component_markup_bps` for slides, hinges, and flap mechanisms.
+- `handle_markup_bps` for handles.
+- `extras_markup_bps` for selected quote extras.
+- `fabrication_markup_bps` for labour and fabrication allowances.
+- `install_markup_bps` and `delivery_markup_bps` for operational charges.
+- `joinery_commission_bps` for joinery and visible-panel sell totals before VAT.
+
+`minimum_install_days_bps` and `minimum_delivery_trips_bps` represent decimal
+quantities in basis points. `5000` means `0.5`.
 
 ### Price Lists
 

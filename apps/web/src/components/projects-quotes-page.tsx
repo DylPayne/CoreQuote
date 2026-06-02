@@ -25,6 +25,18 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, quotePayloadFromDraft, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, ProjectDraft, ProjectPricingSummary, ProjectRow, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
+function formatBucketLabel(bucket: string) {
+  return bucket
+    .split(/[_-]/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ')
+}
+
+function formatPricingQty(qty: number) {
+  return Number.isInteger(qty) ? String(qty) : qty.toFixed(2)
+}
+
 export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: string; currencyCode: string }) {
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [quotes, setQuotes] = useState<QuoteRow[]>([])
@@ -90,6 +102,15 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
     () => projectPricing?.quotes.find((quote) => quote.quote_id === selectedQuoteId) ?? null,
     [projectPricing, selectedQuoteId],
   )
+  const selectedQuotePricingGroups = useMemo(() => {
+    if (!selectedQuotePricing) return []
+    const groups = new Map<string, typeof selectedQuotePricing.lines>()
+    selectedQuotePricing.lines.forEach((line) => {
+      const bucket = line.bucket || 'other'
+      groups.set(bucket, [...(groups.get(bucket) ?? []), line])
+    })
+    return Array.from(groups.entries()).map(([bucket, lines]) => ({ bucket, lines }))
+  }, [selectedQuotePricing])
   const pricingCurrencyCode = projectPricing?.currency_code ?? currencyCode
 
   const boardLabel = useCallback(
@@ -1124,39 +1145,46 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
               ) : !projectPricing ? (
                 <Alert className="text-xs">No pricing summary available yet.</Alert>
               ) : (
-                <div className="grid gap-4">
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    <Card className="p-3">
-                      <p className="text-xs text-muted-foreground">Subtotal</p>
-                      <p className="text-sm font-semibold">{formatCents(projectPricing.subtotal_cents, pricingCurrencyCode)}</p>
-                    </Card>
-                    <Card className="p-3">
-                      <p className="text-xs text-muted-foreground">Before VAT</p>
-                      <p className="text-sm font-semibold">{formatCents(projectPricing.sell_before_vat_cents, pricingCurrencyCode)}</p>
-                    </Card>
-                    <Card className="p-3">
+                <div className="grid gap-5">
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                    <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Base cost</p>
+                      <p className="text-base font-semibold">{formatCents(projectPricing.cost_total_cents, pricingCurrencyCode)}</p>
+                    </div>
+                    <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Sell before VAT</p>
+                      <p className="text-base font-semibold">{formatCents(projectPricing.sell_before_vat_cents, pricingCurrencyCode)}</p>
+                    </div>
+                    <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">Profit</p>
+                      <p className="text-base font-semibold">{formatCents(projectPricing.profit_cents, pricingCurrencyCode)}</p>
+                    </div>
+                    <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
                       <p className="text-xs text-muted-foreground">VAT</p>
-                      <p className="text-sm font-semibold">{formatCents(projectPricing.vat_cents, pricingCurrencyCode)}</p>
-                    </Card>
-                    <Card className="p-3">
-                      <p className="text-xs text-muted-foreground">Total</p>
-                      <p className="text-sm font-semibold">{formatCents(projectPricing.grand_total_cents, pricingCurrencyCode)}</p>
-                    </Card>
+                      <p className="text-base font-semibold">{formatCents(projectPricing.vat_cents, pricingCurrencyCode)}</p>
+                    </div>
+                    <div className="rounded-[var(--card-radius)] border border-border bg-primary/10 p-3">
+                      <p className="text-xs text-muted-foreground">Grand total</p>
+                      <p className="text-base font-semibold">{formatCents(projectPricing.grand_total_cents, pricingCurrencyCode)}</p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant={projectPricing.is_complete ? 'outline' : 'warning'}>
                       {projectPricing.is_complete ? 'Complete pricing' : 'Missing prices'}
                     </Badge>
                     <Badge variant="outline">{pricingCurrencyCode}</Badge>
-                    <span>{`Markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
+                    <span>{`Default markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
                   </div>
 
                   <TableContainer>
-                    <Table>
+                    <Table className="min-w-[760px]">
                       <TableHeader>
                         <TableRow>
                           <TableHead>Quote</TableHead>
                           <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Cost</TableHead>
+                          <TableHead className="text-right">Sell</TableHead>
+                          <TableHead className="text-right">Profit</TableHead>
                           <TableHead className="text-right">Total</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -1169,6 +1197,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                                 {quotePricing.is_complete ? 'Complete' : 'Missing prices'}
                               </Badge>
                             </TableCell>
+                            <TableCell className="text-right">{formatCents(quotePricing.cost_total_cents, pricingCurrencyCode)}</TableCell>
+                            <TableCell className="text-right">{formatCents(quotePricing.sell_before_vat_cents, pricingCurrencyCode)}</TableCell>
+                            <TableCell className="text-right">{formatCents(quotePricing.profit_cents, pricingCurrencyCode)}</TableCell>
                             <TableCell className="text-right">{formatCents(quotePricing.grand_total_cents, pricingCurrencyCode)}</TableCell>
                           </TableRow>
                         ))}
@@ -1176,44 +1207,94 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                     </Table>
                   </TableContainer>
 
-                  {selectedQuotePricing ? (
+                  {projectPricing.bucket_totals.length > 0 ? (
                     <div className="grid gap-2">
-                      <p className="text-xs font-semibold uppercase text-muted-foreground">{`${selectedQuotePricing.quote_name} line items`}</p>
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">Project bucket totals</p>
                       <TableContainer>
-                        <Table>
+                        <Table className="min-w-[720px]">
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Item</TableHead>
-                              <TableHead>Component</TableHead>
-                              <TableHead className="text-right">Qty</TableHead>
-                              <TableHead className="text-right">Unit</TableHead>
-                              <TableHead className="text-right">Line</TableHead>
+                              <TableHead>Bucket</TableHead>
+                              <TableHead className="text-right">Cost</TableHead>
+                              <TableHead className="text-right">Sell</TableHead>
+                              <TableHead className="text-right">Profit</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {selectedQuotePricing.lines.length === 0 ? (
-                              <TableRow>
-                                <TableCell className="text-muted-foreground" colSpan={5}>
-                                  No priced lines yet.
-                                </TableCell>
+                            {projectPricing.bucket_totals.map((bucket) => (
+                              <TableRow key={bucket.bucket}>
+                                <TableCell>{formatBucketLabel(bucket.bucket)}</TableCell>
+                                <TableCell className="text-right">{formatCents(bucket.cost_total_cents, pricingCurrencyCode)}</TableCell>
+                                <TableCell className="text-right">{formatCents(bucket.sell_total_cents, pricingCurrencyCode)}</TableCell>
+                                <TableCell className="text-right">{formatCents(bucket.profit_cents, pricingCurrencyCode)}</TableCell>
                               </TableRow>
-                            ) : (
-                              selectedQuotePricing.lines.map((line) => (
-                                <TableRow key={`${line.item_key}:${line.price_component}`}>
-                                  <TableCell>
-                                    {line.description}
-                                    {line.missing ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
-                                  </TableCell>
-                                  <TableCell>{line.price_component}</TableCell>
-                                  <TableCell className="text-right">{line.qty.toFixed(2)}</TableCell>
-                                  <TableCell className="text-right">{formatCents(line.unit_price_cents, pricingCurrencyCode)}</TableCell>
-                                  <TableCell className="text-right">{formatCents(line.line_total_cents, pricingCurrencyCode)}</TableCell>
-                                </TableRow>
-                              ))
-                            )}
+                            ))}
                           </TableBody>
                         </Table>
                       </TableContainer>
+                    </div>
+                  ) : null}
+
+                  {selectedQuotePricing ? (
+                    <div className="grid gap-3 border-t border-border pt-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase text-muted-foreground">{`${selectedQuotePricing.quote_name} line items`}</p>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline">{`Cost ${formatCents(selectedQuotePricing.cost_total_cents, pricingCurrencyCode)}`}</Badge>
+                          <Badge variant="outline">{`Sell ${formatCents(selectedQuotePricing.sell_before_vat_cents, pricingCurrencyCode)}`}</Badge>
+                          <Badge variant="outline">{`Profit ${formatCents(selectedQuotePricing.profit_cents, pricingCurrencyCode)}`}</Badge>
+                        </div>
+                      </div>
+                      {selectedQuotePricing.lines.length === 0 ? (
+                        <Alert className="text-xs">No priced lines yet.</Alert>
+                      ) : (
+                        selectedQuotePricingGroups.map((group) => {
+                          const bucketTotal = selectedQuotePricing.bucket_totals.find((bucket) => bucket.bucket === group.bucket)
+                          return (
+                            <div className="grid gap-2" key={group.bucket}>
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <Badge variant="outline">{formatBucketLabel(group.bucket)}</Badge>
+                                {bucketTotal ? (
+                                  <span className="text-muted-foreground">
+                                    {`${formatCents(bucketTotal.cost_total_cents, pricingCurrencyCode)} cost · ${formatCents(bucketTotal.sell_total_cents, pricingCurrencyCode)} sell`}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <TableContainer>
+                                <Table className="min-w-[760px] text-xs">
+                                  <TableHeader>
+                                    <TableRow>
+                                      <TableHead>Item</TableHead>
+                                      <TableHead>Component</TableHead>
+                                      <TableHead className="text-right">Qty</TableHead>
+                                      <TableHead className="text-right">Cost</TableHead>
+                                      <TableHead className="text-right">Markup</TableHead>
+                                      <TableHead className="text-right">Sell</TableHead>
+                                      <TableHead className="text-right">Profit</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {group.lines.map((line) => (
+                                      <TableRow key={`${line.item_key}:${line.price_component}:${line.bucket}`}>
+                                        <TableCell>
+                                          {line.description}
+                                          {line.missing ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
+                                        </TableCell>
+                                        <TableCell>{line.price_component}</TableCell>
+                                        <TableCell className="text-right">{`${formatPricingQty(line.qty)} ${line.uom}`}</TableCell>
+                                        <TableCell className="text-right">{formatCents(line.cost_total_cents, pricingCurrencyCode)}</TableCell>
+                                        <TableCell className="text-right">{formatPercentFromBps(line.markup_bps)}</TableCell>
+                                        <TableCell className="text-right">{formatCents(line.sell_total_cents, pricingCurrencyCode)}</TableCell>
+                                        <TableCell className="text-right">{formatCents(line.profit_cents, pricingCurrencyCode)}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </TableContainer>
+                            </div>
+                          )
+                        })
+                      )}
                     </div>
                   ) : null}
                 </div>
