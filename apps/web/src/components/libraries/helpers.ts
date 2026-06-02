@@ -1,4 +1,5 @@
 import type { BoardDraft, BoardTypeRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, PriceItemType, SlideDraft, SlideRow } from './types'
+export { formatCurrencyFromCents } from '@/lib/currency'
 
 export function formatBoardLabel(row: BoardTypeRow) {
   return `${row.brand} ${row.material} ${row.thickness}mm (${row.length_mm}x${row.width_mm})`
@@ -18,13 +19,6 @@ export function formatHandleLabel(row: HandleRow) {
 
 export function formatExtraLabel(row: ExtraRow) {
   return `${row.name} (${row.category_name})`
-}
-
-export function formatCurrencyFromCents(cents: number) {
-  return new Intl.NumberFormat('en-ZA', {
-    currency: 'ZAR',
-    style: 'currency',
-  }).format((cents || 0) / 100)
 }
 
 export function centsToAmountString(cents: number) {

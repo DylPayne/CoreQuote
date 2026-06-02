@@ -1,4 +1,5 @@
 import { customUnitTypeValue, fallbackUnitDefaults, panelPresetFamily, panelPresetKeys } from './constants'
+import { DEFAULT_CURRENCY_CODE, formatCurrencyFromCents } from '@/lib/currency'
 import type {
   PanelPresetKey,
   QuoteCustomPanelAutoConfig,
@@ -12,13 +13,8 @@ import type {
   UnitRow,
 } from './types'
 
-export function formatCents(value: number | null): string {
-  if (value == null) return '-'
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value / 100)
+export function formatCents(value: number | null, currencyCode = DEFAULT_CURRENCY_CODE): string {
+  return formatCurrencyFromCents(value, currencyCode)
 }
 
 export function formatPercentFromBps(bps: number): string {
