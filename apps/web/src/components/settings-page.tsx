@@ -1,17 +1,33 @@
-import { Building2, HardHat, Moon, Palette, ShieldCheck, Sun, UserRound } from 'lucide-react'
-import type { ComponentType } from 'react'
+import { Building2, CircleDollarSign, HardHat, Moon, Palette, Save, ShieldCheck, Sun, UserRound } from 'lucide-react'
+import { useEffect, useMemo, useState, type ComponentType, type FormEvent } from 'react'
 
+import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChoiceCard, ChoiceCardContent } from '@/components/ui/choice-card'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
+import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
+import { apiRequest } from '@/lib/api'
+import { currencyLabel, normalizeCurrencyCode, optionsForCurrency } from '@/lib/currency'
 import { colourThemes, uiStyles } from '@/lib/theme'
 import type { AuthUser } from '@/types/auth'
 import type { ColourTheme, ThemeMode, UiStyle, UiStyleSpec } from '@/types/theme'
 
+type CompanyResponse = {
+  id: string
+  name: string
+  slug: string
+  currency_code: string
+  created_at: string
+  updated_at: string
+}
+
 export function SettingsPage({
+  authToken,
   colourTheme,
+  onUserChange,
   selectedStyle,
   setColourTheme,
   setThemeMode,
@@ -20,7 +36,9 @@ export function SettingsPage({
   uiStyle,
   user,
 }: {
+  authToken: string
   colourTheme: ColourTheme
+  onUserChange: (user: AuthUser) => void
   selectedStyle: UiStyleSpec
   setColourTheme: (theme: ColourTheme) => void
   setThemeMode: (mode: ThemeMode) => void
@@ -29,9 +47,50 @@ export function SettingsPage({
   uiStyle: UiStyle
   user: AuthUser
 }) {
+  const savedCurrencyCode = normalizeCurrencyCode(user.company_currency_code)
+  const [currencyCode, setCurrencyCode] = useState(savedCurrencyCode)
+  const [currencyError, setCurrencyError] = useState<string | null>(null)
+  const [currencyMessage, setCurrencyMessage] = useState<string | null>(null)
+  const [isSavingCurrency, setIsSavingCurrency] = useState(false)
+  const isOwner = user.role === 'owner'
+  const currencyChoices = useMemo(() => optionsForCurrency(savedCurrencyCode), [savedCurrencyCode])
+  const hasCurrencyChange = currencyCode !== savedCurrencyCode
+
+  useEffect(() => {
+    setCurrencyCode(savedCurrencyCode)
+  }, [savedCurrencyCode])
+
+  async function handleCurrencySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!isOwner || !hasCurrencyChange) return
+
+    setCurrencyError(null)
+    setCurrencyMessage(null)
+    setIsSavingCurrency(true)
+    try {
+      const updatedCompany = await apiRequest<CompanyResponse>(`/api/v1/companies/${user.company_id}`, {
+        body: { currency_code: currencyCode },
+        method: 'PATCH',
+        token: authToken,
+      })
+      const nextCurrencyCode = normalizeCurrencyCode(updatedCompany.currency_code)
+      setCurrencyCode(nextCurrencyCode)
+      onUserChange({
+        ...user,
+        company_currency_code: nextCurrencyCode,
+        company_name: updatedCompany.name,
+      })
+      setCurrencyMessage('Currency saved.')
+    } catch (error) {
+      setCurrencyError(error instanceof Error ? error.message : 'Could not save company currency.')
+    } finally {
+      setIsSavingCurrency(false)
+    }
+  }
+
   return (
     <>
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-4">
         <StatusCard
           icon={ShieldCheck}
           label="Session"
@@ -39,6 +98,7 @@ export function SettingsPage({
           value="Bearer token restored through /me"
         />
         <StatusCard icon={Building2} label="Company" title={user.company_name} value={user.company_id} />
+        <StatusCard icon={CircleDollarSign} label="Currency" title={savedCurrencyCode} value={currencyLabel(savedCurrencyCode)} />
         <StatusCard icon={UserRound} label="User" title={user.name} value={user.email} />
       </section>
 
@@ -50,10 +110,50 @@ export function SettingsPage({
         <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <SummaryLine label="Company" value={user.company_name} />
           <SummaryLine label="Company ID" value={user.company_id} />
+          <SummaryLine label="Currency" value={currencyLabel(savedCurrencyCode)} />
           <SummaryLine label="User" value={user.name} />
           <SummaryLine label="Email" value={user.email} />
           <SummaryLine label="Role" value={user.role} />
           <SummaryLine label="User ID" value={user.id} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle>Company currency</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">Quote and pricing screens use this currency.</p>
+          </div>
+          <Badge variant={isOwner ? 'outline' : 'warning'}>{isOwner ? 'Owner' : 'Read only'}</Badge>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <form className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end" onSubmit={handleCurrencySubmit}>
+            <Label className="grid gap-1.5">
+              Local currency
+              <Select
+                disabled={!isOwner || isSavingCurrency}
+                onChange={(event) => {
+                  setCurrencyCode(normalizeCurrencyCode(event.target.value))
+                  setCurrencyError(null)
+                  setCurrencyMessage(null)
+                }}
+                value={currencyCode}
+              >
+                {currencyChoices.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Label>
+            <Button disabled={!isOwner || isSavingCurrency || !hasCurrencyChange} type="submit">
+              <Save className="h-4 w-4" aria-hidden="true" />
+              Save
+            </Button>
+          </form>
+          {!isOwner ? <Alert className="text-xs">Only company owners can change company currency.</Alert> : null}
+          {currencyError ? <Alert className="text-xs" variant="destructive">{currencyError}</Alert> : null}
+          {currencyMessage ? <Alert className="text-xs">{currencyMessage}</Alert> : null}
         </CardContent>
       </Card>
 

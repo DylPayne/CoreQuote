@@ -39,8 +39,10 @@ class FakeCompanyStore:
             slug="core-cabinets-a1b2c3",
             created_at=now,
             updated_at=now,
+            currency_code="ZAR",
         )
         self.created_name: str | None = None
+        self.updated_payload: tuple[str, str | None, str | None] | None = None
         self.deleted_id: str | None = None
         self.conflict_on_delete = False
 
@@ -52,6 +54,7 @@ class FakeCompanyStore:
             slug="new-shop-d4e5f6",
             created_at=self.company.created_at,
             updated_at=self.company.updated_at,
+            currency_code="ZAR",
         )
 
     def get_company(self, company_id: str) -> Company:
@@ -59,15 +62,23 @@ class FakeCompanyStore:
             raise CompanyNotFound()
         return self.company
 
-    def update_company(self, *, company_id: str, name: str) -> Company:
+    def update_company(
+        self,
+        *,
+        company_id: str,
+        name: str | None = None,
+        currency_code: str | None = None,
+    ) -> Company:
         if company_id != self.company.id:
             raise CompanyNotFound()
+        self.updated_payload = (company_id, name, currency_code)
         self.company = Company(
             id=self.company.id,
-            name=name.strip(),
+            name=name.strip() if name is not None else self.company.name,
             slug=self.company.slug,
             created_at=self.company.created_at,
             updated_at=self.company.updated_at,
+            currency_code=currency_code if currency_code is not None else self.company.currency_code,
         )
         return self.company
 
@@ -113,6 +124,7 @@ def test_create_company_returns_created_company():
     assert store.created_name == "New Shop"
     assert response.json()["name"] == "New Shop"
     assert response.json()["slug"] == "new-shop-d4e5f6"
+    assert response.json()["currency_code"] == "ZAR"
 
 
 def test_list_companies_returns_current_company_only():
@@ -129,6 +141,7 @@ def test_list_companies_returns_current_company_only():
 
     assert response.status_code == 200
     assert [company["id"] for company in response.json()] == ["company-1"]
+    assert response.json()[0]["currency_code"] == "ZAR"
 
 
 def test_get_company_hides_other_companies():
@@ -163,6 +176,62 @@ def test_update_company_renames_current_company():
     assert response.status_code == 200
     assert response.json()["name"] == "Core Cabinets Ltd"
     assert response.json()["slug"] == "core-cabinets-a1b2c3"
+    assert response.json()["currency_code"] == "ZAR"
+    assert store.updated_payload == ("company-1", "Core Cabinets Ltd", None)
+
+
+def test_update_company_changes_currency_for_owner():
+    store = FakeCompanyStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[companies.get_company_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/companies/company-1",
+            json={"currency_code": "usd"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["currency_code"] == "USD"
+    assert store.updated_payload == ("company-1", None, "USD")
+
+
+def test_update_company_currency_requires_owner_role():
+    store = FakeCompanyStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="admin")
+    app.dependency_overrides[companies.get_company_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/companies/company-1",
+            json={"currency_code": "USD"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Only company owners can change company currency"}
+    assert store.updated_payload is None
+
+
+def test_update_company_requires_a_field():
+    store = FakeCompanyStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[companies.get_company_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/companies/company-1",
+            json={},
+            headers={"Authorization": "Bearer test-token"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "At least one company field is required"}
+    assert store.updated_payload is None
 
 
 def test_delete_company_returns_409_when_related_records_exist():

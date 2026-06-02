@@ -619,6 +619,7 @@ class WorkspaceStore:
         extras_by_quote: dict[str, list[dict]] = {quote_id: [] for quote_id in quote_ids}
 
         with self._connect() as conn:
+            currency_code = self._get_company_currency_code(conn, company_id)
             pricing_settings = self._get_pricing_settings(conn, company_id)
             active_price_list_id = self._get_active_price_list_id(conn, company_id)
             price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id)
@@ -684,6 +685,7 @@ class WorkspaceStore:
             "project_id": project["id"],
             "project_name": project["name"],
             "active_price_list_id": active_price_list_id,
+            "currency_code": currency_code,
             "vat_rate_bps": int(pricing_settings["vat_rate_bps"]),
             "markup_bps": int(pricing_settings["default_markup_bps"]),
             "is_complete": is_complete,
@@ -693,6 +695,17 @@ class WorkspaceStore:
             "grand_total_cents": grand_total_cents,
             "quotes": quote_summaries,
         }
+
+    def _get_company_currency_code(self, conn, company_id: str) -> str:
+        row = conn.execute(
+            """
+            SELECT currency_code
+            FROM companies
+            WHERE id = %s
+            """,
+            (company_id,),
+        ).fetchone()
+        return str(row["currency_code"]) if row else "ZAR"
 
     def _get_pricing_settings(self, conn, company_id: str) -> dict:
         row = conn.execute(

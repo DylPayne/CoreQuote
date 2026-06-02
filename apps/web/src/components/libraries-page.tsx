@@ -29,9 +29,10 @@ import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
 import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultPriceListDraft, defaultSlideDraft, libraryTabs } from '@/components/libraries/constants'
 import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildSlidePayload, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
 import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
+import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
 import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow } from '@/components/libraries/types'
 
-export function LibrariesPage({ authToken }: { authToken: string }) {
+export function LibrariesPage({ authToken, currencyCode }: { authToken: string; currencyCode: string }) {
   const [activeTab, setActiveTab] = useState<LibraryTab>('pricing')
 
   const [boards, setBoards] = useState<BoardTypeRow[]>([])
@@ -81,6 +82,7 @@ export function LibrariesPage({ authToken }: { authToken: string }) {
   const [edgingPriceAmount, setEdgingPriceAmount] = useState('0.00')
   const [labourPriceAmount, setLabourPriceAmount] = useState('0.00')
   const [sqmPriceAmount, setSqmPriceAmount] = useState('0.00')
+  const displayCurrencyCode = normalizeCurrencyCode(currencyCode)
 
   const selectedPriceList = useMemo(
     () => priceLists.find((item) => item.id === selectedPriceListId) ?? null,
@@ -783,6 +785,7 @@ export function LibrariesPage({ authToken }: { authToken: string }) {
               <CardTitle className="flex items-center gap-2 text-base">
                 <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
                 Pricing Settings
+                <Badge variant="outline">{displayCurrencyCode}</Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -802,7 +805,7 @@ export function LibrariesPage({ authToken }: { authToken: string }) {
               </form>
               {pricingSettings ? (
                 <p className="mt-3 text-xs text-muted-foreground">
-                  Last updated: {formatDateTime(pricingSettings.updated_at)}
+                  Last updated: {formatDateTime(pricingSettings.updated_at)} · {currencyLabel(displayCurrencyCode)}
                 </p>
               ) : null}
             </CardContent>
@@ -903,15 +906,15 @@ export function LibrariesPage({ authToken }: { authToken: string }) {
                   {pricingItemType === 'board' && selectedBoardForPricing?.costing_mode === 'sheet' ? (
                     <div className="grid gap-3 md:grid-cols-3">
                       <Label className="grid gap-1.5">
-                        Sheet price
+                        Sheet price ({displayCurrencyCode})
                         <Input value={sheetPriceAmount} onChange={(event) => setSheetPriceAmount(event.target.value)} />
                       </Label>
                       <Label className="grid gap-1.5">
-                        Edging price / m
+                        Edging price / m ({displayCurrencyCode})
                         <Input value={edgingPriceAmount} onChange={(event) => setEdgingPriceAmount(event.target.value)} />
                       </Label>
                       <Label className="grid gap-1.5">
-                        Labour / board
+                        Labour / board ({displayCurrencyCode})
                         <Input value={labourPriceAmount} onChange={(event) => setLabourPriceAmount(event.target.value)} />
                       </Label>
                     </div>
@@ -919,14 +922,14 @@ export function LibrariesPage({ authToken }: { authToken: string }) {
 
                   {pricingItemType === 'board' && selectedBoardForPricing?.costing_mode === 'sqm' ? (
                     <Label className="grid gap-1.5">
-                      SQM price
+                      SQM price ({displayCurrencyCode})
                       <Input value={sqmPriceAmount} onChange={(event) => setSqmPriceAmount(event.target.value)} />
                     </Label>
                   ) : null}
 
                   {pricingItemType !== 'board' ? (
                     <Label className="grid gap-1.5">
-                      Cost price
+                      Cost price ({displayCurrencyCode})
                       <Input value={unitPriceAmount} onChange={(event) => setUnitPriceAmount(event.target.value)} />
                     </Label>
                   ) : null}
@@ -974,7 +977,7 @@ export function LibrariesPage({ authToken }: { authToken: string }) {
                           </TableCell>
                           <TableCell>{row.price_component}</TableCell>
                           <TableCell>{row.uom}</TableCell>
-                          <TableCell>{formatCurrencyFromCents(row.unit_price_cents)}</TableCell>
+                          <TableCell>{formatCurrencyFromCents(row.unit_price_cents, displayCurrencyCode)}</TableCell>
                         </TableRow>
                       ))
                     )}

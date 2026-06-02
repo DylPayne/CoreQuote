@@ -43,6 +43,7 @@ The API uses company-scoped roles plus named permissions. Endpoints should depen
 
 - Every authenticated API route should use `require_permission("<permission>")`.
 - Every company-owned query must still scope by `current_user.company_id`; RBAC answers what the user may do, not which tenant data they may see.
+- Company currency changes require the `owner` role even though `admin` also has `companies:update` for other company details.
 - Prefer returning `404` when a user asks for another company's resource, so cross-company resource existence is not leaked.
 - Use `403` when the user is authenticated but lacks the required permission for their own company.
 - Add or update tests for every permission-protected endpoint.

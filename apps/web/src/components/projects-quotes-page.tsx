@@ -25,7 +25,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, quotePayloadFromDraft, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, ProjectDraft, ProjectPricingSummary, ProjectRow, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
-export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
+export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: string; currencyCode: string }) {
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [quotes, setQuotes] = useState<QuoteRow[]>([])
   const [units, setUnits] = useState<UnitRow[]>([])
@@ -90,6 +90,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
     () => projectPricing?.quotes.find((quote) => quote.quote_id === selectedQuoteId) ?? null,
     [projectPricing, selectedQuoteId],
   )
+  const pricingCurrencyCode = projectPricing?.currency_code ?? currencyCode
 
   const boardLabel = useCallback(
     (boardId: string | null) => {
@@ -1127,25 +1128,26 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     <Card className="p-3">
                       <p className="text-xs text-muted-foreground">Subtotal</p>
-                      <p className="text-sm font-semibold">{formatCents(projectPricing.subtotal_cents)}</p>
+                      <p className="text-sm font-semibold">{formatCents(projectPricing.subtotal_cents, pricingCurrencyCode)}</p>
                     </Card>
                     <Card className="p-3">
                       <p className="text-xs text-muted-foreground">Before VAT</p>
-                      <p className="text-sm font-semibold">{formatCents(projectPricing.sell_before_vat_cents)}</p>
+                      <p className="text-sm font-semibold">{formatCents(projectPricing.sell_before_vat_cents, pricingCurrencyCode)}</p>
                     </Card>
                     <Card className="p-3">
                       <p className="text-xs text-muted-foreground">VAT</p>
-                      <p className="text-sm font-semibold">{formatCents(projectPricing.vat_cents)}</p>
+                      <p className="text-sm font-semibold">{formatCents(projectPricing.vat_cents, pricingCurrencyCode)}</p>
                     </Card>
                     <Card className="p-3">
                       <p className="text-xs text-muted-foreground">Total</p>
-                      <p className="text-sm font-semibold">{formatCents(projectPricing.grand_total_cents)}</p>
+                      <p className="text-sm font-semibold">{formatCents(projectPricing.grand_total_cents, pricingCurrencyCode)}</p>
                     </Card>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant={projectPricing.is_complete ? 'outline' : 'warning'}>
                       {projectPricing.is_complete ? 'Complete pricing' : 'Missing prices'}
                     </Badge>
+                    <Badge variant="outline">{pricingCurrencyCode}</Badge>
                     <span>{`Markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
                   </div>
 
@@ -1167,7 +1169,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                                 {quotePricing.is_complete ? 'Complete' : 'Missing prices'}
                               </Badge>
                             </TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.grand_total_cents)}</TableCell>
+                            <TableCell className="text-right">{formatCents(quotePricing.grand_total_cents, pricingCurrencyCode)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1204,8 +1206,8 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                                   </TableCell>
                                   <TableCell>{line.price_component}</TableCell>
                                   <TableCell className="text-right">{line.qty.toFixed(2)}</TableCell>
-                                  <TableCell className="text-right">{line.unit_price_cents == null ? '-' : formatCents(line.unit_price_cents)}</TableCell>
-                                  <TableCell className="text-right">{line.line_total_cents == null ? '-' : formatCents(line.line_total_cents)}</TableCell>
+                                  <TableCell className="text-right">{formatCents(line.unit_price_cents, pricingCurrencyCode)}</TableCell>
+                                  <TableCell className="text-right">{formatCents(line.line_total_cents, pricingCurrencyCode)}</TableCell>
                                 </TableRow>
                               ))
                             )}

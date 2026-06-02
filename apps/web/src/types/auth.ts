@@ -5,6 +5,7 @@ export type AuthUser = {
   id: string
   company_id: string
   company_name: string
+  company_currency_code: string
   name: string
   email: string
   role: 'owner' | 'admin' | 'manager' | 'estimator' | 'production' | 'viewer' | 'member'

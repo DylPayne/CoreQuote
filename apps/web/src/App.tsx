@@ -180,7 +180,9 @@ function App() {
       >
         {currentPage === 'settings' ? (
           <SettingsPage
+            authToken={authToken}
             colourTheme={colourTheme}
+            onUserChange={(nextUser) => setUser(nextUser)}
             selectedStyle={selectedStyle}
             setColourTheme={setColourTheme}
             setThemeMode={setThemeMode}
@@ -190,9 +192,9 @@ function App() {
             user={user}
           />
         ) : currentPage === 'projects' ? (
-          <ProjectsQuotesPage authToken={authToken} />
+          <ProjectsQuotesPage authToken={authToken} currencyCode={user.company_currency_code} />
         ) : currentPage === 'libraries' ? (
-          <LibrariesPage authToken={authToken} />
+          <LibrariesPage authToken={authToken} currencyCode={user.company_currency_code} />
         ) : currentPage === 'cutlist' ? (
           <CuttingRulesetsPage authToken={authToken} companyId={user.company_id} />
         ) : currentPage === 'cutlist-tester' ? (

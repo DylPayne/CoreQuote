@@ -197,6 +197,7 @@ export type ProjectPricingSummary = {
   project_id: string
   project_name: string
   active_price_list_id: string | null
+  currency_code: string
   vat_rate_bps: number
   markup_bps: number
   is_complete: boolean

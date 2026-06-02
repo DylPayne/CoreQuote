@@ -37,6 +37,7 @@ class AuthenticatedUser:
     name: str
     email: str
     role: str
+    company_currency_code: str = "ZAR"
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,7 @@ class AuthStore:
                         """
                         INSERT INTO companies (name, slug)
                         VALUES (%s, %s)
-                        RETURNING id::text, name
+                        RETURNING id::text, name, currency_code
                         """,
                         (company_name.strip(), company_slug),
                     ).fetchone()
@@ -100,6 +101,7 @@ class AuthStore:
                     u.id::text,
                     u.company_id::text,
                     c.name AS company_name,
+                    c.currency_code AS company_currency_code,
                     u.email::text,
                     u.name,
                     u.role,
@@ -126,6 +128,7 @@ class AuthStore:
                     u.id::text,
                     u.company_id::text,
                     c.name AS company_name,
+                    c.currency_code AS company_currency_code,
                     u.email::text,
                     u.name,
                     u.role
@@ -239,6 +242,7 @@ def _user_from_rows(user_row, company_row) -> AuthenticatedUser:
         name=user_row["name"],
         email=user_row["email"],
         role=user_row["role"],
+        company_currency_code=company_row["currency_code"],
     )
 
 
@@ -250,4 +254,5 @@ def _user_from_row(row) -> AuthenticatedUser:
         name=row["name"],
         email=row["email"],
         role=row["role"],
+        company_currency_code=row["company_currency_code"],
     )

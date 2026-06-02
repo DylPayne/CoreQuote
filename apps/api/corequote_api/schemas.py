@@ -4,7 +4,7 @@ from datetime import date
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from corequote_api.authorization import Role
 
@@ -89,6 +89,7 @@ class AuthUserResponse(BaseModel):
     id: str = Field(description="User UUID.")
     company_id: str = Field(description="Company UUID used to scope tenant-owned API data.")
     company_name: str = Field(description="Company display name.")
+    company_currency_code: str = Field(description="Company ISO 4217 currency code used for quote pricing display.")
     name: str = Field(description="User display name.")
     email: str = Field(description="Normalized login email.")
     role: Role = Field(description="Company-level role.")
@@ -117,10 +118,24 @@ class CompanyCreateRequest(BaseModel):
 class CompanyUpdateRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={"examples": [{"name": "Core Cabinets Ltd"}]},
+        json_schema_extra={"examples": [{"name": "Core Cabinets Ltd", "currency_code": "USD"}]},
     )
 
-    name: str = Field(min_length=2, max_length=120, description="Updated company display name.")
+    name: str | None = Field(default=None, min_length=2, max_length=120, description="Updated company display name.")
+    currency_code: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=3,
+        pattern="^[A-Z]{3}$",
+        description="Updated ISO 4217 currency code. Only company owners may change this field.",
+    )
+
+    @field_validator("currency_code", mode="before")
+    @classmethod
+    def normalize_currency_code(cls, value):
+        if value is None:
+            return None
+        return str(value).strip().upper()
 
 
 class CompanyResponse(BaseModel):
@@ -129,6 +144,7 @@ class CompanyResponse(BaseModel):
     id: str = Field(description="Company UUID.")
     name: str = Field(description="Company display name.")
     slug: str = Field(description="URL-safe company slug.")
+    currency_code: str = Field(description="ISO 4217 currency code used for quote pricing display.")
     created_at: datetime = Field(description="UTC timestamp when the company was created.")
     updated_at: datetime = Field(description="UTC timestamp when the company was last updated.")
 
@@ -389,6 +405,7 @@ class ProjectPricingResponse(BaseModel):
     project_id: str
     project_name: str
     active_price_list_id: str | None = None
+    currency_code: str = Field(description="Company ISO 4217 currency code used to display monetary totals.")
     vat_rate_bps: int = Field(ge=0)
     markup_bps: int = Field(ge=0)
     is_complete: bool

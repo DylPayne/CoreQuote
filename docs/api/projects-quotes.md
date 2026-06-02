@@ -325,6 +325,7 @@ Response shape:
   "project_id": "project-uuid",
   "project_name": "Smith Kitchen",
   "active_price_list_id": "price-list-uuid",
+  "currency_code": "ZAR",
   "vat_rate_bps": 1500,
   "markup_bps": 2500,
   "is_complete": true,
@@ -358,5 +359,5 @@ When a required item has no active price entry, it is returned in `missing_items
 - Panels tab can load and save quote panel config via `GET/PUT /quotes/{quote_id}/custom-panels`.
 - Cutting list tab can call `GET /quotes/{quote_id}/cutting-list`.
 - Extras tab can load and save quote-selected extras via `GET/PUT /quotes/{quote_id}/extras`.
-- Pricing tab can load project totals via `GET /projects/{project_id}/pricing`.
+- Pricing tab can load project totals via `GET /projects/{project_id}/pricing` and format all cent values with the returned `currency_code`.
 - Quote defaults are designed for fast unit creation UX: set defaults once on quote, then apply during add-unit flows.
