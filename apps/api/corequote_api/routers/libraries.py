@@ -247,7 +247,7 @@ def delete_extra(item_id: str, current_user: CatalogWriter, store: StoreDep) -> 
 
 @router.get("/item-suppliers", response_model=list[ItemSupplierResponse], summary="List item supplier links")
 def list_item_suppliers(
-    current_user: CatalogReader,
+    current_user: PricingReader,
     store: StoreDep,
     item_type: str | None = None,
     item_ref_id: str | None = None,
@@ -266,7 +266,7 @@ def list_item_suppliers(
 )
 def create_item_supplier(
     payload: ItemSupplierRequest,
-    current_user: CatalogWriter,
+    current_user: PricingWriter,
     store: StoreDep,
 ) -> ItemSupplierResponse:
     return _create_response(ItemSupplierResponse, store.create_item_supplier, current_user.company_id, payload)
@@ -275,7 +275,7 @@ def create_item_supplier(
 @router.get("/item-suppliers/{item_supplier_id}", response_model=ItemSupplierResponse, summary="Get an item supplier link")
 def get_item_supplier(
     item_supplier_id: str,
-    current_user: CatalogReader,
+    current_user: PricingReader,
     store: StoreDep,
 ) -> ItemSupplierResponse:
     return _get_response(ItemSupplierResponse, store.get_item_supplier, current_user.company_id, item_supplier_id)
@@ -285,7 +285,7 @@ def get_item_supplier(
 def update_item_supplier(
     item_supplier_id: str,
     payload: ItemSupplierRequest,
-    current_user: CatalogWriter,
+    current_user: PricingWriter,
     store: StoreDep,
 ) -> ItemSupplierResponse:
     return _update_response(ItemSupplierResponse, store.update_item_supplier, current_user.company_id, item_supplier_id, payload)
@@ -294,7 +294,7 @@ def update_item_supplier(
 @router.delete("/item-suppliers/{item_supplier_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an item supplier link")
 def delete_item_supplier(
     item_supplier_id: str,
-    current_user: CatalogWriter,
+    current_user: PricingWriter,
     store: StoreDep,
 ) -> Response:
     return _delete_response(store.delete_item_supplier, current_user.company_id, item_supplier_id)
