@@ -413,9 +413,52 @@ class PricingBucketTotalResponse(BaseModel):
     profit_cents: int = 0
 
 
+class PricingSettingsFields(BaseModel):
+    vat_rate_bps: int = Field(default=1500, ge=0)
+    default_markup_bps: int = Field(default=2500, ge=0)
+    carcass_markup_bps: int = Field(default=2500, ge=0)
+    door_panel_markup_bps: int = Field(default=2500, ge=0)
+    component_markup_bps: int = Field(default=2500, ge=0)
+    handle_markup_bps: int = Field(default=2500, ge=0)
+    extras_markup_bps: int = Field(default=2500, ge=0)
+    fabrication_markup_bps: int = Field(default=2500, ge=0)
+    install_markup_bps: int = Field(default=2500, ge=0)
+    delivery_markup_bps: int = Field(default=2500, ge=0)
+    joinery_commission_bps: int = Field(default=0, ge=0)
+    labour_cents_per_m2: int = Field(default=2000, ge=0)
+    consumables_cents_per_m2: int = Field(default=1000, ge=0)
+    install_day_cost_cents: int = Field(default=190000, ge=0)
+    delivery_base_cents: int = Field(default=95000, ge=0)
+    install_units_per_day: int = Field(default=3, ge=1)
+    delivery_units_per_trip: int = Field(default=20, ge=1)
+    minimum_install_days_bps: int = Field(default=5000, ge=0)
+    minimum_delivery_trips_bps: int = Field(default=5000, ge=0)
+
+
+class ProjectPricingSettingsResponse(PricingSettingsFields):
+    model_config = ConfigDict(from_attributes=True)
+
+    company_id: str
+    project_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class QuotePricingSettingsResponse(PricingSettingsFields):
+    model_config = ConfigDict(from_attributes=True)
+
+    company_id: str
+    quote_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class QuotePricingSummaryResponse(BaseModel):
     quote_id: str
     quote_name: str
+    vat_rate_bps: int = Field(ge=0)
+    markup_bps: int = Field(ge=0)
+    pricing_settings: QuotePricingSettingsResponse
     is_complete: bool
     missing_items: list[str] = Field(default_factory=list)
     subtotal_cents: int = 0
@@ -435,6 +478,7 @@ class ProjectPricingResponse(BaseModel):
     currency_code: str = Field(description="Company ISO 4217 currency code used to display monetary totals.")
     vat_rate_bps: int = Field(ge=0)
     markup_bps: int = Field(ge=0)
+    pricing_settings: ProjectPricingSettingsResponse
     is_complete: bool
     subtotal_cents: int = 0
     cost_total_cents: int = 0
@@ -702,28 +746,8 @@ class PriceListResponse(PriceListRequest):
     updated_at: datetime
 
 
-class PricingSettingsRequest(BaseModel):
+class PricingSettingsRequest(PricingSettingsFields):
     model_config = ConfigDict(extra="forbid")
-
-    vat_rate_bps: int = Field(default=1500, ge=0)
-    default_markup_bps: int = Field(default=2500, ge=0)
-    carcass_markup_bps: int = Field(default=2500, ge=0)
-    door_panel_markup_bps: int = Field(default=2500, ge=0)
-    component_markup_bps: int = Field(default=2500, ge=0)
-    handle_markup_bps: int = Field(default=2500, ge=0)
-    extras_markup_bps: int = Field(default=2500, ge=0)
-    fabrication_markup_bps: int = Field(default=2500, ge=0)
-    install_markup_bps: int = Field(default=2500, ge=0)
-    delivery_markup_bps: int = Field(default=2500, ge=0)
-    joinery_commission_bps: int = Field(default=0, ge=0)
-    labour_cents_per_m2: int = Field(default=2000, ge=0)
-    consumables_cents_per_m2: int = Field(default=1000, ge=0)
-    install_day_cost_cents: int = Field(default=190000, ge=0)
-    delivery_base_cents: int = Field(default=95000, ge=0)
-    install_units_per_day: int = Field(default=3, ge=1)
-    delivery_units_per_trip: int = Field(default=20, ge=1)
-    minimum_install_days_bps: int = Field(default=5000, ge=0)
-    minimum_delivery_trips_bps: int = Field(default=5000, ge=0)
 
 
 class PricingSettingsResponse(PricingSettingsRequest):

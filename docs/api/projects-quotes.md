@@ -23,6 +23,8 @@ All rows are scoped to `current_user.company_id`.
 - Quote and unit read: `quotes:read`
 - Quote and unit create/update/delete: `quotes:write`
 - Project pricing summary read: `pricing:read`
+- Project and quote pricing settings read: `pricing:read`
+- Project and quote pricing settings update: `pricing:update`
 
 The API returns:
 
@@ -303,6 +305,63 @@ Response shape (`GET` and `PUT`):
 }
 ```
 
+## Project and Quote Pricing Settings
+
+```http
+GET   /api/v1/projects/{project_id}/pricing-settings
+PATCH /api/v1/projects/{project_id}/pricing-settings
+GET   /api/v1/quotes/{quote_id}/pricing-settings
+PATCH /api/v1/quotes/{quote_id}/pricing-settings
+```
+
+Project pricing settings are copied from company pricing defaults when a project
+is created. Quote pricing settings are copied from the project's current pricing
+defaults when a quote is created. Updating company settings only changes future
+project snapshots, and updating project settings only changes future quote
+snapshots. Existing project and quote pricing settings are not rewritten by
+parent default changes.
+
+Request payload (`PATCH`):
+
+```json
+{
+  "vat_rate_bps": 1500,
+  "default_markup_bps": 2500,
+  "carcass_markup_bps": 2500,
+  "door_panel_markup_bps": 2500,
+  "component_markup_bps": 2500,
+  "handle_markup_bps": 2500,
+  "extras_markup_bps": 2500,
+  "fabrication_markup_bps": 2500,
+  "install_markup_bps": 2500,
+  "delivery_markup_bps": 2500,
+  "joinery_commission_bps": 0,
+  "labour_cents_per_m2": 2000,
+  "consumables_cents_per_m2": 1000,
+  "install_day_cost_cents": 190000,
+  "delivery_base_cents": 95000,
+  "install_units_per_day": 3,
+  "delivery_units_per_trip": 20,
+  "minimum_install_days_bps": 5000,
+  "minimum_delivery_trips_bps": 5000
+}
+```
+
+Project response:
+
+```json
+{
+  "company_id": "company-uuid",
+  "project_id": "project-uuid",
+  "vat_rate_bps": 1500,
+  "default_markup_bps": 2500,
+  "created_at": "2026-06-01T10:30:00Z",
+  "updated_at": "2026-06-01T10:30:00Z"
+}
+```
+
+Quote response uses the same fields and replaces `project_id` with `quote_id`.
+
 ## Project Pricing Summary
 
 ```http
@@ -316,7 +375,8 @@ The endpoint builds a live project pricing summary by combining:
 - Project quotes and units.
 - Quote-selected extras.
 - Active price-list items (`effective_to IS NULL`) if an active price list exists.
-- Pricing settings (`vat_rate_bps`, `default_markup_bps`).
+- Project pricing defaults for project metadata.
+- Each quote's own pricing settings for quote calculations.
 
 Response shape:
 
@@ -328,6 +388,31 @@ Response shape:
   "currency_code": "ZAR",
   "vat_rate_bps": 1500,
   "markup_bps": 2500,
+  "pricing_settings": {
+    "company_id": "company-uuid",
+    "project_id": "project-uuid",
+    "vat_rate_bps": 1500,
+    "default_markup_bps": 2500,
+    "carcass_markup_bps": 2500,
+    "door_panel_markup_bps": 2500,
+    "component_markup_bps": 2500,
+    "handle_markup_bps": 2500,
+    "extras_markup_bps": 2500,
+    "fabrication_markup_bps": 2500,
+    "install_markup_bps": 2500,
+    "delivery_markup_bps": 2500,
+    "joinery_commission_bps": 0,
+    "labour_cents_per_m2": 2000,
+    "consumables_cents_per_m2": 1000,
+    "install_day_cost_cents": 190000,
+    "delivery_base_cents": 95000,
+    "install_units_per_day": 3,
+    "delivery_units_per_trip": 20,
+    "minimum_install_days_bps": 5000,
+    "minimum_delivery_trips_bps": 5000,
+    "created_at": "2026-06-01T10:30:00Z",
+    "updated_at": "2026-06-01T10:30:00Z"
+  },
   "is_complete": true,
   "subtotal_cents": 346783,
   "cost_total_cents": 346783,
@@ -347,6 +432,16 @@ Response shape:
     {
       "quote_id": "quote-uuid",
       "quote_name": "Kitchen Quote v1",
+      "vat_rate_bps": 1500,
+      "markup_bps": 2500,
+      "pricing_settings": {
+        "company_id": "company-uuid",
+        "quote_id": "quote-uuid",
+        "vat_rate_bps": 1500,
+        "default_markup_bps": 2500,
+        "created_at": "2026-06-01T10:30:00Z",
+        "updated_at": "2026-06-01T10:30:00Z"
+      },
       "is_complete": true,
       "missing_items": [],
       "subtotal_cents": 346783,

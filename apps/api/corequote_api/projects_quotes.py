@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from typing import Any
 
 import psycopg
@@ -67,6 +68,9 @@ QUOTE_SELECT = """
 
 PRICING_SETTINGS_COLUMNS = tuple(DetailedPricingSettings.__dataclass_fields__.keys())
 PRICING_SETTINGS_SELECT = ", ".join(PRICING_SETTINGS_COLUMNS)
+PRICING_SETTINGS_PLACEHOLDERS = ", ".join(["%s"] * len(PRICING_SETTINGS_COLUMNS))
+PROJECT_PRICING_SETTINGS_SELECT = f"company_id::text, project_id::text, {PRICING_SETTINGS_SELECT}, created_at, updated_at"
+QUOTE_PRICING_SETTINGS_SELECT = f"company_id::text, quote_id::text, {PRICING_SETTINGS_SELECT}, created_at, updated_at"
 
 UNIT_SELECT = """
     u.id::text,
@@ -106,6 +110,38 @@ def _sum_bucket_totals(quote_summaries: list[dict[str, Any]]) -> list[dict[str, 
     ]
 
 
+def _default_pricing_settings() -> dict[str, int]:
+    defaults = DetailedPricingSettings()
+    return {field: int(getattr(defaults, field)) for field in PRICING_SETTINGS_COLUMNS}
+
+
+def _pricing_settings_values(payload: dict[str, Any]) -> dict[str, int]:
+    defaults = _default_pricing_settings()
+    return {
+        field: int(defaults[field] if payload.get(field) is None else payload[field])
+        for field in PRICING_SETTINGS_COLUMNS
+    }
+
+
+def _clean_pricing_settings_payload(payload: dict[str, Any]) -> dict[str, int]:
+    defaults = _default_pricing_settings()
+    cleaned: dict[str, int] = {}
+    for field in PRICING_SETTINGS_COLUMNS:
+        value = payload.get(field, defaults[field])
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise WorkspaceValidationError(f"{field} must be an integer") from exc
+        if parsed < 0:
+            raise WorkspaceValidationError(f"{field} must be a non-negative integer")
+        cleaned[field] = parsed
+
+    for field in ("install_units_per_day", "delivery_units_per_trip"):
+        if cleaned[field] < 1:
+            raise WorkspaceValidationError(f"{field} must be a positive integer")
+    return cleaned
+
+
 class WorkspaceStore:
     def __init__(self, database_url: str | None = None):
         self.database_url = database_url or os.environ.get("DATABASE_URL")
@@ -137,20 +173,27 @@ class WorkspaceStore:
         data = _clean_project_payload(payload)
         try:
             with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    INSERT INTO projects (company_id, name, client, address, description)
-                    VALUES (%s, %s, %s, %s, %s)
-                    RETURNING id::text
-                    """,
-                    (
+                with conn.transaction():
+                    row = conn.execute(
+                        """
+                        INSERT INTO projects (company_id, name, client, address, description)
+                        VALUES (%s, %s, %s, %s, %s)
+                        RETURNING id::text
+                        """,
+                        (
+                            company_id,
+                            data["name"],
+                            data["client"],
+                            data["address"],
+                            data["description"],
+                        ),
+                    ).fetchone()
+                    self._insert_project_pricing_settings(
+                        conn,
                         company_id,
-                        data["name"],
-                        data["client"],
-                        data["address"],
-                        data["description"],
-                    ),
-                ).fetchone()
+                        row["id"],
+                        self._get_company_pricing_settings(conn, company_id),
+                    )
         except psycopg.errors.UniqueViolation as exc:
             raise WorkspaceConflict("Project already exists") from exc
         return self.get_project(company_id, row["id"])
@@ -215,6 +258,19 @@ class WorkspaceStore:
         if not row:
             raise WorkspaceNotFound("Project not found")
 
+    def get_project_pricing_settings(self, company_id: str, project_id: str) -> dict:
+        with self._connect() as conn:
+            project = self._ensure_project_visible(conn, company_id, project_id)
+            return self._get_project_pricing_settings_response(conn, company_id, project_id, project)
+
+    def update_project_pricing_settings(self, company_id: str, project_id: str, payload: dict[str, Any]) -> dict:
+        data = _clean_pricing_settings_payload(payload)
+        with self._connect() as conn:
+            with conn.transaction():
+                self._ensure_project_visible(conn, company_id, project_id)
+                row = self._upsert_project_pricing_settings(conn, company_id, project_id, data)
+        return row
+
     def list_quotes(self, company_id: str, project_id: str) -> list[dict]:
         with self._connect() as conn:
             self._ensure_project_visible(conn, company_id, project_id)
@@ -239,6 +295,7 @@ class WorkspaceStore:
             with conn.transaction():
                 self._ensure_project_visible(conn, company_id, project_id)
                 self._validate_quote_defaults(conn, company_id, data)
+                project_pricing_settings = self._get_project_pricing_settings(conn, company_id, project_id)
                 row = conn.execute(
                     """
                     INSERT INTO quotes (
@@ -277,6 +334,7 @@ class WorkspaceStore:
                         Jsonb(data["unit_defaults"]),
                     ),
                 ).fetchone()
+                self._insert_quote_pricing_settings(conn, company_id, row["id"], project_pricing_settings)
         return self.get_quote(company_id, row["id"])
 
     def get_quote(self, company_id: str, quote_id: str) -> dict:
@@ -357,6 +415,19 @@ class WorkspaceStore:
             ).fetchone()
         if not row:
             raise WorkspaceNotFound("Quote not found")
+
+    def get_quote_pricing_settings(self, company_id: str, quote_id: str) -> dict:
+        with self._connect() as conn:
+            quote = self._ensure_quote_visible(conn, company_id, quote_id)
+            return self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
+
+    def update_quote_pricing_settings(self, company_id: str, quote_id: str, payload: dict[str, Any]) -> dict:
+        data = _clean_pricing_settings_payload(payload)
+        with self._connect() as conn:
+            with conn.transaction():
+                self._ensure_quote_visible(conn, company_id, quote_id)
+                row = self._upsert_quote_pricing_settings(conn, company_id, quote_id, data)
+        return row
 
     def list_units(self, company_id: str, quote_id: str) -> list[dict]:
         with self._connect() as conn:
@@ -644,7 +715,13 @@ class WorkspaceStore:
 
         with self._connect() as conn:
             currency_code = self._get_company_currency_code(conn, company_id)
-            pricing_settings = self._get_pricing_settings(conn, company_id)
+            project_pricing_settings = self._get_project_pricing_settings_response(conn, company_id, project_id, project)
+            quote_pricing_settings = self._get_quote_pricing_settings_map(
+                conn,
+                company_id,
+                quotes,
+                project_pricing_settings,
+            )
             active_price_list_id = self._get_active_price_list_id(conn, company_id)
             price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id)
             lookups = self._load_company_item_lookups(conn, company_id)
@@ -678,8 +755,10 @@ class WorkspaceStore:
                 for row in extra_rows:
                     extras_by_quote.setdefault(row["quote_id"], []).append(row)
 
-        quote_summaries = [
-            _price_quote(
+        quote_summaries = []
+        for quote in quotes:
+            quote_settings = quote_pricing_settings[quote["id"]]
+            summary = _price_quote(
                 quote=quote,
                 units=units_by_quote.get(quote["id"], []),
                 quote_extras=extras_by_quote.get(quote["id"], []),
@@ -693,10 +772,12 @@ class WorkspaceStore:
                 handle_lookup=lookups["handles"],
                 extra_lookup=lookups["extras"],
                 active_price_list_id=active_price_list_id,
-                pricing_settings=pricing_settings,
+                pricing_settings=quote_settings,
             )
-            for quote in quotes
-        ]
+            summary["vat_rate_bps"] = int(quote_settings["vat_rate_bps"])
+            summary["markup_bps"] = int(quote_settings["default_markup_bps"])
+            summary["pricing_settings"] = quote_settings
+            quote_summaries.append(summary)
 
         subtotal_cents = sum(int(row["subtotal_cents"]) for row in quote_summaries)
         cost_total_cents = sum(int(row.get("cost_total_cents", row["subtotal_cents"])) for row in quote_summaries)
@@ -715,8 +796,9 @@ class WorkspaceStore:
             "project_name": project["name"],
             "active_price_list_id": active_price_list_id,
             "currency_code": currency_code,
-            "vat_rate_bps": int(pricing_settings["vat_rate_bps"]),
-            "markup_bps": int(pricing_settings["default_markup_bps"]),
+            "vat_rate_bps": int(project_pricing_settings["vat_rate_bps"]),
+            "markup_bps": int(project_pricing_settings["default_markup_bps"]),
+            "pricing_settings": project_pricing_settings,
             "is_complete": is_complete,
             "subtotal_cents": subtotal_cents,
             "cost_total_cents": cost_total_cents,
@@ -739,7 +821,7 @@ class WorkspaceStore:
         ).fetchone()
         return str(row["currency_code"]) if row else "ZAR"
 
-    def _get_pricing_settings(self, conn, company_id: str) -> dict:
+    def _get_company_pricing_settings(self, conn, company_id: str) -> dict[str, int]:
         row = conn.execute(
             f"""
             SELECT {PRICING_SETTINGS_SELECT}
@@ -749,8 +831,144 @@ class WorkspaceStore:
             (company_id,),
         ).fetchone()
         if row:
+            return _pricing_settings_values(row)
+        return _default_pricing_settings()
+
+    def _get_project_pricing_settings(self, conn, company_id: str, project_id: str) -> dict[str, int]:
+        row = conn.execute(
+            f"""
+            SELECT {PRICING_SETTINGS_SELECT}
+            FROM project_pricing_settings
+            WHERE company_id = %s
+              AND project_id = %s
+            """,
+            (company_id, project_id),
+        ).fetchone()
+        if row:
+            return _pricing_settings_values(row)
+        return self._get_company_pricing_settings(conn, company_id)
+
+    def _get_project_pricing_settings_response(self, conn, company_id: str, project_id: str, project: dict) -> dict:
+        row = conn.execute(
+            f"""
+            SELECT {PROJECT_PRICING_SETTINGS_SELECT}
+            FROM project_pricing_settings
+            WHERE company_id = %s
+              AND project_id = %s
+            """,
+            (company_id, project_id),
+        ).fetchone()
+        if row:
             return row
-        return {field: getattr(DetailedPricingSettings(), field) for field in PRICING_SETTINGS_COLUMNS}
+        return {
+            "company_id": company_id,
+            "project_id": project_id,
+            **self._get_company_pricing_settings(conn, company_id),
+            "created_at": project.get("created_at") or datetime.now(UTC),
+            "updated_at": project.get("updated_at") or datetime.now(UTC),
+        }
+
+    def _get_quote_pricing_settings_response(self, conn, company_id: str, quote_id: str, quote: dict) -> dict:
+        row = conn.execute(
+            f"""
+            SELECT {QUOTE_PRICING_SETTINGS_SELECT}
+            FROM quote_pricing_settings
+            WHERE company_id = %s
+              AND quote_id = %s
+            """,
+            (company_id, quote_id),
+        ).fetchone()
+        if row:
+            return row
+        settings = self._get_project_pricing_settings(conn, company_id, quote["project_id"])
+        return {
+            "company_id": company_id,
+            "quote_id": quote_id,
+            **settings,
+            "created_at": quote.get("created_at") or datetime.now(UTC),
+            "updated_at": quote.get("updated_at") or datetime.now(UTC),
+        }
+
+    def _get_quote_pricing_settings_map(
+        self,
+        conn,
+        company_id: str,
+        quotes: list[dict],
+        project_pricing_settings: dict,
+    ) -> dict[str, dict]:
+        quote_ids = [quote["id"] for quote in quotes]
+        if not quote_ids:
+            return {}
+
+        rows = conn.execute(
+            f"""
+            SELECT {QUOTE_PRICING_SETTINGS_SELECT}
+            FROM quote_pricing_settings
+            WHERE company_id = %s
+              AND quote_id = ANY(%s::uuid[])
+            """,
+            (company_id, quote_ids),
+        ).fetchall()
+        settings_by_quote = {row["quote_id"]: row for row in rows}
+        fallback_settings = _pricing_settings_values(project_pricing_settings)
+        for quote in quotes:
+            settings_by_quote.setdefault(
+                quote["id"],
+                {
+                    "company_id": company_id,
+                    "quote_id": quote["id"],
+                    **fallback_settings,
+                    "created_at": quote.get("created_at") or datetime.now(UTC),
+                    "updated_at": quote.get("updated_at") or datetime.now(UTC),
+                },
+            )
+        return settings_by_quote
+
+    def _insert_project_pricing_settings(self, conn, company_id: str, project_id: str, settings: dict[str, int]) -> None:
+        conn.execute(
+            f"""
+            INSERT INTO project_pricing_settings (company_id, project_id, {PRICING_SETTINGS_SELECT})
+            VALUES (%s, %s, {PRICING_SETTINGS_PLACEHOLDERS})
+            ON CONFLICT (project_id) DO NOTHING
+            """,
+            (company_id, project_id, *[settings[column] for column in PRICING_SETTINGS_COLUMNS]),
+        )
+
+    def _insert_quote_pricing_settings(self, conn, company_id: str, quote_id: str, settings: dict[str, int]) -> None:
+        conn.execute(
+            f"""
+            INSERT INTO quote_pricing_settings (company_id, quote_id, {PRICING_SETTINGS_SELECT})
+            VALUES (%s, %s, {PRICING_SETTINGS_PLACEHOLDERS})
+            ON CONFLICT (quote_id) DO NOTHING
+            """,
+            (company_id, quote_id, *[settings[column] for column in PRICING_SETTINGS_COLUMNS]),
+        )
+
+    def _upsert_project_pricing_settings(self, conn, company_id: str, project_id: str, settings: dict[str, int]) -> dict:
+        assignments = ",\n                ".join(f"{column} = EXCLUDED.{column}" for column in PRICING_SETTINGS_COLUMNS)
+        return conn.execute(
+            f"""
+            INSERT INTO project_pricing_settings (company_id, project_id, {PRICING_SETTINGS_SELECT})
+            VALUES (%s, %s, {PRICING_SETTINGS_PLACEHOLDERS})
+            ON CONFLICT (project_id) DO UPDATE
+            SET {assignments}
+            RETURNING {PROJECT_PRICING_SETTINGS_SELECT}
+            """,
+            (company_id, project_id, *[settings[column] for column in PRICING_SETTINGS_COLUMNS]),
+        ).fetchone()
+
+    def _upsert_quote_pricing_settings(self, conn, company_id: str, quote_id: str, settings: dict[str, int]) -> dict:
+        assignments = ",\n                ".join(f"{column} = EXCLUDED.{column}" for column in PRICING_SETTINGS_COLUMNS)
+        return conn.execute(
+            f"""
+            INSERT INTO quote_pricing_settings (company_id, quote_id, {PRICING_SETTINGS_SELECT})
+            VALUES (%s, %s, {PRICING_SETTINGS_PLACEHOLDERS})
+            ON CONFLICT (quote_id) DO UPDATE
+            SET {assignments}
+            RETURNING {QUOTE_PRICING_SETTINGS_SELECT}
+            """,
+            (company_id, quote_id, *[settings[column] for column in PRICING_SETTINGS_COLUMNS]),
+        ).fetchone()
 
     def _get_active_price_list_id(self, conn, company_id: str) -> str | None:
         row = conn.execute(
@@ -950,10 +1168,10 @@ class WorkspaceStore:
                 "Custom panel board",
             )
 
-    def _ensure_project_visible(self, conn, company_id: str, project_id: str) -> None:
+    def _ensure_project_visible(self, conn, company_id: str, project_id: str) -> dict:
         row = conn.execute(
             """
-            SELECT id::text
+            SELECT id::text, created_at, updated_at
             FROM projects
             WHERE company_id = %s
               AND id = %s
@@ -962,11 +1180,12 @@ class WorkspaceStore:
         ).fetchone()
         if not row:
             raise WorkspaceNotFound("Project not found")
+        return row
 
-    def _ensure_quote_visible(self, conn, company_id: str, quote_id: str) -> None:
+    def _ensure_quote_visible(self, conn, company_id: str, quote_id: str) -> dict:
         row = conn.execute(
             """
-            SELECT id::text
+            SELECT id::text, project_id::text, created_at, updated_at
             FROM quotes
             WHERE company_id = %s
               AND id = %s
@@ -975,6 +1194,7 @@ class WorkspaceStore:
         ).fetchone()
         if not row:
             raise WorkspaceNotFound("Quote not found")
+        return row
 
     def _ensure_library_item_visible(
         self,

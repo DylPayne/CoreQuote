@@ -253,7 +253,9 @@ Payload:
 ```
 
 Rates are stored in basis points. `1500` means 15.00%, and `2500` means
-25.00%. Monetary settings are stored in cents in the company currency.
+25.00%. Monetary settings are stored in cents in the company currency. These
+company settings are defaults for new projects; updating them does not rewrite
+existing project or quote pricing settings.
 
 Detailed pricing uses the active price list as base cost inputs, then applies
 these bucket-specific settings:
