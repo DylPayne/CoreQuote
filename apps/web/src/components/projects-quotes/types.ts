@@ -1,3 +1,5 @@
+import type { ProjectPricingSettingsRow, QuotePricingSettingsRow } from '@/components/pricing-settings'
+
 export type UnitDefaults = Record<string, { height: number; depth: number }>
 
 export type ProjectRow = {
@@ -197,6 +199,9 @@ export type PricingBucketTotal = {
 export type QuotePricingSummary = {
   quote_id: string
   quote_name: string
+  vat_rate_bps: number
+  markup_bps: number
+  pricing_settings: QuotePricingSettingsRow
   is_complete: boolean
   missing_items: string[]
   subtotal_cents: number
@@ -216,6 +221,7 @@ export type ProjectPricingSummary = {
   currency_code: string
   vat_rate_bps: number
   markup_bps: number
+  pricing_settings: ProjectPricingSettingsRow
   is_complete: boolean
   subtotal_cents: number
   cost_total_cents: number

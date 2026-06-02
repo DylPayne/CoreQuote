@@ -23,6 +23,8 @@ import { customUnitTypeValue, defaultProjectDraft, defaultQuoteDraft, defaultUni
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, quotePayloadFromDraft, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
+import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
+import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
 import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, ProjectDraft, ProjectPricingSummary, ProjectRow, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
@@ -53,6 +55,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [quoteCustomPanels, setQuoteCustomPanels] = useState<QuoteCustomPanelsState | null>(null)
   const [quoteCustomPanelRows, setQuoteCustomPanelRows] = useState<QuoteCustomPanelComputedRow[]>([])
   const [projectPricing, setProjectPricing] = useState<ProjectPricingSummary | null>(null)
+  const [projectPricingSettings, setProjectPricingSettings] = useState<ProjectPricingSettingsRow | null>(null)
+  const [quotePricingSettings, setQuotePricingSettings] = useState<QuotePricingSettingsRow | null>(null)
 
   const [currentView, setCurrentView] = useState<'projects' | 'project-workspace'>('projects')
   const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteWorkspaceTab>('units')
@@ -64,6 +68,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft)
   const [quoteDraft, setQuoteDraft] = useState<QuoteDraft>(defaultQuoteDraft)
   const [unitDraft, setUnitDraft] = useState<UnitDraft>(defaultUnitDraft)
+  const [projectPricingSettingsDraft, setProjectPricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
+  const [quotePricingSettingsDraft, setQuotePricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
 
   const [projectEditId, setProjectEditId] = useState<string | null>(null)
   const [quoteEditId, setQuoteEditId] = useState<string | null>(null)
@@ -80,10 +86,14 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [isLoadingQuoteExtras, setIsLoadingQuoteExtras] = useState(false)
   const [isLoadingQuoteCustomPanels, setIsLoadingQuoteCustomPanels] = useState(false)
   const [isLoadingProjectPricing, setIsLoadingProjectPricing] = useState(false)
+  const [isLoadingProjectPricingSettings, setIsLoadingProjectPricingSettings] = useState(false)
+  const [isLoadingQuotePricingSettings, setIsLoadingQuotePricingSettings] = useState(false)
   const [isLoadingLibraries, setIsLoadingLibraries] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingQuoteExtras, setIsSavingQuoteExtras] = useState(false)
   const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
+  const [isSavingProjectPricingSettings, setIsSavingProjectPricingSettings] = useState(false)
+  const [isSavingQuotePricingSettings, setIsSavingQuotePricingSettings] = useState(false)
   const [isQuoteExtrasDirty, setIsQuoteExtrasDirty] = useState(false)
   const [isQuoteCustomPanelsDirty, setIsQuoteCustomPanelsDirty] = useState(false)
 
@@ -277,6 +287,40 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
     [authToken],
   )
 
+  const loadProjectPricingSettings = useCallback(
+    async (projectId: string) => {
+      setIsLoadingProjectPricingSettings(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<ProjectPricingSettingsRow>(`/api/v1/projects/${projectId}/pricing-settings`, { token: authToken })
+        setProjectPricingSettings(payload)
+        setProjectPricingSettingsDraft(pricingSettingsToDraft(payload))
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load project pricing defaults.')
+      } finally {
+        setIsLoadingProjectPricingSettings(false)
+      }
+    },
+    [authToken],
+  )
+
+  const loadQuotePricingSettings = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingQuotePricingSettings(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<QuotePricingSettingsRow>(`/api/v1/quotes/${quoteId}/pricing-settings`, { token: authToken })
+        setQuotePricingSettings(payload)
+        setQuotePricingSettingsDraft(pricingSettingsToDraft(payload))
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load quote pricing settings.')
+      } finally {
+        setIsLoadingQuotePricingSettings(false)
+      }
+    },
+    [authToken],
+  )
+
   useEffect(() => {
     const handle = window.setTimeout(() => {
       void loadLibraries()
@@ -291,12 +335,15 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
         setQuotes([])
         setSelectedQuoteId(null)
         setProjectPricing(null)
+        setProjectPricingSettings(null)
+        setProjectPricingSettingsDraft(defaultPricingSettingsDraft)
         return
       }
       void loadQuotes(selectedProjectId)
+      void loadProjectPricingSettings(selectedProjectId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadQuotes, selectedProjectId])
+  }, [loadProjectPricingSettings, loadQuotes, selectedProjectId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -306,14 +353,17 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
         setQuoteExtrasSelection({})
         setQuoteCustomPanels(null)
         setQuoteCustomPanelRows([])
+        setQuotePricingSettings(null)
+        setQuotePricingSettingsDraft(defaultPricingSettingsDraft)
         setIsQuoteExtrasDirty(false)
         setIsQuoteCustomPanelsDirty(false)
         return
       }
       void loadUnits(selectedQuoteId)
+      void loadQuotePricingSettings(selectedQuoteId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadUnits, selectedQuoteId])
+  }, [loadQuotePricingSettings, loadUnits, selectedQuoteId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -464,6 +514,64 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       setError(saveError instanceof Error ? saveError.message : 'Could not save selected extras.')
     } finally {
       setIsSavingQuoteExtras(false)
+    }
+  }
+
+  async function handleSaveProjectPricingSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedProjectId) return
+    const payload = pricingSettingsPayloadFromDraft(projectPricingSettingsDraft)
+    if (!payload) {
+      setError('Project pricing defaults must be valid positive numbers.')
+      return
+    }
+
+    setIsSavingProjectPricingSettings(true)
+    setError(null)
+    try {
+      const updated = await apiRequest<ProjectPricingSettingsRow>(`/api/v1/projects/${selectedProjectId}/pricing-settings`, {
+        method: 'PATCH',
+        token: authToken,
+        body: payload,
+      })
+      setProjectPricingSettings(updated)
+      setProjectPricingSettingsDraft(pricingSettingsToDraft(updated))
+      if (activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save project pricing defaults.')
+    } finally {
+      setIsSavingProjectPricingSettings(false)
+    }
+  }
+
+  async function handleSaveQuotePricingSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedProjectId || !selectedQuoteId) return
+    const payload = pricingSettingsPayloadFromDraft(quotePricingSettingsDraft)
+    if (!payload) {
+      setError('Quote pricing settings must be valid positive numbers.')
+      return
+    }
+
+    setIsSavingQuotePricingSettings(true)
+    setError(null)
+    try {
+      const updated = await apiRequest<QuotePricingSettingsRow>(`/api/v1/quotes/${selectedQuoteId}/pricing-settings`, {
+        method: 'PATCH',
+        token: authToken,
+        body: payload,
+      })
+      setQuotePricingSettings(updated)
+      setQuotePricingSettingsDraft(pricingSettingsToDraft(updated))
+      if (activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save quote pricing settings.')
+    } finally {
+      setIsSavingQuotePricingSettings(false)
     }
   }
 
@@ -904,6 +1012,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                       setActiveQuoteTab('pricing')
                       if (selectedProjectId) {
                         void loadProjectPricing(selectedProjectId)
+                        void loadProjectPricingSettings(selectedProjectId)
+                      }
+                      if (selectedQuoteId) {
+                        void loadQuotePricingSettings(selectedQuoteId)
                       }
                     }}
                     type="button"
@@ -1174,6 +1286,62 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                     </Badge>
                     <Badge variant="outline">{pricingCurrencyCode}</Badge>
                     <span>{`Default markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
+                  </div>
+
+                  <div className="grid gap-3 border-y border-border py-4">
+                    <details className="grid gap-3">
+                      <summary className="cursor-pointer text-sm font-semibold">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          Project defaults
+                          {projectPricingSettings ? (
+                            <Badge variant="outline">{`VAT ${formatPercentFromBps(projectPricingSettings.vat_rate_bps)}`}</Badge>
+                          ) : null}
+                        </span>
+                      </summary>
+                      <div className="pt-3">
+                        {isLoadingProjectPricingSettings ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            Loading project defaults
+                          </div>
+                        ) : (
+                          <PricingSettingsEditor
+                            currencyCode={pricingCurrencyCode}
+                            draft={projectPricingSettingsDraft}
+                            isSaving={isSavingProjectPricingSettings}
+                            onDraftChange={setProjectPricingSettingsDraft}
+                            onSubmit={handleSaveProjectPricingSettings}
+                          />
+                        )}
+                      </div>
+                    </details>
+
+                    <details className="grid gap-3">
+                      <summary className="cursor-pointer text-sm font-semibold">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          Quote pricing
+                          {quotePricingSettings ? (
+                            <Badge variant="outline">{`Markup ${formatPercentFromBps(quotePricingSettings.default_markup_bps)}`}</Badge>
+                          ) : null}
+                        </span>
+                      </summary>
+                      <div className="pt-3">
+                        {isLoadingQuotePricingSettings ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            Loading quote pricing
+                          </div>
+                        ) : (
+                          <PricingSettingsEditor
+                            currencyCode={pricingCurrencyCode}
+                            draft={quotePricingSettingsDraft}
+                            isSaving={isSavingQuotePricingSettings}
+                            onDraftChange={setQuotePricingSettingsDraft}
+                            onSubmit={handleSaveQuotePricingSettings}
+                          />
+                        )}
+                      </div>
+                    </details>
                   </div>
 
                   <TableContainer>

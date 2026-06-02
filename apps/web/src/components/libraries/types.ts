@@ -1,3 +1,5 @@
+import type { CompanyPricingSettingsRow } from '@/components/pricing-settings'
+
 export type LibraryTab =
   | 'pricing'
   | 'boards'
@@ -85,30 +87,7 @@ export type ExtraRow = {
   updated_at: string
 }
 
-export type PricingSettingsRow = {
-  company_id: string
-  vat_rate_bps: number
-  default_markup_bps: number
-  carcass_markup_bps: number
-  door_panel_markup_bps: number
-  component_markup_bps: number
-  handle_markup_bps: number
-  extras_markup_bps: number
-  fabrication_markup_bps: number
-  install_markup_bps: number
-  delivery_markup_bps: number
-  joinery_commission_bps: number
-  labour_cents_per_m2: number
-  consumables_cents_per_m2: number
-  install_day_cost_cents: number
-  delivery_base_cents: number
-  install_units_per_day: number
-  delivery_units_per_trip: number
-  minimum_install_days_bps: number
-  minimum_delivery_trips_bps: number
-  created_at: string
-  updated_at: string
-}
+export type PricingSettingsRow = CompanyPricingSettingsRow
 
 export type PriceListRow = {
   id: string

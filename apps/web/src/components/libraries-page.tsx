@@ -28,88 +28,12 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
 import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
-import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
+import { amountStringToCents, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
 import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
+import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
+import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
 import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from '@/components/libraries/types'
-
-type PricingSettingsDraft = {
-  vat_rate_bps: string
-  default_markup_bps: string
-  carcass_markup_bps: string
-  door_panel_markup_bps: string
-  component_markup_bps: string
-  handle_markup_bps: string
-  extras_markup_bps: string
-  fabrication_markup_bps: string
-  install_markup_bps: string
-  delivery_markup_bps: string
-  joinery_commission_bps: string
-  labour_cents_per_m2: string
-  consumables_cents_per_m2: string
-  install_day_cost_cents: string
-  delivery_base_cents: string
-  install_units_per_day: string
-  delivery_units_per_trip: string
-  minimum_install_days_bps: string
-  minimum_delivery_trips_bps: string
-}
-
-const defaultPricingSettingsDraft: PricingSettingsDraft = {
-  vat_rate_bps: '15.00',
-  default_markup_bps: '25.00',
-  carcass_markup_bps: '25.00',
-  door_panel_markup_bps: '25.00',
-  component_markup_bps: '25.00',
-  handle_markup_bps: '25.00',
-  extras_markup_bps: '25.00',
-  fabrication_markup_bps: '25.00',
-  install_markup_bps: '25.00',
-  delivery_markup_bps: '25.00',
-  joinery_commission_bps: '0.00',
-  labour_cents_per_m2: '20.00',
-  consumables_cents_per_m2: '10.00',
-  install_day_cost_cents: '1900.00',
-  delivery_base_cents: '950.00',
-  install_units_per_day: '3',
-  delivery_units_per_trip: '20',
-  minimum_install_days_bps: '0.50',
-  minimum_delivery_trips_bps: '0.50',
-}
-
-const pricingPercentFields = [
-  { key: 'vat_rate_bps', label: 'VAT (%)' },
-  { key: 'default_markup_bps', label: 'Default markup (%)' },
-  { key: 'joinery_commission_bps', label: 'Joinery commission (%)' },
-] as const
-
-const pricingMarkupFields = [
-  { key: 'carcass_markup_bps', label: 'Carcass material (%)' },
-  { key: 'door_panel_markup_bps', label: 'Doors & panels (%)' },
-  { key: 'component_markup_bps', label: 'Components (%)' },
-  { key: 'handle_markup_bps', label: 'Handles (%)' },
-  { key: 'extras_markup_bps', label: 'Extras (%)' },
-  { key: 'fabrication_markup_bps', label: 'Fabrication (%)' },
-  { key: 'install_markup_bps', label: 'Installation (%)' },
-  { key: 'delivery_markup_bps', label: 'Delivery (%)' },
-] as const
-
-const pricingMoneyFields = [
-  { key: 'labour_cents_per_m2', label: 'Labour per m2' },
-  { key: 'consumables_cents_per_m2', label: 'Consumables per m2' },
-  { key: 'install_day_cost_cents', label: 'Install day cost' },
-  { key: 'delivery_base_cents', label: 'Delivery base' },
-] as const
-
-const pricingQuantityFields = [
-  { key: 'install_units_per_day', label: 'Units per install day' },
-  { key: 'delivery_units_per_trip', label: 'Units per delivery' },
-] as const
-
-const pricingMinimumFields = [
-  { key: 'minimum_install_days_bps', label: 'Minimum install days' },
-  { key: 'minimum_delivery_trips_bps', label: 'Minimum deliveries' },
-] as const
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -120,75 +44,6 @@ const generationTypeOptions: Array<{ label: string; value: PriceItemType }> = [
   { label: 'Extras', value: 'extra' },
   { label: 'Boards', value: 'board' },
 ]
-
-function pricingSettingsToDraft(settings: PricingSettingsRow): PricingSettingsDraft {
-  return {
-    vat_rate_bps: bpsToPercentString(settings.vat_rate_bps),
-    default_markup_bps: bpsToPercentString(settings.default_markup_bps),
-    carcass_markup_bps: bpsToPercentString(settings.carcass_markup_bps),
-    door_panel_markup_bps: bpsToPercentString(settings.door_panel_markup_bps),
-    component_markup_bps: bpsToPercentString(settings.component_markup_bps),
-    handle_markup_bps: bpsToPercentString(settings.handle_markup_bps),
-    extras_markup_bps: bpsToPercentString(settings.extras_markup_bps),
-    fabrication_markup_bps: bpsToPercentString(settings.fabrication_markup_bps),
-    install_markup_bps: bpsToPercentString(settings.install_markup_bps),
-    delivery_markup_bps: bpsToPercentString(settings.delivery_markup_bps),
-    joinery_commission_bps: bpsToPercentString(settings.joinery_commission_bps),
-    labour_cents_per_m2: centsToAmountString(settings.labour_cents_per_m2),
-    consumables_cents_per_m2: centsToAmountString(settings.consumables_cents_per_m2),
-    install_day_cost_cents: centsToAmountString(settings.install_day_cost_cents),
-    delivery_base_cents: centsToAmountString(settings.delivery_base_cents),
-    install_units_per_day: String(settings.install_units_per_day),
-    delivery_units_per_trip: String(settings.delivery_units_per_trip),
-    minimum_install_days_bps: decimalBpsToString(settings.minimum_install_days_bps),
-    minimum_delivery_trips_bps: decimalBpsToString(settings.minimum_delivery_trips_bps),
-  }
-}
-
-function decimalBpsToString(value: number) {
-  return (value / 10000).toFixed(2)
-}
-
-function decimalStringToBps(value: string) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed < 0) return null
-  return Math.round(parsed * 10000)
-}
-
-function nonNegativeWholeNumber(value: string) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed <= 0) return null
-  return Math.floor(parsed)
-}
-
-function pricingSettingsPayloadFromDraft(draft: PricingSettingsDraft) {
-  const payload = {
-    vat_rate_bps: percentStringToBps(draft.vat_rate_bps),
-    default_markup_bps: percentStringToBps(draft.default_markup_bps),
-    carcass_markup_bps: percentStringToBps(draft.carcass_markup_bps),
-    door_panel_markup_bps: percentStringToBps(draft.door_panel_markup_bps),
-    component_markup_bps: percentStringToBps(draft.component_markup_bps),
-    handle_markup_bps: percentStringToBps(draft.handle_markup_bps),
-    extras_markup_bps: percentStringToBps(draft.extras_markup_bps),
-    fabrication_markup_bps: percentStringToBps(draft.fabrication_markup_bps),
-    install_markup_bps: percentStringToBps(draft.install_markup_bps),
-    delivery_markup_bps: percentStringToBps(draft.delivery_markup_bps),
-    joinery_commission_bps: percentStringToBps(draft.joinery_commission_bps),
-    labour_cents_per_m2: amountStringToCents(draft.labour_cents_per_m2),
-    consumables_cents_per_m2: amountStringToCents(draft.consumables_cents_per_m2),
-    install_day_cost_cents: amountStringToCents(draft.install_day_cost_cents),
-    delivery_base_cents: amountStringToCents(draft.delivery_base_cents),
-    install_units_per_day: nonNegativeWholeNumber(draft.install_units_per_day),
-    delivery_units_per_trip: nonNegativeWholeNumber(draft.delivery_units_per_trip),
-    minimum_install_days_bps: decimalStringToBps(draft.minimum_install_days_bps),
-    minimum_delivery_trips_bps: decimalStringToBps(draft.minimum_delivery_trips_bps),
-  }
-
-  if (Object.values(payload).some((value) => value === null)) {
-    return null
-  }
-  return payload as Record<keyof PricingSettingsDraft, number>
-}
 
 function _firstItemIdForType(
   itemType: PriceItemType,
@@ -1190,112 +1045,13 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <form className="grid gap-5" onSubmit={handleSavePricingSettings}>
-                <section className="grid gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">Tax and defaults</p>
-                    <p className="text-xs text-muted-foreground">Global values used across the quote pricing summary.</p>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    {pricingPercentFields.map((field) => (
-                      <Label className="grid gap-1.5" key={field.key}>
-                        {field.label}
-                        <Input
-                          inputMode="decimal"
-                          onChange={(event) => setPricingSettingsDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                          step="0.01"
-                          type="number"
-                          value={pricingSettingsDraft[field.key]}
-                        />
-                      </Label>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="grid gap-3 border-t border-border pt-4">
-                  <div>
-                    <p className="text-sm font-semibold">Markup buckets</p>
-                    <p className="text-xs text-muted-foreground">Base costs come from the active price list; these percentages create sell values.</p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    {pricingMarkupFields.map((field) => (
-                      <Label className="grid gap-1.5" key={field.key}>
-                        {field.label}
-                        <Input
-                          inputMode="decimal"
-                          onChange={(event) => setPricingSettingsDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                          step="0.01"
-                          type="number"
-                          value={pricingSettingsDraft[field.key]}
-                        />
-                      </Label>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="grid gap-3 border-t border-border pt-4">
-                  <div>
-                    <p className="text-sm font-semibold">Operational rates</p>
-                    <p className="text-xs text-muted-foreground">{`Amounts are entered in ${displayCurrencyCode}.`}</p>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-4">
-                    {pricingMoneyFields.map((field) => (
-                      <Label className="grid gap-1.5" key={field.key}>
-                        {field.label}
-                        <Input
-                          inputMode="decimal"
-                          onChange={(event) => setPricingSettingsDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                          step="0.01"
-                          type="number"
-                          value={pricingSettingsDraft[field.key]}
-                        />
-                      </Label>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="grid gap-3 border-t border-border pt-4">
-                  <div>
-                    <p className="text-sm font-semibold">Install and delivery assumptions</p>
-                    <p className="text-xs text-muted-foreground">Minimum values can be decimals, such as 0.50.</p>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-4">
-                    {pricingQuantityFields.map((field) => (
-                      <Label className="grid gap-1.5" key={field.key}>
-                        {field.label}
-                        <Input
-                          inputMode="numeric"
-                          min={1}
-                          onChange={(event) => setPricingSettingsDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                          step="1"
-                          type="number"
-                          value={pricingSettingsDraft[field.key]}
-                        />
-                      </Label>
-                    ))}
-                    {pricingMinimumFields.map((field) => (
-                      <Label className="grid gap-1.5" key={field.key}>
-                        {field.label}
-                        <Input
-                          inputMode="decimal"
-                          min={0}
-                          onChange={(event) => setPricingSettingsDraft((current) => ({ ...current, [field.key]: event.target.value }))}
-                          step="0.01"
-                          type="number"
-                          value={pricingSettingsDraft[field.key]}
-                        />
-                      </Label>
-                    ))}
-                  </div>
-                </section>
-
-                <div className="flex justify-end border-t border-border pt-4">
-                  <Button disabled={isSaving} type="submit">
-                    <Save className="h-4 w-4" aria-hidden="true" />
-                    Save
-                  </Button>
-                </div>
-              </form>
+              <PricingSettingsEditor
+                currencyCode={displayCurrencyCode}
+                draft={pricingSettingsDraft}
+                isSaving={isSaving}
+                onDraftChange={setPricingSettingsDraft}
+                onSubmit={handleSavePricingSettings}
+              />
               {pricingSettings ? (
                 <p className="mt-3 text-xs text-muted-foreground">
                   Last updated: {formatDateTime(pricingSettings.updated_at)} · {currencyLabel(displayCurrencyCode)}
