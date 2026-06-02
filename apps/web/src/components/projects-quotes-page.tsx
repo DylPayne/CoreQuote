@@ -1065,14 +1065,22 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                 </div>
               ) : quotes.length > 0 ? (
                 quotes.map((quote) => (
-                  <button
+                  <div
                     className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${quote.id === selectedQuoteId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
                     key={quote.id}
                     onClick={() => {
                       setSelectedQuoteId(quote.id)
                       setActiveQuoteTab('units')
                     }}
-                    type="button"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setSelectedQuoteId(quote.id)
+                        setActiveQuoteTab('units')
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1122,7 +1130,7 @@ export function ProjectsQuotesPage({ authToken }: { authToken: string }) {
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </Button>
                     </div>
-                  </button>
+                  </div>
                 ))
               ) : (
                 <Alert className="text-xs">No quotes in this project yet.</Alert>

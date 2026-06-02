@@ -1,6 +1,8 @@
 import {
   Building2,
   Calculator,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   CopyPlus,
   HardHat,
@@ -10,6 +12,7 @@ import {
   Palette,
   Plus,
   Save,
+  Settings,
   ShieldCheck,
   Sun,
   Trash2,
@@ -46,7 +49,7 @@ const AUTH_TOKEN_KEY = 'corequote.authToken'
 
 type AuthMode = 'login' | 'register'
 type AuthStatus = 'checking' | 'signed-in' | 'signed-out'
-type AppPage = 'projects' | 'workspace' | 'libraries' | 'cutlist' | 'cutlist-tester' | 'appearance'
+type AppPage = 'projects' | 'libraries' | 'cutlist' | 'cutlist-tester' | 'settings'
 type ColourTheme =
   | 'neutral'
   | 'slate'
@@ -533,7 +536,7 @@ function App() {
 
   return (
     <AppTheme colourTheme={colourTheme} themeMode={themeMode} themeVars={themeVars} uiStyle={uiStyle}>
-      <Workspace
+      <AppShell
         authToken={authToken}
         colourTheme={colourTheme}
         currentPage={currentPage}
@@ -724,7 +727,7 @@ function AuthScreen({
   )
 }
 
-function Workspace({
+function AppShell({
   authToken,
   colourTheme,
   currentPage,
@@ -753,17 +756,16 @@ function Workspace({
   uiStyle: UiStyle
   user: AuthUser
 }) {
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const navItems = [
     { label: 'Projects', icon: ClipboardList, page: 'projects' as const },
-    { label: 'Workspace', icon: ClipboardList, page: 'workspace' as const },
     { label: 'Libraries', icon: Building2, page: 'libraries' as const },
     { label: 'Cutlist', icon: Calculator, page: 'cutlist' as const },
     { label: 'Tester', icon: CopyPlus, page: 'cutlist-tester' as const },
-    { label: 'Appearance', icon: Palette, page: 'appearance' as const },
   ]
   const pageTitle =
-    currentPage === 'appearance'
-      ? 'Appearance'
+    currentPage === 'settings'
+      ? 'Settings'
       : currentPage === 'projects'
         ? 'Projects'
       : currentPage === 'libraries'
@@ -772,10 +774,10 @@ function Workspace({
         ? 'Cutlist'
         : currentPage === 'cutlist-tester'
           ? 'Cutlist Tester'
-          : 'Workspace'
+          : 'Projects'
   const pageDescription =
-    currentPage === 'appearance'
-      ? 'Global style, colour, and mode controls'
+    currentPage === 'settings'
+      ? 'Workspace details and appearance controls'
       : currentPage === 'projects'
         ? 'Projects, quotes, and unit layouts'
       : currentPage === 'libraries'
@@ -784,61 +786,112 @@ function Workspace({
         ? 'Manage cutting rulesets and row formulas'
         : currentPage === 'cutlist-tester'
           ? 'Run runtime cutlist generation with custom unit inputs'
-        : user.company_name
+          : user.company_name
 
   return (
     <div className="min-h-screen">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-border bg-sidebar lg:flex lg:flex-col">
-        <div className="flex h-14 items-center gap-3 border-b border-border px-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <HardHat className="h-5 w-5" aria-hidden="true" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-foreground">CoreQuote</p>
-            <p className="text-xs text-muted-foreground">{user.company_name}</p>
-          </div>
+      <aside
+        className={`fixed inset-y-0 left-0 hidden border-r border-border bg-sidebar transition-[width] duration-200 lg:flex lg:flex-col ${isSidebarCollapsed ? 'w-16' : 'w-64'}`}
+      >
+        <div className={`flex h-14 items-center border-b border-border ${isSidebarCollapsed ? 'justify-center px-2' : 'justify-between gap-3 px-3'}`}>
+          {!isSidebarCollapsed ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <HardHat className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">CoreQuote</p>
+                <p className="truncate text-xs text-muted-foreground">{user.company_name}</p>
+              </div>
+            </div>
+          ) : null}
+          <Button
+            aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={() => setIsSidebarCollapsed((current) => !current)}
+            size="icon"
+            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            type="button"
+            variant="ghost"
+          >
+            {isSidebarCollapsed ? (
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            )}
+          </Button>
+          {isSidebarCollapsed ? (
+            <span className="sr-only">{user.company_name}</span>
+          ) : null}
         </div>
 
         <nav className="flex-1 space-y-1 px-2 py-3">
           {navItems.map((item) => (
             <Button
+              aria-label={isSidebarCollapsed ? item.label : undefined}
               aria-pressed={item.page === currentPage}
-              className="h-9 px-3"
+              className={isSidebarCollapsed ? 'h-10 justify-center px-0' : 'h-9 px-3'}
               key={item.page}
               onClick={() => setCurrentPage(item.page)}
+              title={isSidebarCollapsed ? item.label : undefined}
               type="button"
               variant={item.page === currentPage ? 'navActive' : 'nav'}
             >
               <item.icon className="h-4 w-4" aria-hidden="true" />
-              {item.label}
+              {isSidebarCollapsed ? <span className="sr-only">{item.label}</span> : item.label}
             </Button>
           ))}
         </nav>
 
         <div className="border-t border-border p-3">
-          <Card className="p-3">
-            <p className="truncate text-sm font-medium">{user.name}</p>
-            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-            <Badge className="mt-3" variant="outline">
-              {user.role}
-            </Badge>
-          </Card>
+          <Button
+            aria-current={currentPage === 'settings' ? 'page' : undefined}
+            aria-label="Open settings"
+            className={
+              isSidebarCollapsed
+                ? 'h-10 justify-center px-0'
+                : `h-auto flex-col items-start gap-2 whitespace-normal rounded-[var(--card-radius)] border p-3 text-left hover:bg-sidebar-accent ${currentPage === 'settings' ? 'border-primary bg-sidebar-accent' : 'border-border bg-card'}`
+            }
+            onClick={() => setCurrentPage('settings')}
+            title="Open settings"
+            type="button"
+            variant={currentPage === 'settings' ? 'navActive' : 'nav'}
+          >
+            {isSidebarCollapsed ? (
+              <Settings className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <>
+                <div className="flex w-full items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-foreground">{user.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                  </div>
+                  <Settings className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                </div>
+                <Badge variant="outline">{user.role}</Badge>
+              </>
+            )}
+          </Button>
         </div>
       </aside>
 
-      <div className="overflow-x-hidden lg:pl-64">
+      <div className={`overflow-x-hidden transition-[padding] duration-200 ${isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
         <header className="sticky top-0 z-10 flex min-h-14 items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-2 backdrop-blur md:px-6">
           <div>
             <h1 className="text-lg font-semibold">{pageTitle}</h1>
             <p className="hidden text-sm text-muted-foreground sm:block">{pageDescription}</p>
           </div>
           <div className="flex items-center gap-2">
-            {currentPage === 'workspace' ? (
-              <Button className="hidden sm:inline-flex" onClick={() => setCurrentPage('appearance')} variant="outline">
-                <Palette className="h-4 w-4" aria-hidden="true" />
-                Theme
-              </Button>
-            ) : null}
+            <Button
+              aria-label="Open settings"
+              className="lg:hidden"
+              onClick={() => setCurrentPage('settings')}
+              size="icon"
+              title="Open settings"
+              type="button"
+              variant={currentPage === 'settings' ? 'secondary' : 'outline'}
+            >
+              <Settings className="h-4 w-4" aria-hidden="true" />
+            </Button>
             <Button disabled={isLoggingOut} onClick={onLogout} variant="outline">
               {isLoggingOut ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -850,7 +903,7 @@ function Workspace({
           </div>
         </header>
 
-        <nav className="grid grid-cols-6 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
+        <nav className="grid grid-cols-4 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
           {navItems.map((item) => (
             <Button
               aria-pressed={item.page === currentPage}
@@ -867,9 +920,9 @@ function Workspace({
           ))}
         </nav>
 
-        <main className="mx-auto grid min-w-0 max-w-7xl gap-[var(--section-gap)] overflow-x-hidden p-4 md:p-5">
-          {currentPage === 'appearance' ? (
-            <AppearancePage
+        <main className="mx-auto grid w-full min-w-0 max-w-[1920px] gap-[var(--section-gap)] overflow-x-hidden p-4 md:p-5">
+          {currentPage === 'settings' ? (
+            <SettingsPage
               colourTheme={colourTheme}
               selectedStyle={selectedStyle}
               setColourTheme={setColourTheme}
@@ -877,6 +930,7 @@ function Workspace({
               setUiStyle={setUiStyle}
               themeMode={themeMode}
               uiStyle={uiStyle}
+              user={user}
             />
           ) : currentPage === 'projects' ? (
             <ProjectsQuotesPage authToken={authToken} />
@@ -886,35 +940,7 @@ function Workspace({
             <CuttingRulesetsPage authToken={authToken} companyId={user.company_id} />
           ) : currentPage === 'cutlist-tester' ? (
             <CutlistTesterPage authToken={authToken} />
-          ) : (
-            <>
-              <section className="grid gap-4 lg:grid-cols-3">
-                <StatusCard
-                  icon={ShieldCheck}
-                  label="Session"
-                  title="Authenticated"
-                  value="Bearer token restored through /me"
-                />
-                <StatusCard icon={Building2} label="Company" title={user.company_name} value={user.company_id} />
-                <StatusCard icon={UserRound} label="User" title={user.name} value={user.email} />
-              </section>
-
-              <Card>
-                <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <CardTitle>Workspace overview</CardTitle>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Authenticated and ready for quote tools as they come online.
-                    </p>
-                  </div>
-                  <Button onClick={() => setCurrentPage('cutlist')}>
-                    <Calculator className="h-4 w-4" aria-hidden="true" />
-                    Open cutting rulesets
-                  </Button>
-                </CardHeader>
-              </Card>
-            </>
-          )}
+          ) : null}
         </main>
       </div>
     </div>
@@ -3122,6 +3148,66 @@ function hasBalancedParentheses(value: string) {
   return depth === 0
 }
 
+function SettingsPage({
+  colourTheme,
+  selectedStyle,
+  setColourTheme,
+  setThemeMode,
+  setUiStyle,
+  themeMode,
+  uiStyle,
+  user,
+}: {
+  colourTheme: ColourTheme
+  selectedStyle: (typeof uiStyles)[number]
+  setColourTheme: (theme: ColourTheme) => void
+  setThemeMode: (mode: ThemeMode) => void
+  setUiStyle: (style: UiStyle) => void
+  themeMode: ThemeMode
+  uiStyle: UiStyle
+  user: AuthUser
+}) {
+  return (
+    <>
+      <section className="grid gap-4 lg:grid-cols-3">
+        <StatusCard
+          icon={ShieldCheck}
+          label="Session"
+          title="Authenticated"
+          value="Bearer token restored through /me"
+        />
+        <StatusCard icon={Building2} label="Company" title={user.company_name} value={user.company_id} />
+        <StatusCard icon={UserRound} label="User" title={user.name} value={user.email} />
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Workspace details</CardTitle>
+          <p className="mt-1 text-sm text-muted-foreground">Company, role, and session details for this account.</p>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <SummaryLine label="Company" value={user.company_name} />
+          <SummaryLine label="Company ID" value={user.company_id} />
+          <SummaryLine label="User" value={user.name} />
+          <SummaryLine label="Email" value={user.email} />
+          <SummaryLine label="Role" value={user.role} />
+          <SummaryLine label="User ID" value={user.id} />
+        </CardContent>
+      </Card>
+
+      <AppearancePage
+        colourTheme={colourTheme}
+        selectedStyle={selectedStyle}
+        setColourTheme={setColourTheme}
+        setThemeMode={setThemeMode}
+        setUiStyle={setUiStyle}
+        themeMode={themeMode}
+        uiStyle={uiStyle}
+      />
+    </>
+  )
+}
+
 function AppearancePage({
   colourTheme,
   selectedStyle,
@@ -3347,9 +3433,11 @@ function PreviewBlock({ className, label }: { className: string; label: string }
 
 function SummaryLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b border-border pb-2 text-sm last:border-b-0 last:pb-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+    <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border pb-2 text-sm last:border-b-0 last:pb-0">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 truncate text-right font-medium" title={value}>
+        {value}
+      </span>
     </div>
   )
 }

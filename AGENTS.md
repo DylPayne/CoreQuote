@@ -42,7 +42,26 @@ cd apps/web
 npm run dev
 ```
 
-TODO: Confirm the intended local FastAPI run command before relying on it for development workflows.
+Run the local PostgreSQL database:
+
+```bash
+docker compose up -d postgres
+```
+
+Apply local database migrations:
+
+```bash
+DATABASE_URL=postgresql://corequote:corequote_dev_password@localhost:5433/corequote_dev \
+uv run python infra/db/apply_migrations.py
+```
+
+Run the local FastAPI API from the repository root:
+
+```bash
+uv run uvicorn corequote_api.main:app --app-dir apps/api --reload --port 8000
+```
+
+Frontend QA must use the real local stack: start PostgreSQL, run the FastAPI API, and run the React frontend together. Do not mock API responses, auth, or database-backed data for frontend testing unless the user explicitly asks for a mock-only experiment.
 
 ## Local Test Login
 
@@ -84,6 +103,7 @@ Always run the relevant tests before finishing. For changes to shared business l
 - Use the configured MCP servers when helpful for development and QA: use Playwright MCP for frontend/browser testing, Docker MCP Gateway for container and local runtime inspection, and Postgres MCP (read-only) for safe database inspection.
 - Prefer this MCP order of operations: Context7 first for docs/API/package/config guidance, Playwright MCP for frontend/browser validation after UI changes, Postgres MCP (read-only) for database inspection, and Docker MCP Gateway for local container/runtime diagnostics.
 - When frontend behavior or styling changes, run at least a brief Playwright MCP smoke test before finishing when feasible.
+- Use Playwright MCP for frontend validation, not the Codex in-app Browser. The in-app Browser may be used only when the user explicitly asks to open or show the app there for manual viewing.
 
 ## Code Style
 
