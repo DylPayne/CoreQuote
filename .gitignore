@@ -44,6 +44,7 @@ Thumbs.db
 
 # ---- Local runtime artifacts ----
 .tmp/
+.playwright-mcp/
 
 # ---- Project runtime data (uncomment if you don't want to track local DB) ----
 # data/corequote.db

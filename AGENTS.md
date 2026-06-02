@@ -155,8 +155,8 @@ Always run the relevant tests before finishing. For changes to shared business l
 
 - Always run `git status --short --branch` before editing.
 - Never work directly on `main` or `master`.
-- Create a focused feature branch for each task.
-- Keep commits and file changes small, coherent, and reviewable.
+- Create a focused feature branch for each task using the consistent `codex/<feature-name>` pattern, with a short kebab-case feature name that describes the task.
+- Keep commits and file changes small, coherent, and reviewable. During larger tasks, commit meaningful checkpoints whenever it would make the history easier to review, resume, or turn into a clear PR.
 - Do not revert, overwrite, or clean up user changes unless explicitly asked.
 - Review diffs before finishing.
 - If generated files or local data change unexpectedly, investigate before including them.
