@@ -378,15 +378,39 @@ class QuoteCuttingListResponse(CutlistPreviewResponse):
 
 
 class QuotePricingLineResponse(BaseModel):
-    item_type: Literal["board", "slide", "hinge", "handle", "extra"]
+    item_type: Literal[
+        "board",
+        "slide",
+        "hinge",
+        "handle",
+        "extra",
+        "labour",
+        "consumable",
+        "installation",
+        "delivery",
+        "adjustment",
+    ]
     item_key: str
     price_component: str
+    bucket: str = "other"
     description: str
     qty: float
     uom: str
     unit_price_cents: int | None = None
+    unit_cost_cents: int | None = None
+    cost_total_cents: int | None = None
+    markup_bps: int = 0
+    sell_total_cents: int | None = None
     line_total_cents: int | None = None
+    profit_cents: int | None = None
     missing: bool = False
+
+
+class PricingBucketTotalResponse(BaseModel):
+    bucket: str
+    cost_total_cents: int = 0
+    sell_total_cents: int = 0
+    profit_cents: int = 0
 
 
 class QuotePricingSummaryResponse(BaseModel):
@@ -395,9 +419,12 @@ class QuotePricingSummaryResponse(BaseModel):
     is_complete: bool
     missing_items: list[str] = Field(default_factory=list)
     subtotal_cents: int = 0
+    cost_total_cents: int = 0
     sell_before_vat_cents: int = 0
     vat_cents: int = 0
     grand_total_cents: int = 0
+    profit_cents: int = 0
+    bucket_totals: list[PricingBucketTotalResponse] = Field(default_factory=list)
     lines: list[QuotePricingLineResponse] = Field(default_factory=list)
 
 
@@ -410,9 +437,12 @@ class ProjectPricingResponse(BaseModel):
     markup_bps: int = Field(ge=0)
     is_complete: bool
     subtotal_cents: int = 0
+    cost_total_cents: int = 0
     sell_before_vat_cents: int = 0
     vat_cents: int = 0
     grand_total_cents: int = 0
+    profit_cents: int = 0
+    bucket_totals: list[PricingBucketTotalResponse] = Field(default_factory=list)
     quotes: list[QuotePricingSummaryResponse] = Field(default_factory=list)
 
 
@@ -658,6 +688,23 @@ class PricingSettingsRequest(BaseModel):
 
     vat_rate_bps: int = Field(default=1500, ge=0)
     default_markup_bps: int = Field(default=2500, ge=0)
+    carcass_markup_bps: int = Field(default=2500, ge=0)
+    door_panel_markup_bps: int = Field(default=2500, ge=0)
+    component_markup_bps: int = Field(default=2500, ge=0)
+    handle_markup_bps: int = Field(default=2500, ge=0)
+    extras_markup_bps: int = Field(default=2500, ge=0)
+    fabrication_markup_bps: int = Field(default=2500, ge=0)
+    install_markup_bps: int = Field(default=2500, ge=0)
+    delivery_markup_bps: int = Field(default=2500, ge=0)
+    joinery_commission_bps: int = Field(default=0, ge=0)
+    labour_cents_per_m2: int = Field(default=2000, ge=0)
+    consumables_cents_per_m2: int = Field(default=1000, ge=0)
+    install_day_cost_cents: int = Field(default=190000, ge=0)
+    delivery_base_cents: int = Field(default=95000, ge=0)
+    install_units_per_day: int = Field(default=3, ge=1)
+    delivery_units_per_trip: int = Field(default=20, ge=1)
+    minimum_install_days_bps: int = Field(default=5000, ge=0)
+    minimum_delivery_trips_bps: int = Field(default=5000, ge=0)
 
 
 class PricingSettingsResponse(PricingSettingsRequest):

@@ -170,15 +170,28 @@ export type QuoteCustomPanelsResponse = {
 }
 
 export type PricingLine = {
-  item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra'
+  item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra' | 'labour' | 'consumable' | 'installation' | 'delivery' | 'adjustment'
   item_key: string
   price_component: string
+  bucket: string
   description: string
   qty: number
   uom: string
   unit_price_cents: number | null
+  unit_cost_cents: number | null
+  cost_total_cents: number | null
+  markup_bps: number
+  sell_total_cents: number | null
   line_total_cents: number | null
+  profit_cents: number | null
   missing: boolean
+}
+
+export type PricingBucketTotal = {
+  bucket: string
+  cost_total_cents: number
+  sell_total_cents: number
+  profit_cents: number
 }
 
 export type QuotePricingSummary = {
@@ -187,9 +200,12 @@ export type QuotePricingSummary = {
   is_complete: boolean
   missing_items: string[]
   subtotal_cents: number
+  cost_total_cents: number
   sell_before_vat_cents: number
   vat_cents: number
   grand_total_cents: number
+  profit_cents: number
+  bucket_totals: PricingBucketTotal[]
   lines: PricingLine[]
 }
 
@@ -202,9 +218,12 @@ export type ProjectPricingSummary = {
   markup_bps: number
   is_complete: boolean
   subtotal_cents: number
+  cost_total_cents: number
   sell_before_vat_cents: number
   vat_cents: number
   grand_total_cents: number
+  profit_cents: number
+  bucket_totals: PricingBucketTotal[]
   quotes: QuotePricingSummary[]
 }
 

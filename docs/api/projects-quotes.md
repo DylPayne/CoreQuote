@@ -330,9 +330,19 @@ Response shape:
   "markup_bps": 2500,
   "is_complete": true,
   "subtotal_cents": 346783,
+  "cost_total_cents": 346783,
   "sell_before_vat_cents": 433479,
   "vat_cents": 65021,
   "grand_total_cents": 498000,
+  "profit_cents": 86696,
+  "bucket_totals": [
+    {
+      "bucket": "material",
+      "cost_total_cents": 120000,
+      "sell_total_cents": 180000,
+      "profit_cents": 60000
+    }
+  ],
   "quotes": [
     {
       "quote_id": "quote-uuid",
@@ -340,16 +350,46 @@ Response shape:
       "is_complete": true,
       "missing_items": [],
       "subtotal_cents": 346783,
+      "cost_total_cents": 346783,
       "sell_before_vat_cents": 433479,
       "vat_cents": 65021,
       "grand_total_cents": 498000,
-      "lines": []
+      "profit_cents": 86696,
+      "bucket_totals": [],
+      "lines": [
+        {
+          "item_type": "board",
+          "item_key": "board::board-uuid",
+          "price_component": "sqm",
+          "bucket": "material",
+          "description": "Carcass material: PG White (16mm)",
+          "qty": 3.42,
+          "uom": "m2",
+          "unit_price_cents": 10000,
+          "unit_cost_cents": 10000,
+          "cost_total_cents": 34200,
+          "markup_bps": 2500,
+          "sell_total_cents": 42750,
+          "line_total_cents": 42750,
+          "profit_cents": 8550,
+          "missing": false
+        }
+      ]
     }
   ]
 }
 ```
 
-When a required item has no active price entry, it is returned in `missing_items`, line totals are omitted for that line, and `is_complete` is `false`.
+`subtotal_cents` is retained for backward compatibility and is the base cost
+subtotal. `sell_before_vat_cents` is the sell subtotal before VAT.
+
+When a required item has no active price entry, it is returned in
+`missing_items`, cost/sell totals are omitted for that line, and `is_complete`
+is `false`.
+
+Line `bucket` values group the spreadsheet-derived pricing categories:
+`material`, `component`, `handle`, `labour`, `consumable`, `extra`,
+`installation`, `delivery`, and `commission`.
 
 ## Frontend Integration Notes
 

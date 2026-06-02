@@ -160,8 +160,7 @@ class FakeLibraryStore:
         self.pricing_settings_payload = payload
         return {
             "company_id": company_id,
-            "vat_rate_bps": payload["vat_rate_bps"],
-            "default_markup_bps": payload["default_markup_bps"],
+            **payload,
             "created_at": NOW,
             "updated_at": NOW,
         }
@@ -532,7 +531,9 @@ def test_pricing_settings_read_and_update():
     assert update_response.status_code == 200
     assert update_response.json()["vat_rate_bps"] == 1550
     assert update_response.json()["default_markup_bps"] == 3000
-    assert store.pricing_settings_payload == {"vat_rate_bps": 1550, "default_markup_bps": 3000}
+    assert store.pricing_settings_payload["vat_rate_bps"] == 1550
+    assert store.pricing_settings_payload["default_markup_bps"] == 3000
+    assert store.pricing_settings_payload["carcass_markup_bps"] == 2500
 
 
 def test_pricing_settings_update_requires_pricing_update_permission():

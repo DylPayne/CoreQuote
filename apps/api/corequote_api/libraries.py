@@ -99,6 +99,29 @@ PRICE_ITEM_TYPE_TABLES: dict[str, str] = {
     "extra": "extras",
 }
 
+PRICING_SETTINGS_COLUMNS: tuple[str, ...] = (
+    "vat_rate_bps",
+    "default_markup_bps",
+    "carcass_markup_bps",
+    "door_panel_markup_bps",
+    "component_markup_bps",
+    "handle_markup_bps",
+    "extras_markup_bps",
+    "fabrication_markup_bps",
+    "install_markup_bps",
+    "delivery_markup_bps",
+    "joinery_commission_bps",
+    "labour_cents_per_m2",
+    "consumables_cents_per_m2",
+    "install_day_cost_cents",
+    "delivery_base_cents",
+    "install_units_per_day",
+    "delivery_units_per_trip",
+    "minimum_install_days_bps",
+    "minimum_delivery_trips_bps",
+)
+PRICING_SETTINGS_SELECT = ", ".join(PRICING_SETTINGS_COLUMNS)
+
 
 class LibraryStore:
     def __init__(self, database_url: str | None = None):
@@ -287,19 +310,19 @@ class LibraryStore:
     def get_pricing_settings(self, company_id: str) -> dict:
         with self._connect() as conn:
             row = conn.execute(
-                """
+                f"""
                 INSERT INTO pricing_settings (company_id)
                 VALUES (%s)
                 ON CONFLICT (company_id) DO NOTHING
-                RETURNING company_id::text, vat_rate_bps, default_markup_bps, created_at, updated_at
+                RETURNING company_id::text, {PRICING_SETTINGS_SELECT}, created_at, updated_at
                 """,
                 (company_id,),
             ).fetchone()
             if row:
                 return row
             return conn.execute(
-                """
-                SELECT company_id::text, vat_rate_bps, default_markup_bps, created_at, updated_at
+                f"""
+                SELECT company_id::text, {PRICING_SETTINGS_SELECT}, created_at, updated_at
                 FROM pricing_settings
                 WHERE company_id = %s
                 """,
@@ -308,21 +331,19 @@ class LibraryStore:
 
     def update_pricing_settings(self, company_id: str, payload: dict[str, Any]) -> dict:
         data = _clean_payload(payload)
+        values = [data[column] for column in PRICING_SETTINGS_COLUMNS]
+        assignments = ",\n                    ".join(f"{column} = EXCLUDED.{column}" for column in PRICING_SETTINGS_COLUMNS)
+        placeholders = ", ".join(["%s"] * (len(PRICING_SETTINGS_COLUMNS) + 1))
         with self._connect() as conn:
             return conn.execute(
-                """
-                INSERT INTO pricing_settings (company_id, vat_rate_bps, default_markup_bps)
-                VALUES (%s, %s, %s)
+                f"""
+                INSERT INTO pricing_settings (company_id, {PRICING_SETTINGS_SELECT})
+                VALUES ({placeholders})
                 ON CONFLICT (company_id) DO UPDATE
-                SET vat_rate_bps = EXCLUDED.vat_rate_bps,
-                    default_markup_bps = EXCLUDED.default_markup_bps
-                RETURNING company_id::text, vat_rate_bps, default_markup_bps, created_at, updated_at
+                SET {assignments}
+                RETURNING company_id::text, {PRICING_SETTINGS_SELECT}, created_at, updated_at
                 """,
-                (
-                    company_id,
-                    data["vat_rate_bps"],
-                    data["default_markup_bps"],
-                ),
+                (company_id, *values),
             ).fetchone()
 
     def list_price_lists(self, company_id: str) -> list[dict]:

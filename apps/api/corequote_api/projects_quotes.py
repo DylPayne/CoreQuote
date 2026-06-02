@@ -7,6 +7,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from corequote_core.detailed_pricing import DetailedPricingSettings
 from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes_errors import (
     WorkspaceConflict,
@@ -64,6 +65,9 @@ QUOTE_SELECT = """
     q.updated_at
 """
 
+PRICING_SETTINGS_COLUMNS = tuple(DetailedPricingSettings.__dataclass_fields__.keys())
+PRICING_SETTINGS_SELECT = ", ".join(PRICING_SETTINGS_COLUMNS)
+
 UNIT_SELECT = """
     u.id::text,
     u.company_id::text,
@@ -80,6 +84,26 @@ UNIT_SELECT = """
     u.created_at,
     u.updated_at
 """
+
+
+def _sum_bucket_totals(quote_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    totals: dict[str, dict[str, int]] = {}
+    for quote in quote_summaries:
+        for bucket in quote.get("bucket_totals", []) or []:
+            name = str(bucket.get("bucket") or "other")
+            row = totals.setdefault(name, {"cost_total_cents": 0, "sell_total_cents": 0, "profit_cents": 0})
+            row["cost_total_cents"] += int(bucket.get("cost_total_cents", 0) or 0)
+            row["sell_total_cents"] += int(bucket.get("sell_total_cents", 0) or 0)
+            row["profit_cents"] += int(bucket.get("profit_cents", 0) or 0)
+    return [
+        {
+            "bucket": name,
+            "cost_total_cents": values["cost_total_cents"],
+            "sell_total_cents": values["sell_total_cents"],
+            "profit_cents": values["profit_cents"],
+        }
+        for name, values in sorted(totals.items())
+    ]
 
 
 class WorkspaceStore:
@@ -669,16 +693,21 @@ class WorkspaceStore:
                 handle_lookup=lookups["handles"],
                 extra_lookup=lookups["extras"],
                 active_price_list_id=active_price_list_id,
-                markup_bps=int(pricing_settings["default_markup_bps"]),
-                vat_rate_bps=int(pricing_settings["vat_rate_bps"]),
+                pricing_settings=pricing_settings,
             )
             for quote in quotes
         ]
 
         subtotal_cents = sum(int(row["subtotal_cents"]) for row in quote_summaries)
+        cost_total_cents = sum(int(row.get("cost_total_cents", row["subtotal_cents"])) for row in quote_summaries)
         sell_before_vat_cents = sum(int(row["sell_before_vat_cents"]) for row in quote_summaries)
         vat_cents = sum(int(row["vat_cents"]) for row in quote_summaries)
         grand_total_cents = sum(int(row["grand_total_cents"]) for row in quote_summaries)
+        profit_cents = sum(
+            int(row.get("profit_cents", int(row["sell_before_vat_cents"]) - int(row["subtotal_cents"])))
+            for row in quote_summaries
+        )
+        bucket_totals = _sum_bucket_totals(quote_summaries)
         is_complete = bool(active_price_list_id) and all(bool(row["is_complete"]) for row in quote_summaries)
 
         return {
@@ -690,9 +719,12 @@ class WorkspaceStore:
             "markup_bps": int(pricing_settings["default_markup_bps"]),
             "is_complete": is_complete,
             "subtotal_cents": subtotal_cents,
+            "cost_total_cents": cost_total_cents,
             "sell_before_vat_cents": sell_before_vat_cents,
             "vat_cents": vat_cents,
             "grand_total_cents": grand_total_cents,
+            "profit_cents": profit_cents,
+            "bucket_totals": bucket_totals,
             "quotes": quote_summaries,
         }
 
@@ -709,8 +741,8 @@ class WorkspaceStore:
 
     def _get_pricing_settings(self, conn, company_id: str) -> dict:
         row = conn.execute(
-            """
-            SELECT vat_rate_bps, default_markup_bps
+            f"""
+            SELECT {PRICING_SETTINGS_SELECT}
             FROM pricing_settings
             WHERE company_id = %s
             """,
@@ -718,7 +750,7 @@ class WorkspaceStore:
         ).fetchone()
         if row:
             return row
-        return {"vat_rate_bps": 1500, "default_markup_bps": 2500}
+        return {field: getattr(DetailedPricingSettings(), field) for field in PRICING_SETTINGS_COLUMNS}
 
     def _get_active_price_list_id(self, conn, company_id: str) -> str | None:
         row = conn.execute(
