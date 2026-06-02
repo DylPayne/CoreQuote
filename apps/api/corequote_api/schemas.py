@@ -617,6 +617,25 @@ class HingeResponse(HingeRequest):
     updated_at: datetime
 
 
+class SupplierRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    code: str = Field(default="", max_length=120)
+    contact_name: str = Field(default="", max_length=160)
+    email: str = Field(default="", max_length=320)
+    phone: str = Field(default="", max_length=80)
+    notes: str = Field(default="", max_length=1000)
+
+
+class SupplierResponse(SupplierRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class HandleRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -728,6 +747,11 @@ class PriceListItemRequest(BaseModel):
     price_component: str = Field(default="unit", min_length=1, max_length=80)
     uom: str = Field(min_length=1, max_length=40)
     unit_price_cents: int = Field(ge=0)
+    source_supplier_item_cost_id: str | None = Field(
+        default=None,
+        description="Supplier cost UUID used to generate this row, if any.",
+    )
+    cost_source: Literal["manual", "supplier", "override", "import"] = "manual"
     effective_from: datetime | None = Field(
         default=None,
         description="Optional UTC timestamp for when this price becomes active. Defaults to now.",
@@ -746,3 +770,82 @@ class PriceListItemResponse(PriceListItemRequest):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ItemSupplierRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_type: Literal["board", "slide", "hinge", "handle", "extra"]
+    item_ref_id: str = Field(min_length=1, description="Catalog item UUID in the current company.")
+    supplier_id: str = Field(min_length=1, description="Supplier UUID in the current company.")
+    supplier_sku: str = Field(default="", max_length=160)
+    supplier_description: str = Field(default="", max_length=500)
+    price_component: str = Field(default="unit", min_length=1, max_length=80)
+    order_uom: str = Field(default="pcs", min_length=1, max_length=40)
+    is_preferred: bool = False
+    notes: str = Field(default="", max_length=1000)
+
+
+class ItemSupplierResponse(ItemSupplierRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    supplier_name: str
+    active_supplier_item_cost_id: str | None = None
+    active_list_price_cents: int | None = None
+    active_discount_bps: int | None = None
+    active_unit_cost_cents: int | None = None
+    active_currency_code: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SupplierItemCostRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    list_price_cents: int = Field(default=0, ge=0)
+    discount_bps: int = Field(default=0, ge=0, le=10000)
+    unit_cost_cents: int = Field(ge=0)
+    currency_code: str = Field(default="ZAR", min_length=3, max_length=3, pattern="^[A-Z]{3}$")
+    source: str = Field(default="manual", min_length=1, max_length=80)
+    source_ref: str = Field(default="", max_length=240)
+    effective_from: datetime | None = Field(default=None)
+
+    @field_validator("currency_code", mode="before")
+    @classmethod
+    def normalize_currency_code(cls, value):
+        return str(value or "ZAR").strip().upper()
+
+
+class SupplierItemCostResponse(SupplierItemCostRequest):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    item_supplier_id: str
+    effective_from: datetime
+    effective_to: datetime | None
+    replaces_id: str | None = None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class GeneratePriceListFromSupplierCostsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selection_mode: Literal["preferred_then_cheapest", "preferred_only", "cheapest"] = "preferred_then_cheapest"
+    item_types: list[Literal["board", "slide", "hinge", "handle", "extra"]] = Field(default_factory=list)
+    preserve_manual_overrides: bool = True
+
+
+class GeneratePriceListFromSupplierCostsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    price_list_id: str
+    selection_mode: str
+    generated_count: int = Field(ge=0)
+    created_count: int = Field(ge=0)
+    updated_count: int = Field(ge=0)
+    unchanged_count: int = Field(ge=0)
+    skipped_override_count: int = Field(ge=0)
+    missing_price_count: int = Field(ge=0)

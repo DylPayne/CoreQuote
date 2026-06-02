@@ -88,6 +88,25 @@ Resource: `hinges`
 }
 ```
 
+### Suppliers
+
+Resource: `suppliers`
+
+```json
+{
+  "name": "Grass ZA",
+  "code": "GRASS-ZA",
+  "contact_name": "Sales",
+  "email": "sales@example.com",
+  "phone": "",
+  "notes": ""
+}
+```
+
+Suppliers represent the company/distributor an item is bought from. They are
+separate from product brands. For example, a Grass Dynapro slide has product
+brand `Grass` and supplier `Grass ZA`.
+
 ### Handles
 
 Resource: `handles`
@@ -127,6 +146,78 @@ Resource: `extras`
 Responses include `category_name` so the frontend can render the library table without an extra lookup.
 
 ## Pricing Libraries
+
+### Item Supplier Links
+
+Item supplier links connect a catalog item to a supplier-specific SKU and order
+unit. Each item can have multiple supplier links, but only one preferred link per
+`(item_type, item_ref_id, price_component)`.
+
+```http
+GET    /api/v1/libraries/item-suppliers?item_type=slide&item_ref_id=slide-uuid
+POST   /api/v1/libraries/item-suppliers
+GET    /api/v1/libraries/item-suppliers/{item_supplier_id}
+PATCH  /api/v1/libraries/item-suppliers/{item_supplier_id}
+DELETE /api/v1/libraries/item-suppliers/{item_supplier_id}
+```
+
+Payload:
+
+```json
+{
+  "item_type": "slide",
+  "item_ref_id": "slide-uuid",
+  "supplier_id": "supplier-uuid",
+  "supplier_sku": "F130107820204",
+  "supplier_description": "Dynapro Undermount F/Ext 500mm",
+  "price_component": "unit",
+  "order_uom": "pairs",
+  "is_preferred": true,
+  "notes": ""
+}
+```
+
+Responses include `supplier_name` and the active supplier-cost summary when one
+exists:
+
+```json
+{
+  "active_supplier_item_cost_id": "supplier-cost-uuid",
+  "active_list_price_cents": 68498,
+  "active_discount_bps": 3000,
+  "active_unit_cost_cents": 47949,
+  "active_currency_code": "ZAR"
+}
+```
+
+### Supplier Item Costs
+
+Supplier item costs are versioned buying costs. They do not directly change
+quote totals until they are generated into price-list items.
+
+```http
+GET  /api/v1/libraries/item-suppliers/{item_supplier_id}/costs?include_history=false
+POST /api/v1/libraries/item-suppliers/{item_supplier_id}/costs
+POST /api/v1/libraries/item-suppliers/{item_supplier_id}/costs/upsert
+GET  /api/v1/libraries/item-suppliers/{item_supplier_id}/costs/{cost_id}
+```
+
+Payload:
+
+```json
+{
+  "list_price_cents": 68498,
+  "discount_bps": 3000,
+  "unit_cost_cents": 47949,
+  "currency_code": "ZAR",
+  "source": "spreadsheet",
+  "source_ref": "DRAWSLIDES!A19:D19",
+  "effective_from": null
+}
+```
+
+`discount_bps` is stored in basis points. `3000` means 30.00%. `unit_cost_cents`
+is the net cost used when generating a price list row.
 
 ### Pricing Settings
 
@@ -226,6 +317,8 @@ Payload:
   "price_component": "unit",
   "uom": "pairs",
   "unit_price_cents": 12500,
+  "source_supplier_item_cost_id": null,
+  "cost_source": "manual",
   "effective_from": null
 }
 ```
@@ -257,6 +350,54 @@ Updating a price item does not overwrite the old price. The API closes the old r
 ```
 
 Deleting a price item retires the active row by setting `effective_to`; it does not remove historical pricing.
+
+### Generate Price List From Supplier Costs
+
+```http
+POST /api/v1/libraries/price-lists/{price_list_id}/generate-from-supplier-costs
+```
+
+Payload:
+
+```json
+{
+  "selection_mode": "preferred_then_cheapest",
+  "item_types": ["slide", "hinge"],
+  "preserve_manual_overrides": true
+}
+```
+
+`selection_mode` controls which active supplier cost is copied into the price
+list when multiple supplier costs exist for one item:
+
+- `preferred_then_cheapest`: use a preferred supplier cost if present, otherwise the cheapest active cost.
+- `preferred_only`: generate only items with a preferred supplier cost.
+- `cheapest`: use the cheapest active supplier cost.
+
+Generated rows use:
+
+- `item_key` as `<item_type>::<item_ref_id>`;
+- `source_supplier_item_cost_id` pointing to the supplier cost row;
+- `cost_source` set to `supplier`;
+- `unit_price_cents` copied from the supplier cost `unit_cost_cents`.
+
+When `preserve_manual_overrides` is true, existing active rows whose
+`cost_source` is not `supplier` are left unchanged.
+
+Response:
+
+```json
+{
+  "price_list_id": "price-list-uuid",
+  "selection_mode": "preferred_then_cheapest",
+  "generated_count": 42,
+  "created_count": 40,
+  "updated_count": 2,
+  "unchanged_count": 0,
+  "skipped_override_count": 0,
+  "missing_price_count": 0
+}
+```
 
 ### Upsert Convenience Endpoint
 
