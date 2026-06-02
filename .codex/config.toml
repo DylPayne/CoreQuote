@@ -1,0 +1,8 @@
+default_permissions = "corequote-workspace"
+
+[permissions.corequote-workspace]
+description = "CoreQuote workspace access with Git metadata writes for local branch and commit workflows."
+extends = ":workspace"
+
+[permissions.corequote-workspace.filesystem.":workspace_roots"]
+".git" = "write"
