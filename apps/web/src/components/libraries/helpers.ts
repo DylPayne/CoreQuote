@@ -1,4 +1,4 @@
-import type { BoardDraft, BoardTypeRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, PriceItemType, SlideDraft, SlideRow } from './types'
+import type { BoardDraft, BoardTypeRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideRow, SupplierDraft } from './types'
 export { formatCurrencyFromCents } from '@/lib/currency'
 
 export function formatBoardLabel(row: BoardTypeRow) {
@@ -112,6 +112,42 @@ export function buildHingePayload(draft: HingeDraft) {
     model,
     code: draft.code.trim(),
     opening_angle_deg,
+  }
+}
+
+export function buildSupplierPayload(draft: SupplierDraft) {
+  const name = draft.name.trim()
+  if (!name) {
+    return null
+  }
+  return {
+    name,
+    code: draft.code.trim(),
+    contact_name: draft.contact_name.trim(),
+    email: draft.email.trim(),
+    phone: draft.phone.trim(),
+    notes: draft.notes.trim(),
+  }
+}
+
+export function buildItemSupplierPayload(draft: ItemSupplierDraft) {
+  const item_ref_id = draft.item_ref_id.trim()
+  const supplier_id = draft.supplier_id.trim()
+  const price_component = draft.price_component.trim().toLowerCase()
+  const order_uom = draft.order_uom.trim().toLowerCase()
+  if (!item_ref_id || !supplier_id || !price_component || !order_uom) {
+    return null
+  }
+  return {
+    item_type: draft.item_type,
+    item_ref_id,
+    supplier_id,
+    supplier_sku: draft.supplier_sku.trim(),
+    supplier_description: draft.supplier_description.trim(),
+    price_component,
+    order_uom,
+    is_preferred: draft.is_preferred,
+    notes: draft.notes.trim(),
   }
 }
 

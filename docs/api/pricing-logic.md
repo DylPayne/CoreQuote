@@ -96,8 +96,8 @@ The calculation keeps legacy response totals for existing callers:
   list rows.
 - Spreadsheet dynamic-array and `INDIRECT` aggregation is replaced by runtime
   cutlist rows and structured quote/unit state.
-- Supplier discounts are not a separate pricing primitive yet. Store effective
-  costs in the active price list.
+- Supplier discounts are stored in supplier item costs. Price-list rows copy the
+  selected supplier net cost so quote totals remain stable until regenerated.
 - Spreadsheet `ROUNDUP(..., -1)` behavior for extras is not copied by default.
   Extras use the active price list cost and the extras markup.
 - The workbook's conversion artifacts such as `#REF!` and dummy Excel UDFs are

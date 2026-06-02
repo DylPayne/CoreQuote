@@ -85,7 +85,8 @@ PRICE_LIST_ITEM_CONFIG = ResourceConfig(
     fields=("item_type", "item_ref_id", "item_key", "price_component", "uom", "unit_price_cents", "effective_from"),
     select_clause=(
         "id::text, price_list_id::text, item_type, item_ref_id::text, "
-        "item_key, price_component, uom, unit_price_cents, effective_from, effective_to, "
+        "item_key, price_component, uom, unit_price_cents, source_supplier_item_cost_id::text, "
+        "cost_source, effective_from, effective_to, "
         "replaces_id::text, (effective_to IS NULL) AS is_active, created_at, updated_at"
     ),
     order_by="item_type ASC, item_key ASC, price_component ASC, effective_from DESC",
@@ -98,6 +99,15 @@ PRICE_ITEM_TYPE_TABLES: dict[str, str] = {
     "handle": "handles",
     "extra": "extras",
 }
+
+BRAND_TABLES = {"board_types", "slides", "hinges"}
+
+SUPPLIER_CONFIG = ResourceConfig(
+    table="suppliers",
+    fields=("name", "code", "contact_name", "email", "phone", "notes"),
+    select_clause="id::text, name, code, contact_name, email, phone, notes, created_at, updated_at",
+    order_by="name ASC, code ASC",
+)
 
 PRICING_SETTINGS_COLUMNS: tuple[str, ...] = (
     "vat_rate_bps",
@@ -171,6 +181,21 @@ class LibraryStore:
 
     def delete_hinge(self, company_id: str, item_id: str) -> None:
         self._delete(HINGE_CONFIG, company_id, item_id)
+
+    def list_suppliers(self, company_id: str) -> list[dict]:
+        return self._list(SUPPLIER_CONFIG, company_id)
+
+    def create_supplier(self, company_id: str, payload: dict[str, Any]) -> dict:
+        return self._create(SUPPLIER_CONFIG, company_id, payload)
+
+    def get_supplier(self, company_id: str, supplier_id: str) -> dict:
+        return self._get(SUPPLIER_CONFIG, company_id, supplier_id)
+
+    def update_supplier(self, company_id: str, supplier_id: str, payload: dict[str, Any]) -> dict:
+        return self._update(SUPPLIER_CONFIG, company_id, supplier_id, payload)
+
+    def delete_supplier(self, company_id: str, supplier_id: str) -> None:
+        self._delete(SUPPLIER_CONFIG, company_id, supplier_id)
 
     def list_handles(self, company_id: str) -> list[dict]:
         return self._list(HANDLE_CONFIG, company_id)
@@ -307,6 +332,406 @@ class LibraryStore:
     def delete_extra(self, company_id: str, item_id: str) -> None:
         self._delete(ResourceConfig("extras", (), "", ""), company_id, item_id)
 
+    def list_item_suppliers(
+        self,
+        company_id: str,
+        item_type: str | None = None,
+        item_ref_id: str | None = None,
+    ) -> list[dict]:
+        filters = ["item.company_id = %s"]
+        values: list[Any] = [company_id]
+        if item_type:
+            filters.append("item.item_type = %s")
+            values.append(item_type)
+        if item_ref_id:
+            filters.append("item.item_ref_id = %s")
+            values.append(item_ref_id)
+        where_clause = " AND ".join(filters)
+        with self._connect() as conn:
+            return conn.execute(
+                f"""
+                SELECT
+                    item.id::text,
+                    item.item_type,
+                    item.item_ref_id::text,
+                    item.supplier_id::text,
+                    supplier.name AS supplier_name,
+                    item.supplier_sku,
+                    item.supplier_description,
+                    item.price_component,
+                    item.order_uom,
+                    item.is_preferred,
+                    item.notes,
+                    cost.id::text AS active_supplier_item_cost_id,
+                    cost.list_price_cents AS active_list_price_cents,
+                    cost.discount_bps AS active_discount_bps,
+                    cost.unit_cost_cents AS active_unit_cost_cents,
+                    cost.currency_code AS active_currency_code,
+                    item.created_at,
+                    item.updated_at
+                FROM item_suppliers item
+                JOIN suppliers supplier
+                  ON supplier.company_id = item.company_id
+                 AND supplier.id = item.supplier_id
+                LEFT JOIN supplier_item_costs cost
+                  ON cost.company_id = item.company_id
+                 AND cost.item_supplier_id = item.id
+                 AND cost.effective_to IS NULL
+                WHERE {where_clause}
+                ORDER BY item.item_type ASC, supplier.name ASC, item.supplier_sku ASC, item.id ASC
+                """,
+                values,
+            ).fetchall()
+
+    def create_item_supplier(self, company_id: str, payload: dict[str, Any]) -> dict:
+        data = self._normalize_item_supplier_payload(company_id, payload)
+        try:
+            with self._connect() as conn:
+                if data["is_preferred"]:
+                    self._clear_preferred_item_supplier(conn, company_id, data)
+                row = conn.execute(
+                    """
+                    INSERT INTO item_suppliers
+                        (company_id, item_type, item_ref_id, supplier_id, supplier_sku, supplier_description,
+                         price_component, order_uom, is_preferred, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id::text
+                    """,
+                    (
+                        company_id,
+                        data["item_type"],
+                        data["item_ref_id"],
+                        data["supplier_id"],
+                        data["supplier_sku"],
+                        data["supplier_description"],
+                        data["price_component"],
+                        data["order_uom"],
+                        data["is_preferred"],
+                        data["notes"],
+                    ),
+                ).fetchone()
+        except psycopg.errors.UniqueViolation as exc:
+            raise LibraryConflict("Item supplier already exists") from exc
+        return self.get_item_supplier(company_id, row["id"])
+
+    def get_item_supplier(self, company_id: str, item_supplier_id: str) -> dict:
+        rows = self.list_item_suppliers(company_id)
+        for row in rows:
+            if row["id"] == item_supplier_id:
+                return row
+        raise LibraryNotFound("Item supplier not found")
+
+    def update_item_supplier(self, company_id: str, item_supplier_id: str, payload: dict[str, Any]) -> dict:
+        data = self._normalize_item_supplier_payload(company_id, payload)
+        try:
+            with self._connect() as conn:
+                if data["is_preferred"]:
+                    self._clear_preferred_item_supplier(conn, company_id, data, exclude_id=item_supplier_id)
+                row = conn.execute(
+                    """
+                    UPDATE item_suppliers
+                    SET item_type = %s,
+                        item_ref_id = %s,
+                        supplier_id = %s,
+                        supplier_sku = %s,
+                        supplier_description = %s,
+                        price_component = %s,
+                        order_uom = %s,
+                        is_preferred = %s,
+                        notes = %s
+                    WHERE company_id = %s
+                      AND id = %s
+                    RETURNING id::text
+                    """,
+                    (
+                        data["item_type"],
+                        data["item_ref_id"],
+                        data["supplier_id"],
+                        data["supplier_sku"],
+                        data["supplier_description"],
+                        data["price_component"],
+                        data["order_uom"],
+                        data["is_preferred"],
+                        data["notes"],
+                        company_id,
+                        item_supplier_id,
+                    ),
+                ).fetchone()
+        except psycopg.errors.UniqueViolation as exc:
+            raise LibraryConflict("Item supplier already exists") from exc
+        if not row:
+            raise LibraryNotFound("Item supplier not found")
+        return self.get_item_supplier(company_id, row["id"])
+
+    def delete_item_supplier(self, company_id: str, item_supplier_id: str) -> None:
+        self._delete(ResourceConfig("item_suppliers", (), "", ""), company_id, item_supplier_id)
+
+    def list_supplier_item_costs(
+        self,
+        company_id: str,
+        item_supplier_id: str,
+        include_history: bool = False,
+    ) -> list[dict]:
+        self._ensure_item_supplier(company_id, item_supplier_id)
+        history_filter = "" if include_history else "AND effective_to IS NULL"
+        with self._connect() as conn:
+            return conn.execute(
+                f"""
+                SELECT
+                    id::text,
+                    item_supplier_id::text,
+                    list_price_cents,
+                    discount_bps,
+                    unit_cost_cents,
+                    currency_code,
+                    source,
+                    source_ref,
+                    effective_from,
+                    effective_to,
+                    replaces_id::text,
+                    (effective_to IS NULL) AS is_active,
+                    created_at,
+                    updated_at
+                FROM supplier_item_costs
+                WHERE company_id = %s
+                  AND item_supplier_id = %s
+                  {history_filter}
+                ORDER BY effective_from DESC, id DESC
+                """,
+                (company_id, item_supplier_id),
+            ).fetchall()
+
+    def create_supplier_item_cost(self, company_id: str, item_supplier_id: str, payload: dict[str, Any]) -> dict:
+        self._ensure_item_supplier(company_id, item_supplier_id)
+        data = _clean_payload(payload)
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    """
+                    INSERT INTO supplier_item_costs
+                        (company_id, item_supplier_id, list_price_cents, discount_bps, unit_cost_cents,
+                         currency_code, source, source_ref, effective_from)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()))
+                    RETURNING id::text
+                    """,
+                    (
+                        company_id,
+                        item_supplier_id,
+                        data.get("list_price_cents", 0),
+                        data.get("discount_bps", 0),
+                        data["unit_cost_cents"],
+                        data.get("currency_code", "ZAR"),
+                        data.get("source", "manual"),
+                        data.get("source_ref", ""),
+                        data.get("effective_from"),
+                    ),
+                ).fetchone()
+        except psycopg.errors.UniqueViolation as exc:
+            raise LibraryConflict("Active supplier cost already exists") from exc
+        return self.get_supplier_item_cost(company_id, item_supplier_id, row["id"])
+
+    def upsert_supplier_item_cost(self, company_id: str, item_supplier_id: str, payload: dict[str, Any]) -> dict:
+        self._ensure_item_supplier(company_id, item_supplier_id)
+        data = _clean_payload(payload)
+        replacement_time = data.get("effective_from")
+        with self._connect() as conn:
+            old_row = conn.execute(
+                """
+                SELECT
+                    id::text,
+                    list_price_cents,
+                    discount_bps,
+                    unit_cost_cents,
+                    currency_code,
+                    source,
+                    source_ref
+                FROM supplier_item_costs
+                WHERE company_id = %s
+                  AND item_supplier_id = %s
+                  AND effective_to IS NULL
+                FOR UPDATE
+                """,
+                (company_id, item_supplier_id),
+            ).fetchone()
+            if old_row and _supplier_cost_matches(old_row, data):
+                return self.get_supplier_item_cost(company_id, item_supplier_id, old_row["id"])
+
+            replaces_id = None
+            if old_row:
+                old = conn.execute(
+                    """
+                    UPDATE supplier_item_costs
+                    SET effective_to = COALESCE(%s, now())
+                    WHERE company_id = %s
+                      AND item_supplier_id = %s
+                      AND id = %s
+                    RETURNING id::text
+                    """,
+                    (replacement_time, company_id, item_supplier_id, old_row["id"]),
+                ).fetchone()
+                replaces_id = old["id"]
+
+            row = conn.execute(
+                """
+                INSERT INTO supplier_item_costs
+                    (company_id, item_supplier_id, list_price_cents, discount_bps, unit_cost_cents,
+                     currency_code, source, source_ref, effective_from, replaces_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()), %s)
+                RETURNING id::text
+                """,
+                (
+                    company_id,
+                    item_supplier_id,
+                    data.get("list_price_cents", 0),
+                    data.get("discount_bps", 0),
+                    data["unit_cost_cents"],
+                    data.get("currency_code", "ZAR"),
+                    data.get("source", "manual"),
+                    data.get("source_ref", ""),
+                    replacement_time,
+                    replaces_id,
+                ),
+            ).fetchone()
+        return self.get_supplier_item_cost(company_id, item_supplier_id, row["id"])
+
+    def get_supplier_item_cost(self, company_id: str, item_supplier_id: str, cost_id: str) -> dict:
+        self._ensure_item_supplier(company_id, item_supplier_id)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    id::text,
+                    item_supplier_id::text,
+                    list_price_cents,
+                    discount_bps,
+                    unit_cost_cents,
+                    currency_code,
+                    source,
+                    source_ref,
+                    effective_from,
+                    effective_to,
+                    replaces_id::text,
+                    (effective_to IS NULL) AS is_active,
+                    created_at,
+                    updated_at
+                FROM supplier_item_costs
+                WHERE company_id = %s
+                  AND item_supplier_id = %s
+                  AND id = %s
+                """,
+                (company_id, item_supplier_id, cost_id),
+            ).fetchone()
+        if not row:
+            raise LibraryNotFound("Supplier cost not found")
+        return row
+
+    def generate_price_list_from_supplier_costs(
+        self,
+        company_id: str,
+        price_list_id: str,
+        payload: dict[str, Any],
+    ) -> dict:
+        self._ensure_price_list(company_id, price_list_id)
+        selection_mode = str(payload.get("selection_mode") or "preferred_then_cheapest").strip().lower()
+        item_types = [str(item).strip().lower() for item in payload.get("item_types") or [] if str(item).strip()]
+        preserve_manual_overrides = bool(payload.get("preserve_manual_overrides", True))
+        if selection_mode not in {"preferred_then_cheapest", "preferred_only", "cheapest"}:
+            raise LibraryValidationError("Unsupported supplier cost selection mode")
+        unsupported_types = [item_type for item_type in item_types if item_type not in PRICE_ITEM_TYPE_TABLES]
+        if unsupported_types:
+            raise LibraryValidationError(f"Unsupported item_types: {', '.join(unsupported_types)}")
+
+        with self._connect() as conn:
+            item_rows = self._fetch_supplier_generation_rows(conn, company_id, item_types)
+            selected_rows, missing_price_count = _select_supplier_generation_rows(item_rows, selection_mode)
+
+            created_count = 0
+            updated_count = 0
+            unchanged_count = 0
+            skipped_override_count = 0
+
+            for selected in selected_rows:
+                item_key = f"{selected['item_type']}::{selected['item_ref_id']}"
+                current = conn.execute(
+                    """
+                    SELECT id::text, unit_price_cents, uom, source_supplier_item_cost_id::text, cost_source
+                    FROM price_list_items
+                    WHERE company_id = %s
+                      AND price_list_id = %s
+                      AND item_type = %s
+                      AND item_key = %s
+                      AND price_component = %s
+                      AND effective_to IS NULL
+                    ORDER BY effective_from DESC
+                    LIMIT 1
+                    FOR UPDATE
+                    """,
+                    (
+                        company_id,
+                        price_list_id,
+                        selected["item_type"],
+                        item_key,
+                        selected["price_component"],
+                    ),
+                ).fetchone()
+
+                if current and preserve_manual_overrides and current["cost_source"] != "supplier":
+                    skipped_override_count += 1
+                    continue
+
+                source_cost_id = selected["supplier_item_cost_id"]
+                unit_cost_cents = int(selected["unit_cost_cents"])
+                uom = selected["order_uom"]
+                if current and _generated_price_item_matches(current, source_cost_id, unit_cost_cents, uom):
+                    unchanged_count += 1
+                    continue
+
+                if current:
+                    conn.execute(
+                        """
+                        UPDATE price_list_items
+                        SET effective_to = now()
+                        WHERE company_id = %s
+                          AND price_list_id = %s
+                          AND id = %s
+                        """,
+                        (company_id, price_list_id, current["id"]),
+                    )
+                    updated_count += 1
+                else:
+                    created_count += 1
+
+                conn.execute(
+                    """
+                    INSERT INTO price_list_items
+                        (company_id, price_list_id, item_type, item_ref_id, item_key, price_component,
+                         uom, unit_price_cents, source_supplier_item_cost_id, cost_source)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'supplier')
+                    """,
+                    (
+                        company_id,
+                        price_list_id,
+                        selected["item_type"],
+                        selected["item_ref_id"],
+                        item_key,
+                        selected["price_component"],
+                        uom,
+                        unit_cost_cents,
+                        source_cost_id,
+                    ),
+                )
+
+        return {
+            "price_list_id": price_list_id,
+            "selection_mode": selection_mode,
+            "generated_count": len(selected_rows),
+            "created_count": created_count,
+            "updated_count": updated_count,
+            "unchanged_count": unchanged_count,
+            "skipped_override_count": skipped_override_count,
+            "missing_price_count": missing_price_count,
+        }
+
     def get_pricing_settings(self, company_id: str) -> dict:
         with self._connect() as conn:
             row = conn.execute(
@@ -403,8 +828,8 @@ class LibraryStore:
                     """
                     INSERT INTO price_list_items
                         (company_id, price_list_id, item_type, item_ref_id, item_key, price_component,
-                         uom, unit_price_cents, effective_from)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()))
+                         uom, unit_price_cents, source_supplier_item_cost_id, cost_source, effective_from)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()))
                     RETURNING id::text
                     """,
                     (
@@ -416,6 +841,8 @@ class LibraryStore:
                         data["price_component"],
                         data["uom"],
                         data["unit_price_cents"],
+                        data.get("source_supplier_item_cost_id"),
+                        data["cost_source"],
                         data.get("effective_from"),
                     ),
                 ).fetchone()
@@ -485,8 +912,8 @@ class LibraryStore:
                     """
                     INSERT INTO price_list_items
                         (company_id, price_list_id, item_type, item_ref_id, item_key, price_component,
-                         uom, unit_price_cents, effective_from, replaces_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()), %s)
+                         uom, unit_price_cents, source_supplier_item_cost_id, cost_source, effective_from, replaces_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()), %s)
                     RETURNING id::text
                     """,
                     (
@@ -498,6 +925,8 @@ class LibraryStore:
                         data["price_component"],
                         data["uom"],
                         data["unit_price_cents"],
+                        data.get("source_supplier_item_cost_id"),
+                        data["cost_source"],
                         replacement_time,
                         row["id"],
                     ),
@@ -570,8 +999,11 @@ class LibraryStore:
     def _create(self, config: ResourceConfig, company_id: str, payload: dict[str, Any]) -> dict:
         data = _clean_payload(payload)
         columns = ("company_id", *config.fields)
-        placeholders = ", ".join(["%s"] * len(columns))
         values = [company_id, *[data[field] for field in config.fields]]
+        if config.table in BRAND_TABLES:
+            columns = (*columns, "brand_id")
+            values.append(self._get_or_create_brand(company_id, data["brand"]))
+        placeholders = ", ".join(["%s"] * len(columns))
         try:
             with self._connect() as conn:
                 row = conn.execute(
@@ -605,6 +1037,9 @@ class LibraryStore:
         data = _clean_payload(payload)
         assignments = ", ".join([f"{field} = %s" for field in config.fields])
         values = [*[data[field] for field in config.fields], company_id, item_id]
+        if config.table in BRAND_TABLES:
+            assignments = f"{assignments}, brand_id = %s"
+            values = [*[data[field] for field in config.fields], self._get_or_create_brand(company_id, data["brand"]), company_id, item_id]
         try:
             with self._connect() as conn:
                 row = conn.execute(
@@ -646,11 +1081,121 @@ class LibraryStore:
     def _ensure_price_list(self, company_id: str, price_list_id: str) -> None:
         self._get(PRICE_LIST_CONFIG, company_id, price_list_id)
 
+    def _ensure_supplier(self, company_id: str, supplier_id: str) -> None:
+        self._get(SUPPLIER_CONFIG, company_id, supplier_id)
+
+    def _ensure_item_supplier(self, company_id: str, item_supplier_id: str) -> None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id::text
+                FROM item_suppliers
+                WHERE company_id = %s
+                  AND id = %s
+                """,
+                (company_id, item_supplier_id),
+            ).fetchone()
+        if not row:
+            raise LibraryNotFound("Item supplier not found")
+
+    def _ensure_supplier_item_cost(self, company_id: str, cost_id: str) -> None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id::text
+                FROM supplier_item_costs
+                WHERE company_id = %s
+                  AND id = %s
+                """,
+                (company_id, cost_id),
+            ).fetchone()
+        if not row:
+            raise LibraryNotFound("Supplier cost not found")
+
+    def _normalize_item_supplier_payload(self, company_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        data = _clean_payload(payload)
+        item_type = str(data.get("item_type") or "").strip().lower()
+        if item_type not in PRICE_ITEM_TYPE_TABLES:
+            raise LibraryValidationError(f"Unsupported item_type: {item_type}")
+        data["item_type"] = item_type
+        data["price_component"] = str(data.get("price_component") or "unit").strip().lower()
+        data["order_uom"] = str(data.get("order_uom") or "pcs").strip().lower()
+        data["supplier_sku"] = str(data.get("supplier_sku") or "").strip()
+        data["supplier_description"] = str(data.get("supplier_description") or "").strip()
+        data["notes"] = str(data.get("notes") or "").strip()
+        data["is_preferred"] = bool(data.get("is_preferred", False))
+        self._ensure_price_item_reference(company_id, item_type, data["item_ref_id"])
+        self._ensure_supplier(company_id, data["supplier_id"])
+        return data
+
+    def _clear_preferred_item_supplier(
+        self,
+        conn,
+        company_id: str,
+        data: dict[str, Any],
+        exclude_id: str | None = None,
+    ) -> None:
+        exclude_filter = ""
+        values: list[Any] = [
+            company_id,
+            data["item_type"],
+            data["item_ref_id"],
+            data["price_component"],
+        ]
+        if exclude_id:
+            exclude_filter = "AND id <> %s"
+            values.append(exclude_id)
+        conn.execute(
+            f"""
+            UPDATE item_suppliers
+            SET is_preferred = false
+            WHERE company_id = %s
+              AND item_type = %s
+              AND item_ref_id = %s
+              AND price_component = %s
+              {exclude_filter}
+            """,
+            values,
+        )
+
+    def _fetch_supplier_generation_rows(self, conn, company_id: str, item_types: list[str]) -> list[dict]:
+        filters = ["item.company_id = %s"]
+        values: list[Any] = [company_id]
+        if item_types:
+            filters.append("item.item_type = ANY(%s)")
+            values.append(item_types)
+        where_clause = " AND ".join(filters)
+        return conn.execute(
+            f"""
+            SELECT
+                item.item_type,
+                item.item_ref_id::text,
+                item.price_component,
+                item.order_uom,
+                item.is_preferred,
+                cost.id::text AS supplier_item_cost_id,
+                cost.unit_cost_cents
+            FROM item_suppliers item
+            LEFT JOIN supplier_item_costs cost
+              ON cost.company_id = item.company_id
+             AND cost.item_supplier_id = item.id
+             AND cost.effective_to IS NULL
+            WHERE {where_clause}
+            ORDER BY item.item_type ASC, item.item_ref_id ASC, item.price_component ASC, item.is_preferred DESC
+            """,
+            values,
+        ).fetchall()
+
     def _normalize_price_item_payload(self, company_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = _clean_payload(payload)
         item_type = str(data.get("item_type") or "").strip().lower()
         item_ref_id = str(data.get("item_ref_id") or "").strip()
         item_key = str(data.get("item_key") or "").strip()
+        source_supplier_item_cost_id = str(data.get("source_supplier_item_cost_id") or "").strip()
+        data["cost_source"] = str(data.get("cost_source") or "manual").strip().lower()
+        data["source_supplier_item_cost_id"] = source_supplier_item_cost_id or None
+        if data["source_supplier_item_cost_id"]:
+            self._ensure_supplier_item_cost(company_id, data["source_supplier_item_cost_id"])
 
         if item_ref_id:
             self._ensure_price_item_reference(company_id, item_type, item_ref_id)
@@ -692,6 +1237,21 @@ class LibraryStore:
             raise RuntimeError("DATABASE_URL is required for library database access")
         return psycopg.connect(self.database_url, row_factory=dict_row)
 
+    def _get_or_create_brand(self, company_id: str, name: str) -> str:
+        clean_name = _clean(name)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO brands (company_id, name)
+                VALUES (%s, %s)
+                ON CONFLICT (company_id, name) DO UPDATE
+                SET name = EXCLUDED.name
+                RETURNING id::text
+                """,
+                (company_id, clean_name),
+            ).fetchone()
+        return row["id"]
+
 
 def _clean(value: Any) -> Any:
     if isinstance(value, str):
@@ -705,8 +1265,14 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         data["costing_mode"] = str(data["costing_mode"] or "sheet").strip().lower()
     if "price_component" in data:
         data["price_component"] = str(data["price_component"] or "unit").strip().lower()
+    if "cost_source" in data:
+        data["cost_source"] = str(data["cost_source"] or "manual").strip().lower()
+    if "currency_code" in data:
+        data["currency_code"] = str(data["currency_code"] or "ZAR").strip().upper()
     if data.get("item_ref_id") == "":
         data["item_ref_id"] = None
+    if data.get("source_supplier_item_cost_id") == "":
+        data["source_supplier_item_cost_id"] = None
     return data
 
 
@@ -718,3 +1284,56 @@ def _try_extract_ref_id(item_type: str, item_key: str) -> str | None:
     if not raw_ref or "::" in raw_ref:
         return None
     return raw_ref
+
+
+def _supplier_cost_matches(row: dict[str, Any], data: dict[str, Any]) -> bool:
+    return (
+        int(row["list_price_cents"]) == int(data.get("list_price_cents", 0))
+        and int(row["discount_bps"]) == int(data.get("discount_bps", 0))
+        and int(row["unit_cost_cents"]) == int(data["unit_cost_cents"])
+        and str(row["currency_code"]) == str(data.get("currency_code", "ZAR"))
+        and str(row["source"]) == str(data.get("source", "manual"))
+        and str(row["source_ref"]) == str(data.get("source_ref", ""))
+    )
+
+
+def _select_supplier_generation_rows(rows: list[dict], selection_mode: str) -> tuple[list[dict], int]:
+    grouped: dict[tuple[str, str, str], list[dict]] = {}
+    for row in rows:
+        key = (row["item_type"], row["item_ref_id"], row["price_component"])
+        grouped.setdefault(key, []).append(row)
+
+    selected_rows: list[dict] = []
+    missing_price_count = 0
+    for group_rows in grouped.values():
+        active_rows = [row for row in group_rows if row.get("supplier_item_cost_id")]
+        if not active_rows:
+            missing_price_count += 1
+            continue
+        preferred_rows = [row for row in active_rows if row["is_preferred"]]
+        if selection_mode == "preferred_only":
+            if not preferred_rows:
+                missing_price_count += 1
+                continue
+            candidates = preferred_rows
+        elif selection_mode == "cheapest":
+            candidates = active_rows
+        else:
+            candidates = preferred_rows or active_rows
+        selected_rows.append(min(candidates, key=lambda row: int(row["unit_cost_cents"])))
+
+    return selected_rows, missing_price_count
+
+
+def _generated_price_item_matches(
+    row: dict[str, Any],
+    source_supplier_item_cost_id: str,
+    unit_cost_cents: int,
+    uom: str,
+) -> bool:
+    return (
+        row["cost_source"] == "supplier"
+        and row.get("source_supplier_item_cost_id") == source_supplier_item_cost_id
+        and int(row["unit_price_cents"]) == int(unit_cost_cents)
+        and row["uom"] == uom
+    )

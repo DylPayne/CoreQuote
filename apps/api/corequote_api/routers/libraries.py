@@ -18,6 +18,10 @@ from corequote_api.schemas import (
     HandleResponse,
     HingeRequest,
     HingeResponse,
+    GeneratePriceListFromSupplierCostsRequest,
+    GeneratePriceListFromSupplierCostsResponse,
+    ItemSupplierRequest,
+    ItemSupplierResponse,
     PriceListItemRequest,
     PriceListItemResponse,
     PriceListRequest,
@@ -26,6 +30,10 @@ from corequote_api.schemas import (
     PricingSettingsResponse,
     SlideRequest,
     SlideResponse,
+    SupplierItemCostRequest,
+    SupplierItemCostResponse,
+    SupplierRequest,
+    SupplierResponse,
 )
 
 
@@ -118,6 +126,36 @@ def delete_hinge(item_id: str, current_user: CatalogWriter, store: StoreDep) -> 
     return _delete_response(store.delete_hinge, current_user.company_id, item_id)
 
 
+@router.get("/suppliers", response_model=list[SupplierResponse], summary="List suppliers")
+def list_suppliers(current_user: CatalogReader, store: StoreDep) -> list[SupplierResponse]:
+    return [SupplierResponse.model_validate(row) for row in store.list_suppliers(current_user.company_id)]
+
+
+@router.post("/suppliers", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED, summary="Create a supplier")
+def create_supplier(payload: SupplierRequest, current_user: CatalogWriter, store: StoreDep) -> SupplierResponse:
+    return _create_response(SupplierResponse, store.create_supplier, current_user.company_id, payload)
+
+
+@router.get("/suppliers/{supplier_id}", response_model=SupplierResponse, summary="Get a supplier")
+def get_supplier(supplier_id: str, current_user: CatalogReader, store: StoreDep) -> SupplierResponse:
+    return _get_response(SupplierResponse, store.get_supplier, current_user.company_id, supplier_id)
+
+
+@router.patch("/suppliers/{supplier_id}", response_model=SupplierResponse, summary="Update a supplier")
+def update_supplier(
+    supplier_id: str,
+    payload: SupplierRequest,
+    current_user: CatalogWriter,
+    store: StoreDep,
+) -> SupplierResponse:
+    return _update_response(SupplierResponse, store.update_supplier, current_user.company_id, supplier_id, payload)
+
+
+@router.delete("/suppliers/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a supplier")
+def delete_supplier(supplier_id: str, current_user: CatalogWriter, store: StoreDep) -> Response:
+    return _delete_response(store.delete_supplier, current_user.company_id, supplier_id)
+
+
 @router.get("/handles", response_model=list[HandleResponse], summary="List handles")
 def list_handles(current_user: CatalogReader, store: StoreDep) -> list[HandleResponse]:
     return [HandleResponse.model_validate(row) for row in store.list_handles(current_user.company_id)]
@@ -207,6 +245,137 @@ def delete_extra(item_id: str, current_user: CatalogWriter, store: StoreDep) -> 
     return _delete_response(store.delete_extra, current_user.company_id, item_id)
 
 
+@router.get("/item-suppliers", response_model=list[ItemSupplierResponse], summary="List item supplier links")
+def list_item_suppliers(
+    current_user: PricingReader,
+    store: StoreDep,
+    item_type: str | None = None,
+    item_ref_id: str | None = None,
+) -> list[ItemSupplierResponse]:
+    return [
+        ItemSupplierResponse.model_validate(row)
+        for row in store.list_item_suppliers(current_user.company_id, item_type=item_type, item_ref_id=item_ref_id)
+    ]
+
+
+@router.post(
+    "/item-suppliers",
+    response_model=ItemSupplierResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an item supplier link",
+)
+def create_item_supplier(
+    payload: ItemSupplierRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> ItemSupplierResponse:
+    return _create_response(ItemSupplierResponse, store.create_item_supplier, current_user.company_id, payload)
+
+
+@router.get("/item-suppliers/{item_supplier_id}", response_model=ItemSupplierResponse, summary="Get an item supplier link")
+def get_item_supplier(
+    item_supplier_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+) -> ItemSupplierResponse:
+    return _get_response(ItemSupplierResponse, store.get_item_supplier, current_user.company_id, item_supplier_id)
+
+
+@router.patch("/item-suppliers/{item_supplier_id}", response_model=ItemSupplierResponse, summary="Update an item supplier link")
+def update_item_supplier(
+    item_supplier_id: str,
+    payload: ItemSupplierRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> ItemSupplierResponse:
+    return _update_response(ItemSupplierResponse, store.update_item_supplier, current_user.company_id, item_supplier_id, payload)
+
+
+@router.delete("/item-suppliers/{item_supplier_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an item supplier link")
+def delete_item_supplier(
+    item_supplier_id: str,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> Response:
+    return _delete_response(store.delete_item_supplier, current_user.company_id, item_supplier_id)
+
+
+@router.get(
+    "/item-suppliers/{item_supplier_id}/costs",
+    response_model=list[SupplierItemCostResponse],
+    summary="List supplier item costs",
+)
+def list_supplier_item_costs(
+    item_supplier_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+    include_history: bool = False,
+) -> list[SupplierItemCostResponse]:
+    return [
+        SupplierItemCostResponse.model_validate(row)
+        for row in store.list_supplier_item_costs(
+            current_user.company_id,
+            item_supplier_id,
+            include_history=include_history,
+        )
+    ]
+
+
+@router.post(
+    "/item-suppliers/{item_supplier_id}/costs",
+    response_model=SupplierItemCostResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a supplier item cost",
+)
+def create_supplier_item_cost(
+    item_supplier_id: str,
+    payload: SupplierItemCostRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> SupplierItemCostResponse:
+    return _create_response(
+        SupplierItemCostResponse,
+        store.create_supplier_item_cost,
+        current_user.company_id,
+        item_supplier_id,
+        payload,
+    )
+
+
+@router.post(
+    "/item-suppliers/{item_supplier_id}/costs/upsert",
+    response_model=SupplierItemCostResponse,
+    summary="Upsert a supplier item cost",
+)
+def upsert_supplier_item_cost(
+    item_supplier_id: str,
+    payload: SupplierItemCostRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> SupplierItemCostResponse:
+    return _create_response(
+        SupplierItemCostResponse,
+        store.upsert_supplier_item_cost,
+        current_user.company_id,
+        item_supplier_id,
+        payload,
+    )
+
+
+@router.get(
+    "/item-suppliers/{item_supplier_id}/costs/{cost_id}",
+    response_model=SupplierItemCostResponse,
+    summary="Get a supplier item cost",
+)
+def get_supplier_item_cost(
+    item_supplier_id: str,
+    cost_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+) -> SupplierItemCostResponse:
+    return _get_response(SupplierItemCostResponse, store.get_supplier_item_cost, current_user.company_id, item_supplier_id, cost_id)
+
+
 @router.get("/pricing-settings", response_model=PricingSettingsResponse, summary="Get pricing settings")
 def get_pricing_settings(current_user: PricingReader, store: StoreDep) -> PricingSettingsResponse:
     return _get_response(PricingSettingsResponse, store.get_pricing_settings, current_user.company_id)
@@ -259,6 +428,26 @@ def update_price_list(
 @router.delete("/price-lists/{price_list_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a price list")
 def delete_price_list(price_list_id: str, current_user: PricingWriter, store: StoreDep) -> Response:
     return _delete_response(store.delete_price_list, current_user.company_id, price_list_id)
+
+
+@router.post(
+    "/price-lists/{price_list_id}/generate-from-supplier-costs",
+    response_model=GeneratePriceListFromSupplierCostsResponse,
+    summary="Generate price list items from supplier costs",
+)
+def generate_price_list_from_supplier_costs(
+    price_list_id: str,
+    payload: GeneratePriceListFromSupplierCostsRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> GeneratePriceListFromSupplierCostsResponse:
+    return _create_response(
+        GeneratePriceListFromSupplierCostsResponse,
+        store.generate_price_list_from_supplier_costs,
+        current_user.company_id,
+        price_list_id,
+        payload,
+    )
 
 
 @router.get(

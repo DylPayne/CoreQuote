@@ -11,6 +11,7 @@ import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -26,11 +27,11 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
-import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultPriceListDraft, defaultSlideDraft, libraryTabs } from '@/components/libraries/constants'
-import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildSlidePayload, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
+import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
+import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
 import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 type PricingSettingsDraft = {
   vat_rate_bps: string
@@ -110,6 +111,16 @@ const pricingMinimumFields = [
   { key: 'minimum_delivery_trips_bps', label: 'Minimum deliveries' },
 ] as const
 
+const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
+
+const generationTypeOptions: Array<{ label: string; value: PriceItemType }> = [
+  { label: 'Slides', value: 'slide' },
+  { label: 'Hinges', value: 'hinge' },
+  { label: 'Handles', value: 'handle' },
+  { label: 'Extras', value: 'extra' },
+  { label: 'Boards', value: 'board' },
+]
+
 function pricingSettingsToDraft(settings: PricingSettingsRow): PricingSettingsDraft {
   return {
     vat_rate_bps: bpsToPercentString(settings.vat_rate_bps),
@@ -179,12 +190,49 @@ function pricingSettingsPayloadFromDraft(draft: PricingSettingsDraft) {
   return payload as Record<keyof PricingSettingsDraft, number>
 }
 
+function _firstItemIdForType(
+  itemType: PriceItemType,
+  rows: {
+    boards: BoardTypeRow[]
+    slides: SlideRow[]
+    hinges: HingeRow[]
+    handles: HandleRow[]
+    extras: ExtraRow[]
+  },
+) {
+  if (itemType === 'board') return rows.boards[0]?.id ?? ''
+  if (itemType === 'slide') return rows.slides[0]?.id ?? ''
+  if (itemType === 'hinge') return rows.hinges[0]?.id ?? ''
+  if (itemType === 'handle') return rows.handles[0]?.id ?? ''
+  return rows.extras[0]?.id ?? ''
+}
+
+function _itemExistsForType(
+  itemType: PriceItemType,
+  itemId: string,
+  rows: {
+    boards: BoardTypeRow[]
+    slides: SlideRow[]
+    hinges: HingeRow[]
+    handles: HandleRow[]
+    extras: ExtraRow[]
+  },
+) {
+  if (itemType === 'board') return rows.boards.some((item) => item.id === itemId)
+  if (itemType === 'slide') return rows.slides.some((item) => item.id === itemId)
+  if (itemType === 'hinge') return rows.hinges.some((item) => item.id === itemId)
+  if (itemType === 'handle') return rows.handles.some((item) => item.id === itemId)
+  return rows.extras.some((item) => item.id === itemId)
+}
+
 export function LibrariesPage({ authToken, currencyCode }: { authToken: string; currencyCode: string }) {
   const [activeTab, setActiveTab] = useState<LibraryTab>('pricing')
 
   const [boards, setBoards] = useState<BoardTypeRow[]>([])
   const [slides, setSlides] = useState<SlideRow[]>([])
   const [hinges, setHinges] = useState<HingeRow[]>([])
+  const [suppliers, setSuppliers] = useState<SupplierRow[]>([])
+  const [itemSuppliers, setItemSuppliers] = useState<ItemSupplierRow[]>([])
   const [handles, setHandles] = useState<HandleRow[]>([])
   const [extraCategories, setExtraCategories] = useState<ExtraCategoryRow[]>([])
   const [extras, setExtras] = useState<ExtraRow[]>([])
@@ -207,6 +255,8 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
   const [boardDraft, setBoardDraft] = useState<BoardDraft>(defaultBoardDraft)
   const [slideDraft, setSlideDraft] = useState<SlideDraft>(defaultSlideDraft)
   const [hingeDraft, setHingeDraft] = useState<HingeDraft>(defaultHingeDraft)
+  const [supplierDraft, setSupplierDraft] = useState<SupplierDraft>(defaultSupplierDraft)
+  const [itemSupplierDraft, setItemSupplierDraft] = useState<ItemSupplierDraft>(defaultItemSupplierDraft)
   const [handleDraft, setHandleDraft] = useState<HandleDraft>(defaultHandleDraft)
   const [extraCategoryDraft, setExtraCategoryDraft] = useState<ExtraCategoryDraft>(defaultExtraCategoryDraft)
   const [extraDraft, setExtraDraft] = useState<ExtraDraft>(defaultExtraDraft)
@@ -214,6 +264,7 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
   const [editingBoard, setEditingBoard] = useState<BoardTypeRow | null>(null)
   const [editingSlide, setEditingSlide] = useState<SlideRow | null>(null)
   const [editingHinge, setEditingHinge] = useState<HingeRow | null>(null)
+  const [editingSupplier, setEditingSupplier] = useState<SupplierRow | null>(null)
   const [editingHandle, setEditingHandle] = useState<HandleRow | null>(null)
   const [editingExtraCategory, setEditingExtraCategory] = useState<ExtraCategoryRow | null>(null)
   const [editingExtra, setEditingExtra] = useState<ExtraRow | null>(null)
@@ -228,6 +279,10 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
   const [edgingPriceAmount, setEdgingPriceAmount] = useState('0.00')
   const [labourPriceAmount, setLabourPriceAmount] = useState('0.00')
   const [sqmPriceAmount, setSqmPriceAmount] = useState('0.00')
+  const [generationMode, setGenerationMode] = useState<GeneratePriceListSummary['selection_mode']>('preferred_then_cheapest')
+  const [generationItemTypes, setGenerationItemTypes] = useState<PriceItemType[]>(['slide', 'hinge'])
+  const [preserveManualOverrides, setPreserveManualOverrides] = useState(true)
+  const [lastGenerationSummary, setLastGenerationSummary] = useState<GeneratePriceListSummary | null>(null)
   const displayCurrencyCode = normalizeCurrencyCode(currencyCode)
 
   const selectedPriceList = useMemo(
@@ -256,6 +311,22 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     return extras.map((item) => ({ id: item.id, label: formatExtraLabel(item) }))
   }, [boards, extras, handles, hinges, pricingItemType, slides])
 
+  const supplierItemOptions = useMemo(() => {
+    if (itemSupplierDraft.item_type === 'board') {
+      return boards.map((item) => ({ id: item.id, label: formatBoardLabel(item) }))
+    }
+    if (itemSupplierDraft.item_type === 'slide') {
+      return slides.map((item) => ({ id: item.id, label: formatSlideLabel(item) }))
+    }
+    if (itemSupplierDraft.item_type === 'hinge') {
+      return hinges.map((item) => ({ id: item.id, label: formatHingeLabel(item) }))
+    }
+    if (itemSupplierDraft.item_type === 'handle') {
+      return handles.map((item) => ({ id: item.id, label: formatHandleLabel(item) }))
+    }
+    return extras.map((item) => ({ id: item.id, label: formatExtraLabel(item) }))
+  }, [boards, extras, handles, hinges, itemSupplierDraft.item_type, slides])
+
   const activePriceRows = useMemo(
     () => priceItems.filter((item) => item.effective_to === null),
     [priceItems],
@@ -276,10 +347,12 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     setCatalogError(null)
 
     try {
-      const [nextBoards, nextSlides, nextHinges, nextHandles, nextCategories, nextExtras] = await Promise.all([
+      const [nextBoards, nextSlides, nextHinges, nextSuppliers, nextItemSuppliers, nextHandles, nextCategories, nextExtras] = await Promise.all([
         apiRequest<BoardTypeRow[]>('/api/v1/libraries/boards', { token: authToken }),
         apiRequest<SlideRow[]>('/api/v1/libraries/slides', { token: authToken }),
         apiRequest<HingeRow[]>('/api/v1/libraries/hinges', { token: authToken }),
+        apiRequest<SupplierRow[]>('/api/v1/libraries/suppliers', { token: authToken }),
+        apiRequest<ItemSupplierRow[]>('/api/v1/libraries/item-suppliers', { token: authToken }),
         apiRequest<HandleRow[]>('/api/v1/libraries/handles', { token: authToken }),
         apiRequest<ExtraCategoryRow[]>('/api/v1/libraries/extra-categories', { token: authToken }),
         apiRequest<ExtraRow[]>('/api/v1/libraries/extras', { token: authToken }),
@@ -288,6 +361,8 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
       setBoards(nextBoards)
       setSlides(nextSlides)
       setHinges(nextHinges)
+      setSuppliers(nextSuppliers)
+      setItemSuppliers(nextItemSuppliers)
       setHandles(nextHandles)
       setExtraCategories(nextCategories)
       setExtras(nextExtras)
@@ -297,6 +372,29 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
           current.category_id && nextCategories.some((item) => item.id === current.category_id)
             ? current.category_id
             : nextCategories[0]?.id ?? '',
+      }))
+      setItemSupplierDraft((current) => ({
+        ...current,
+        item_ref_id:
+          current.item_ref_id && _itemExistsForType(current.item_type, current.item_ref_id, {
+            boards: nextBoards,
+            extras: nextExtras,
+            handles: nextHandles,
+            hinges: nextHinges,
+            slides: nextSlides,
+          })
+            ? current.item_ref_id
+            : _firstItemIdForType(current.item_type, {
+                boards: nextBoards,
+                extras: nextExtras,
+                handles: nextHandles,
+                hinges: nextHinges,
+                slides: nextSlides,
+              }),
+        supplier_id:
+          current.supplier_id && nextSuppliers.some((item) => item.id === current.supplier_id)
+            ? current.supplier_id
+            : nextSuppliers[0]?.id ?? '',
       }))
     } catch (error) {
       setCatalogError(error instanceof Error ? error.message : 'Could not load libraries.')
@@ -374,6 +472,22 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
 
     return () => window.clearTimeout(handle)
   }, [pricingItemOptions])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setItemSupplierDraft((current) => ({
+        ...current,
+        item_ref_id:
+          current.item_ref_id && supplierItemOptions.some((option) => option.id === current.item_ref_id)
+            ? current.item_ref_id
+            : supplierItemOptions[0]?.id ?? '',
+        order_uom: current.item_type === 'slide' ? 'pairs' : current.item_type === 'board' ? 'sheet' : 'pcs',
+        price_component: current.item_type === 'board' ? 'sheet' : 'unit',
+      }))
+    }, 0)
+
+    return () => window.clearTimeout(handle)
+  }, [supplierItemOptions])
 
   const lookupPriceCents = useCallback(
     (itemType: PriceItemType, itemRefId: string, priceComponent: string) => {
@@ -724,6 +838,153 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
       }
       await refreshCatalog()
     }, 'Hinge deleted.')
+  }
+
+  async function createSupplier(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const payload = buildSupplierPayload(supplierDraft)
+    if (!payload) {
+      setActionError('Supplier name is required.')
+      return
+    }
+
+    await withActionState(async () => {
+      await apiRequest('/api/v1/libraries/suppliers', { body: payload, method: 'POST', token: authToken })
+      setSupplierDraft(defaultSupplierDraft)
+      await refreshCatalog()
+    }, 'Supplier added.')
+  }
+
+  async function updateSupplier(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!editingSupplier) return
+    const payload = buildSupplierPayload(editingSupplier)
+    if (!payload) {
+      setActionError('Supplier name is required.')
+      return
+    }
+
+    await withActionState(async () => {
+      await apiRequest(`/api/v1/libraries/suppliers/${editingSupplier.id}`, {
+        body: payload,
+        method: 'PATCH',
+        token: authToken,
+      })
+      setEditingSupplier(null)
+      await refreshCatalog()
+    }, 'Supplier updated.')
+  }
+
+  async function deleteSupplier(itemId: string) {
+    await withActionState(async () => {
+      await apiRequest(`/api/v1/libraries/suppliers/${itemId}`, { method: 'DELETE', token: authToken })
+      if (editingSupplier?.id === itemId) {
+        setEditingSupplier(null)
+      }
+      await refreshCatalog()
+    }, 'Supplier deleted.')
+  }
+
+  async function saveItemSupplierCost(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const linkPayload = buildItemSupplierPayload(itemSupplierDraft)
+    const listPrice = amountStringToCents(itemSupplierDraft.list_price_amount)
+    const discountBps = percentStringToBps(itemSupplierDraft.discount_percent)
+    const unitCost = amountStringToCents(itemSupplierDraft.unit_cost_amount)
+    if (!linkPayload || listPrice === null || discountBps === null || unitCost === null) {
+      setActionError('Supplier item and cost values are invalid.')
+      return
+    }
+
+    await withActionState(async () => {
+      const existingLink = itemSuppliers.find(
+        (row) =>
+          row.item_type === linkPayload.item_type &&
+          row.item_ref_id === linkPayload.item_ref_id &&
+          row.supplier_id === linkPayload.supplier_id &&
+          row.supplier_sku === linkPayload.supplier_sku &&
+          row.price_component === linkPayload.price_component,
+      )
+
+      const link = existingLink
+        ? await apiRequest<ItemSupplierRow>(`/api/v1/libraries/item-suppliers/${existingLink.id}`, {
+            body: linkPayload,
+            method: 'PATCH',
+            token: authToken,
+          })
+        : await apiRequest<ItemSupplierRow>('/api/v1/libraries/item-suppliers', {
+            body: linkPayload,
+            method: 'POST',
+            token: authToken,
+          })
+
+      await apiRequest(`/api/v1/libraries/item-suppliers/${link.id}/costs/upsert`, {
+        body: {
+          list_price_cents: listPrice,
+          discount_bps: discountBps,
+          unit_cost_cents: unitCost,
+          currency_code: displayCurrencyCode,
+          source: 'manual',
+          source_ref: 'libraries-ui',
+          effective_from: null,
+        },
+        method: 'POST',
+        token: authToken,
+      })
+
+      setItemSupplierDraft((current) => ({
+        ...defaultItemSupplierDraft,
+        item_type: current.item_type,
+        item_ref_id: current.item_ref_id,
+        supplier_id: current.supplier_id,
+        order_uom: current.order_uom,
+        price_component: current.price_component,
+      }))
+      await refreshCatalog()
+    }, 'Supplier cost saved.')
+  }
+
+  async function deleteItemSupplier(itemId: string) {
+    await withActionState(async () => {
+      await apiRequest(`/api/v1/libraries/item-suppliers/${itemId}`, { method: 'DELETE', token: authToken })
+      await refreshCatalog()
+    }, 'Supplier source deleted.')
+  }
+
+  async function generatePricesFromSupplierCosts(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedPriceListId) {
+      setActionError('Select a price list first.')
+      return
+    }
+    if (generationItemTypes.length === 0) {
+      setActionError('Select at least one item type to generate.')
+      return
+    }
+
+    await withActionState(async () => {
+      const summary = await apiRequest<GeneratePriceListSummary>(
+        `/api/v1/libraries/price-lists/${selectedPriceListId}/generate-from-supplier-costs`,
+        {
+          body: {
+            selection_mode: generationMode,
+            item_types: generationItemTypes,
+            preserve_manual_overrides: preserveManualOverrides,
+          },
+          method: 'POST',
+          token: authToken,
+        },
+      )
+      setLastGenerationSummary(summary)
+      await refreshPriceItems(selectedPriceListId)
+    }, 'Price list generated from supplier costs.')
+  }
+
+  function toggleGenerationItemType(itemType: PriceItemType, checked: boolean) {
+    setGenerationItemTypes((current) => {
+      if (checked) return current.includes(itemType) ? current : [...current, itemType]
+      return current.filter((value) => value !== itemType)
+    })
   }
 
   async function createHandle(event: FormEvent<HTMLFormElement>) {
@@ -1098,6 +1359,47 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                     Create
                   </Button>
                 </form>
+                <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3" onSubmit={generatePricesFromSupplierCosts}>
+                  <p className="text-sm font-medium">Generate from supplier costs</p>
+                  <Label className="grid gap-1.5">
+                    Source selection
+                    <Select
+                      value={generationMode}
+                      onChange={(event) => setGenerationMode(event.target.value as GeneratePriceListSummary['selection_mode'])}
+                    >
+                      <option value="preferred_then_cheapest">preferred, then cheapest</option>
+                      <option value="preferred_only">preferred only</option>
+                      <option value="cheapest">cheapest active</option>
+                    </Select>
+                  </Label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {generationTypeOptions.map((option) => (
+                      <Label className="flex items-center gap-2 text-sm font-normal" key={option.value}>
+                        <Checkbox
+                          checked={generationItemTypes.includes(option.value)}
+                          onChange={(event) => toggleGenerationItemType(option.value, event.target.checked)}
+                        />
+                        {option.label}
+                      </Label>
+                    ))}
+                  </div>
+                  <Label className="flex items-center gap-2 text-sm font-normal">
+                    <Checkbox
+                      checked={preserveManualOverrides}
+                      onChange={(event) => setPreserveManualOverrides(event.target.checked)}
+                    />
+                    Preserve manual overrides
+                  </Label>
+                  <Button disabled={isSaving || isLoadingPriceItems || !selectedPriceListId} type="submit" variant="outline">
+                    <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+                    Generate
+                  </Button>
+                  {lastGenerationSummary ? (
+                    <p className="text-xs text-muted-foreground">
+                      Created {lastGenerationSummary.created_count}, updated {lastGenerationSummary.updated_count}, unchanged {lastGenerationSummary.unchanged_count}, skipped {lastGenerationSummary.skipped_override_count}.
+                    </p>
+                  ) : null}
+                </form>
               </CardContent>
             </Card>
 
@@ -1188,13 +1490,14 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                       <TableHead>Item</TableHead>
                       <TableHead>Component</TableHead>
                       <TableHead>UOM</TableHead>
+                      <TableHead>Source</TableHead>
                       <TableHead>Price</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {activePriceRows.length === 0 ? (
                       <TableRow>
-                        <TableCell className="text-muted-foreground" colSpan={5}>
+                        <TableCell className="text-muted-foreground" colSpan={6}>
                           No active prices found for this price list.
                         </TableCell>
                       </TableRow>
@@ -1209,6 +1512,9 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                           </TableCell>
                           <TableCell>{row.price_component}</TableCell>
                           <TableCell>{row.uom}</TableCell>
+                          <TableCell>
+                            <Badge variant={row.cost_source === 'supplier' ? 'default' : 'outline'}>{row.cost_source}</Badge>
+                          </TableCell>
                           <TableCell>{formatCurrencyFromCents(row.unit_price_cents, displayCurrencyCode)}</TableCell>
                         </TableRow>
                       ))
@@ -1379,6 +1685,291 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
             onEditChange={setEditingHinge}
             onUpdate={updateHinge}
           />
+        </>
+      ) : null}
+
+      {!isLoading && activeTab === 'suppliers' ? (
+        <>
+          <section className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Add Supplier</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form className="grid gap-3 md:grid-cols-2" onSubmit={createSupplier}>
+                  <Label className="grid gap-1.5">
+                    Name
+                    <Input value={supplierDraft.name} onChange={(event) => setSupplierDraft((current) => ({ ...current, name: event.target.value }))} />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Code
+                    <Input value={supplierDraft.code} onChange={(event) => setSupplierDraft((current) => ({ ...current, code: event.target.value }))} />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Contact
+                    <Input value={supplierDraft.contact_name} onChange={(event) => setSupplierDraft((current) => ({ ...current, contact_name: event.target.value }))} />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Email
+                    <Input value={supplierDraft.email} onChange={(event) => setSupplierDraft((current) => ({ ...current, email: event.target.value }))} />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Phone
+                    <Input value={supplierDraft.phone} onChange={(event) => setSupplierDraft((current) => ({ ...current, phone: event.target.value }))} />
+                  </Label>
+                  <Label className="grid gap-1.5 md:col-span-2">
+                    Notes
+                    <Textarea value={supplierDraft.notes} onChange={(event) => setSupplierDraft((current) => ({ ...current, notes: event.target.value }))} />
+                  </Label>
+                  <div className="md:col-span-2">
+                    <Button disabled={isSaving} type="submit">
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                      Add Supplier
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Supplier Cost Source</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {suppliers.length === 0 ? (
+                  <Alert variant="destructive">Add at least one supplier before assigning supplier costs.</Alert>
+                ) : (
+                  <form className="grid gap-3 md:grid-cols-2" onSubmit={saveItemSupplierCost}>
+                    <Label className="grid gap-1.5">
+                      Item type
+                      <Select
+                        value={itemSupplierDraft.item_type}
+                        onChange={(event) =>
+                          setItemSupplierDraft((current) => ({ ...current, item_type: event.target.value as PriceItemType }))
+                        }
+                      >
+                        {priceItemTypes.map((itemType) => (
+                          <option key={itemType} value={itemType}>
+                            {itemType}
+                          </option>
+                        ))}
+                      </Select>
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Item
+                      <Select
+                        value={itemSupplierDraft.item_ref_id}
+                        onChange={(event) => setItemSupplierDraft((current) => ({ ...current, item_ref_id: event.target.value }))}
+                      >
+                        <option value="">Select an item</option>
+                        {supplierItemOptions.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Supplier
+                      <Select
+                        value={itemSupplierDraft.supplier_id}
+                        onChange={(event) => setItemSupplierDraft((current) => ({ ...current, supplier_id: event.target.value }))}
+                      >
+                        <option value="">Select a supplier</option>
+                        {suppliers.map((supplier) => (
+                          <option key={supplier.id} value={supplier.id}>
+                            {supplier.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Supplier SKU
+                      <Input value={itemSupplierDraft.supplier_sku} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, supplier_sku: event.target.value }))} />
+                    </Label>
+                    <Label className="grid gap-1.5 md:col-span-2">
+                      Supplier description
+                      <Input value={itemSupplierDraft.supplier_description} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, supplier_description: event.target.value }))} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Price component
+                      <Input value={itemSupplierDraft.price_component} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, price_component: event.target.value }))} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Order UOM
+                      <Input value={itemSupplierDraft.order_uom} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, order_uom: event.target.value }))} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      List price ({displayCurrencyCode})
+                      <Input value={itemSupplierDraft.list_price_amount} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, list_price_amount: event.target.value }))} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Discount (%)
+                      <Input value={itemSupplierDraft.discount_percent} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, discount_percent: event.target.value }))} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Net cost ({displayCurrencyCode})
+                      <Input value={itemSupplierDraft.unit_cost_amount} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, unit_cost_amount: event.target.value }))} />
+                    </Label>
+                    <Label className="flex items-center gap-2 text-sm font-normal">
+                      <Checkbox
+                        checked={itemSupplierDraft.is_preferred}
+                        onChange={(event) => setItemSupplierDraft((current) => ({ ...current, is_preferred: event.target.checked }))}
+                      />
+                      Preferred source
+                    </Label>
+                    <Label className="grid gap-1.5 md:col-span-2">
+                      Notes
+                      <Textarea value={itemSupplierDraft.notes} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, notes: event.target.value }))} />
+                    </Label>
+                    <div className="md:col-span-2">
+                      <Button disabled={isSaving || !itemSupplierDraft.item_ref_id || !itemSupplierDraft.supplier_id} type="submit">
+                        <Save className="h-4 w-4" aria-hidden="true" />
+                        Save Supplier Cost
+                      </Button>
+                    </div>
+                  </form>
+                )}
+              </CardContent>
+            </Card>
+          </section>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Suppliers</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <TableContainer>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Code</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {suppliers.length === 0 ? (
+                      <TableRow>
+                        <TableCell className="text-muted-foreground" colSpan={4}>
+                          No suppliers in the library yet.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      suppliers.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell>{row.name}</TableCell>
+                          <TableCell>{row.code || '-'}</TableCell>
+                          <TableCell>{row.contact_name || row.email || row.phone || '-'}</TableCell>
+                          <TableCell className="flex gap-2">
+                            <Button size="sm" variant="outline" onClick={() => setEditingSupplier({ ...row })}>
+                              Edit
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => void deleteSupplier(row.id)}>
+                              Delete
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {editingSupplier ? (
+                <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-3" onSubmit={updateSupplier}>
+                  <p className="md:col-span-3 text-sm font-medium">Edit supplier</p>
+                  <Label className="grid gap-1.5">
+                    Name
+                    <Input value={editingSupplier.name} onChange={(event) => setEditingSupplier({ ...editingSupplier, name: event.target.value })} />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Code
+                    <Input value={editingSupplier.code} onChange={(event) => setEditingSupplier({ ...editingSupplier, code: event.target.value })} />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Contact
+                    <Input value={editingSupplier.contact_name} onChange={(event) => setEditingSupplier({ ...editingSupplier, contact_name: event.target.value })} />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Email
+                    <Input value={editingSupplier.email} onChange={(event) => setEditingSupplier({ ...editingSupplier, email: event.target.value })} />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Phone
+                    <Input value={editingSupplier.phone} onChange={(event) => setEditingSupplier({ ...editingSupplier, phone: event.target.value })} />
+                  </Label>
+                  <Label className="grid gap-1.5 md:col-span-3">
+                    Notes
+                    <Textarea value={editingSupplier.notes} onChange={(event) => setEditingSupplier({ ...editingSupplier, notes: event.target.value })} />
+                  </Label>
+                  <div className="md:col-span-3 flex gap-2">
+                    <Button disabled={isSaving} type="submit">
+                      <Save className="h-4 w-4" aria-hidden="true" />
+                      Save Changes
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => setEditingSupplier(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Supplier Sources</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TableContainer>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead>SKU</TableHead>
+                      <TableHead>Component</TableHead>
+                      <TableHead>Cost</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {itemSuppliers.length === 0 ? (
+                      <TableRow>
+                        <TableCell className="text-muted-foreground" colSpan={6}>
+                          No supplier sources linked yet.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      itemSuppliers.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell>
+                            {itemLabelByRef.get(`${row.item_type}:${row.item_ref_id}`) ?? `${row.item_type} ${row.item_ref_id}`}
+                            {row.is_preferred ? <Badge className="ml-2">preferred</Badge> : null}
+                          </TableCell>
+                          <TableCell>{row.supplier_name}</TableCell>
+                          <TableCell>{row.supplier_sku || '-'}</TableCell>
+                          <TableCell>{row.price_component}</TableCell>
+                          <TableCell>
+                            {row.active_unit_cost_cents === null
+                              ? '-'
+                              : formatCurrencyFromCents(row.active_unit_cost_cents, row.active_currency_code ?? displayCurrencyCode)}
+                          </TableCell>
+                          <TableCell>
+                            <Button size="sm" variant="destructive" onClick={() => void deleteItemSupplier(row.id)}>
+                              Delete
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </CardContent>
+          </Card>
         </>
       ) : null}
 

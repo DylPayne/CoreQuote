@@ -42,6 +42,9 @@ class FakeLibraryStore:
         self.updated_payload: tuple[str, str, dict] | None = None
         self.price_list_payload: dict | None = None
         self.price_item_payload: tuple[str, dict] | None = None
+        self.item_supplier_payload: dict | None = None
+        self.supplier_cost_payload: tuple[str, dict] | None = None
+        self.generation_payload: tuple[str, dict] | None = None
 
     def list_boards(self, company_id: str):
         return [board("board-1")]
@@ -96,6 +99,23 @@ class FakeLibraryStore:
     def delete_hinge(self, company_id: str, item_id: str):
         self.deleted.append(("hinges", item_id))
 
+    def list_suppliers(self, company_id: str):
+        return [supplier("supplier-1")]
+
+    def create_supplier(self, company_id: str, payload: dict):
+        self.created_payload = ("suppliers", payload)
+        return supplier("supplier-2", name=payload["name"])
+
+    def get_supplier(self, company_id: str, supplier_id: str):
+        return supplier(supplier_id)
+
+    def update_supplier(self, company_id: str, supplier_id: str, payload: dict):
+        self.updated_payload = ("suppliers", supplier_id, payload)
+        return supplier(supplier_id, name=payload["name"])
+
+    def delete_supplier(self, company_id: str, supplier_id: str):
+        self.deleted.append(("suppliers", supplier_id))
+
     def list_handles(self, company_id: str):
         return [handle("handle-1")]
 
@@ -147,6 +167,45 @@ class FakeLibraryStore:
     def delete_extra(self, company_id: str, item_id: str):
         self.deleted.append(("extras", item_id))
 
+    def list_item_suppliers(self, company_id: str, item_type: str | None = None, item_ref_id: str | None = None):
+        rows = [item_supplier("item-supplier-1")]
+        if item_type:
+            rows = [row for row in rows if row["item_type"] == item_type]
+        if item_ref_id:
+            rows = [row for row in rows if row["item_ref_id"] == item_ref_id]
+        return rows
+
+    def create_item_supplier(self, company_id: str, payload: dict):
+        self.item_supplier_payload = payload
+        return item_supplier("item-supplier-2", **payload)
+
+    def get_item_supplier(self, company_id: str, item_supplier_id: str):
+        return item_supplier(item_supplier_id)
+
+    def update_item_supplier(self, company_id: str, item_supplier_id: str, payload: dict):
+        self.item_supplier_payload = payload
+        return item_supplier(item_supplier_id, **payload)
+
+    def delete_item_supplier(self, company_id: str, item_supplier_id: str):
+        self.deleted.append(("item-suppliers", item_supplier_id))
+
+    def list_supplier_item_costs(self, company_id: str, item_supplier_id: str, include_history: bool = False):
+        rows = [supplier_cost("supplier-cost-1", item_supplier_id)]
+        if include_history:
+            rows.append(supplier_cost("supplier-cost-old", item_supplier_id, effective_to=NOW))
+        return rows
+
+    def create_supplier_item_cost(self, company_id: str, item_supplier_id: str, payload: dict):
+        self.supplier_cost_payload = (item_supplier_id, payload)
+        return supplier_cost("supplier-cost-2", item_supplier_id, **payload)
+
+    def upsert_supplier_item_cost(self, company_id: str, item_supplier_id: str, payload: dict):
+        self.supplier_cost_payload = (item_supplier_id, payload)
+        return supplier_cost("supplier-cost-upsert", item_supplier_id, **payload)
+
+    def get_supplier_item_cost(self, company_id: str, item_supplier_id: str, cost_id: str):
+        return supplier_cost(cost_id, item_supplier_id)
+
     def get_pricing_settings(self, company_id: str):
         return {
             "company_id": company_id,
@@ -186,6 +245,19 @@ class FakeLibraryStore:
     def delete_price_list(self, company_id: str, price_list_id: str):
         self.deleted.append(("price-lists", price_list_id))
 
+    def generate_price_list_from_supplier_costs(self, company_id: str, price_list_id: str, payload: dict):
+        self.generation_payload = (price_list_id, payload)
+        return {
+            "price_list_id": price_list_id,
+            "selection_mode": payload["selection_mode"],
+            "generated_count": 2,
+            "created_count": 1,
+            "updated_count": 1,
+            "unchanged_count": 0,
+            "skipped_override_count": 0,
+            "missing_price_count": 0,
+        }
+
     def list_price_list_items(self, company_id: str, price_list_id: str, include_history: bool = False):
         rows = [price_item("price-item-1", price_list_id)]
         if include_history:
@@ -206,6 +278,8 @@ class FakeLibraryStore:
             price_component=payload["price_component"],
             uom=payload["uom"],
             unit_price_cents=payload["unit_price_cents"],
+            source_supplier_item_cost_id=payload.get("source_supplier_item_cost_id"),
+            cost_source=payload.get("cost_source", "manual"),
         )
 
     def get_price_list_item(self, company_id: str, price_list_id: str, item_id: str):
@@ -225,6 +299,8 @@ class FakeLibraryStore:
             price_component=payload["price_component"],
             uom=payload["uom"],
             unit_price_cents=payload["unit_price_cents"],
+            source_supplier_item_cost_id=payload.get("source_supplier_item_cost_id"),
+            cost_source=payload.get("cost_source", "manual"),
             replaces_id=item_id,
         )
 
@@ -242,6 +318,8 @@ class FakeLibraryStore:
             price_component=payload["price_component"],
             uom=payload["uom"],
             unit_price_cents=payload["unit_price_cents"],
+            source_supplier_item_cost_id=payload.get("source_supplier_item_cost_id"),
+            cost_source=payload.get("cost_source", "manual"),
         )
 
     def delete_price_list_item(self, company_id: str, price_list_id: str, item_id: str):
@@ -300,6 +378,20 @@ def handle(item_id: str, *, name: str = "Slim Bar") -> dict:
     }
 
 
+def supplier(item_id: str, *, name: str = "Grass ZA") -> dict:
+    return {
+        "id": item_id,
+        "name": name,
+        "code": "GRASS-ZA",
+        "contact_name": "Sales",
+        "email": "sales@example.com",
+        "phone": "",
+        "notes": "",
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+
+
 def extra_category(item_id: str, *, name: str = "Appliances") -> dict:
     return {"id": item_id, "name": name, "created_at": NOW, "updated_at": NOW}
 
@@ -342,6 +434,8 @@ def price_item(
     unit_price_cents: int = 12500,
     effective_to: datetime | None = None,
     replaces_id: str | None = None,
+    source_supplier_item_cost_id: str | None = None,
+    cost_source: str = "manual",
 ) -> dict:
     return {
         "id": item_id,
@@ -352,9 +446,77 @@ def price_item(
         "price_component": price_component,
         "uom": uom,
         "unit_price_cents": unit_price_cents,
+        "source_supplier_item_cost_id": source_supplier_item_cost_id,
+        "cost_source": cost_source,
         "effective_from": NOW,
         "effective_to": effective_to,
         "replaces_id": replaces_id,
+        "is_active": effective_to is None,
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+
+
+def item_supplier(
+    item_id: str,
+    *,
+    item_type: str = "slide",
+    item_ref_id: str = "slide-1",
+    supplier_id: str = "supplier-1",
+    supplier_sku: str = "F130107820204",
+    supplier_description: str = "Dynapro 500",
+    price_component: str = "unit",
+    order_uom: str = "pairs",
+    is_preferred: bool = True,
+    notes: str = "",
+) -> dict:
+    return {
+        "id": item_id,
+        "item_type": item_type,
+        "item_ref_id": item_ref_id,
+        "supplier_id": supplier_id,
+        "supplier_name": "Grass ZA",
+        "supplier_sku": supplier_sku,
+        "supplier_description": supplier_description,
+        "price_component": price_component,
+        "order_uom": order_uom,
+        "is_preferred": is_preferred,
+        "notes": notes,
+        "active_supplier_item_cost_id": "supplier-cost-1",
+        "active_list_price_cents": 68498,
+        "active_discount_bps": 3000,
+        "active_unit_cost_cents": 47949,
+        "active_currency_code": "ZAR",
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+
+
+def supplier_cost(
+    item_id: str,
+    item_supplier_id: str,
+    *,
+    list_price_cents: int = 68498,
+    discount_bps: int = 3000,
+    unit_cost_cents: int = 47949,
+    currency_code: str = "ZAR",
+    source: str = "manual",
+    source_ref: str = "",
+    effective_from: datetime | None = None,
+    effective_to: datetime | None = None,
+) -> dict:
+    return {
+        "id": item_id,
+        "item_supplier_id": item_supplier_id,
+        "list_price_cents": list_price_cents,
+        "discount_bps": discount_bps,
+        "unit_cost_cents": unit_cost_cents,
+        "currency_code": currency_code,
+        "source": source,
+        "source_ref": source_ref,
+        "effective_from": effective_from or NOW,
+        "effective_to": effective_to,
+        "replaces_id": None,
         "is_active": effective_to is None,
         "created_at": NOW,
         "updated_at": NOW,
@@ -387,6 +549,19 @@ CATALOG_CASES = [
         {"brand": "Hettich", "model": "Sensys", "code": "HS-110", "opening_angle_deg": 110},
         "brand",
         "Hettich",
+    ),
+    (
+        "suppliers",
+        {
+            "name": "Grass ZA",
+            "code": "GRASS-ZA",
+            "contact_name": "Sales",
+            "email": "sales@example.com",
+            "phone": "",
+            "notes": "",
+        },
+        "name",
+        "Grass ZA",
     ),
     ("handles", {"name": "Cup Pull", "supplier": "Hafele", "code": "CP-96"}, "name", "Cup Pull"),
     ("extra-categories", {"name": "Lighting"}, "name", "Lighting"),
@@ -479,6 +654,120 @@ def test_price_list_crud_requires_pricing_permissions():
     assert patch_response.json()["status"] == "active"
     assert delete_response.status_code == 204
     assert store.deleted[-1] == ("price-lists", price_list_id)
+
+
+def test_item_supplier_crud_and_active_cost_summary():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_type": "slide",
+        "item_ref_id": "slide-1",
+        "supplier_id": "supplier-1",
+        "supplier_sku": "F130107820204",
+        "supplier_description": "Dynapro Undermount F/Ext 500mm",
+        "price_component": "unit",
+        "order_uom": "pairs",
+        "is_preferred": True,
+        "notes": "",
+    }
+    try:
+        list_response = client.get(
+            "/api/v1/libraries/item-suppliers?item_type=slide&item_ref_id=slide-1",
+            headers=auth_header(),
+        )
+        create_response = client.post("/api/v1/libraries/item-suppliers", json=payload, headers=auth_header())
+        item_supplier_id = create_response.json()["id"]
+        get_response = client.get(f"/api/v1/libraries/item-suppliers/{item_supplier_id}", headers=auth_header())
+        patch_response = client.patch(
+            f"/api/v1/libraries/item-suppliers/{item_supplier_id}",
+            json={**payload, "supplier_description": "Dynapro 500"},
+            headers=auth_header(),
+        )
+        delete_response = client.delete(f"/api/v1/libraries/item-suppliers/{item_supplier_id}", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["supplier_name"] == "Grass ZA"
+    assert list_response.json()[0]["active_unit_cost_cents"] == 47949
+    assert create_response.status_code == 201
+    assert create_response.json()["supplier_sku"] == "F130107820204"
+    assert get_response.status_code == 200
+    assert patch_response.status_code == 200
+    assert patch_response.json()["supplier_description"] == "Dynapro 500"
+    assert delete_response.status_code == 204
+    assert store.deleted[-1] == ("item-suppliers", item_supplier_id)
+
+
+def test_supplier_item_cost_create_upsert_and_history():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "list_price_cents": 68498,
+        "discount_bps": 3000,
+        "unit_cost_cents": 47949,
+        "currency_code": "ZAR",
+        "source": "spreadsheet",
+        "source_ref": "DRAWSLIDES!A19:D19",
+    }
+    try:
+        list_response = client.get("/api/v1/libraries/item-suppliers/item-supplier-1/costs", headers=auth_header())
+        history_response = client.get(
+            "/api/v1/libraries/item-suppliers/item-supplier-1/costs?include_history=true",
+            headers=auth_header(),
+        )
+        create_response = client.post(
+            "/api/v1/libraries/item-suppliers/item-supplier-1/costs",
+            json=payload,
+            headers=auth_header(),
+        )
+        upsert_response = client.post(
+            "/api/v1/libraries/item-suppliers/item-supplier-1/costs/upsert",
+            json={**payload, "unit_cost_cents": 48000},
+            headers=auth_header(),
+        )
+        get_response = client.get(
+            "/api/v1/libraries/item-suppliers/item-supplier-1/costs/supplier-cost-1",
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert list_response.status_code == 200
+    assert [row["is_active"] for row in list_response.json()] == [True]
+    assert len(history_response.json()) == 2
+    assert create_response.status_code == 201
+    assert create_response.json()["source_ref"] == "DRAWSLIDES!A19:D19"
+    assert upsert_response.status_code == 200
+    assert upsert_response.json()["unit_cost_cents"] == 48000
+    assert get_response.status_code == 200
+    assert store.supplier_cost_payload == ("item-supplier-1", {**payload, "unit_cost_cents": 48000, "effective_from": None})
+
+
+def test_generate_price_list_from_supplier_costs():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "selection_mode": "preferred_then_cheapest",
+        "item_types": ["slide", "hinge"],
+        "preserve_manual_overrides": True,
+    }
+    try:
+        response = client.post(
+            "/api/v1/libraries/price-lists/price-list-1/generate-from-supplier-costs",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["created_count"] == 1
+    assert response.json()["updated_count"] == 1
+    assert store.generation_payload == ("price-list-1", payload)
 
 
 def test_get_active_price_list():
@@ -628,7 +917,16 @@ def test_price_list_item_upsert_with_item_ref_id():
     assert response.json()["item_key"] == "board::board-1"
     assert response.json()["item_ref_id"] == "board-1"
     assert response.json()["price_component"] == "sheet"
-    assert store.price_item_payload == ("price-list-1", {**payload, "effective_from": None, "item_key": None})
+    assert store.price_item_payload == (
+        "price-list-1",
+        {
+            **payload,
+            "effective_from": None,
+            "item_key": None,
+            "source_supplier_item_cost_id": None,
+            "cost_source": "manual",
+        },
+    )
 
 
 def test_price_list_item_create_with_item_ref_id():
@@ -654,7 +952,16 @@ def test_price_list_item_create_with_item_ref_id():
     assert response.status_code == 201
     assert response.json()["item_key"] == "extra::extra-1"
     assert response.json()["item_ref_id"] == "extra-1"
-    assert store.price_item_payload == ("price-list-1", {**payload, "effective_from": None, "item_key": None})
+    assert store.price_item_payload == (
+        "price-list-1",
+        {
+            **payload,
+            "effective_from": None,
+            "item_key": None,
+            "source_supplier_item_cost_id": None,
+            "cost_source": "manual",
+        },
+    )
 
 
 def test_price_list_item_write_rejects_missing_item_identity():

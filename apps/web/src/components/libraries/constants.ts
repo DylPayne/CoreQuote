@@ -1,10 +1,11 @@
-import type { BoardDraft, ExtraCategoryDraft, ExtraDraft, HandleDraft, HingeDraft, LibraryTab, PriceListDraft, SlideDraft } from './types'
+import type { BoardDraft, ExtraCategoryDraft, ExtraDraft, HandleDraft, HingeDraft, ItemSupplierDraft, LibraryTab, PriceListDraft, SlideDraft, SupplierDraft } from './types'
 
 export const libraryTabs: Array<{ label: string; value: LibraryTab }> = [
   { label: 'Pricing', value: 'pricing' },
   { label: 'Boards', value: 'boards' },
   { label: 'Slides', value: 'slides' },
   { label: 'Hinges', value: 'hinges' },
+  { label: 'Suppliers', value: 'suppliers' },
   { label: 'Handles', value: 'handles' },
   { label: 'Extra Categories', value: 'extra-categories' },
   { label: 'Extras', value: 'extras' },
@@ -34,6 +35,30 @@ export const defaultHingeDraft: HingeDraft = {
   model: '',
   code: '',
   opening_angle_deg: '110',
+}
+
+export const defaultSupplierDraft: SupplierDraft = {
+  name: '',
+  code: '',
+  contact_name: '',
+  email: '',
+  phone: '',
+  notes: '',
+}
+
+export const defaultItemSupplierDraft: ItemSupplierDraft = {
+  item_type: 'slide',
+  item_ref_id: '',
+  supplier_id: '',
+  supplier_sku: '',
+  supplier_description: '',
+  price_component: 'unit',
+  order_uom: 'pairs',
+  is_preferred: true,
+  notes: '',
+  list_price_amount: '0.00',
+  discount_percent: '0.00',
+  unit_cost_amount: '0.00',
 }
 
 export const defaultHandleDraft: HandleDraft = {
