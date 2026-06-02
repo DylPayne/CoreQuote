@@ -79,6 +79,7 @@ def test_register_creates_company_owner_session():
         "id": "user-1",
         "company_id": "company-1",
         "company_name": "Core Cabinets",
+        "company_currency_code": "ZAR",
         "name": "Dylan Payne",
         "email": "dylan@example.com",
         "role": "owner",

@@ -55,6 +55,7 @@ Response `201`:
     "id": "user-uuid",
     "company_id": "company-uuid",
     "company_name": "Core Cabinets",
+    "company_currency_code": "ZAR",
     "name": "Dylan Payne",
     "email": "dylan@example.com",
     "role": "owner"
@@ -69,6 +70,7 @@ Creates a new bearer session for an existing user.
 ### `GET /api/v1/auth/me`
 
 Returns the authenticated user and company context.
+The response includes `company_currency_code`, which the frontend should use as its default pricing display currency.
 
 ### `POST /api/v1/auth/logout`
 

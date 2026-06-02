@@ -29,6 +29,7 @@ class Company:
     slug: str
     created_at: datetime
     updated_at: datetime
+    currency_code: str = "ZAR"
 
 
 class CompanyStore:
@@ -42,7 +43,7 @@ class CompanyStore:
                     """
                     INSERT INTO companies (name, slug)
                     VALUES (%s, %s)
-                    RETURNING id::text, name, slug, created_at, updated_at
+                    RETURNING id::text, name, slug, currency_code, created_at, updated_at
                     """,
                     (name.strip(), _company_slug(name)),
                 ).fetchone()
@@ -55,7 +56,7 @@ class CompanyStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT id::text, name, slug, created_at, updated_at
+                SELECT id::text, name, slug, currency_code, created_at, updated_at
                 FROM companies
                 WHERE id = %s
                 """,
@@ -66,16 +67,25 @@ class CompanyStore:
             raise CompanyNotFound("Company not found")
         return _company_from_row(row)
 
-    def update_company(self, *, company_id: str, name: str) -> Company:
+    def update_company(
+        self,
+        *,
+        company_id: str,
+        name: str | None = None,
+        currency_code: str | None = None,
+    ) -> Company:
+        cleaned_name = name.strip() if name is not None else None
+        cleaned_currency_code = currency_code.strip().upper() if currency_code is not None else None
         with self._connect() as conn:
             row = conn.execute(
                 """
                 UPDATE companies
-                SET name = %s
+                SET name = COALESCE(%s, name),
+                    currency_code = COALESCE(%s, currency_code)
                 WHERE id = %s
-                RETURNING id::text, name, slug, created_at, updated_at
+                RETURNING id::text, name, slug, currency_code, created_at, updated_at
                 """,
-                (name.strip(), company_id),
+                (cleaned_name, cleaned_currency_code, company_id),
             ).fetchone()
 
         if not row:
@@ -117,6 +127,7 @@ def _company_from_row(row) -> Company:
         id=row["id"],
         name=row["name"],
         slug=row["slug"],
+        currency_code=row["currency_code"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

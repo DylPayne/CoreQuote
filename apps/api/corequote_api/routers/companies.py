@@ -106,8 +106,19 @@ def update_company(
     store: Annotated[CompanyStore, Depends(get_company_store)],
 ) -> CompanyResponse:
     _require_visible_company(company_id, current_user)
+    if payload.name is None and payload.currency_code is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one company field is required")
+    if payload.currency_code is not None and current_user.role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only company owners can change company currency",
+        )
     try:
-        company = store.update_company(company_id=company_id, name=payload.name)
+        company = store.update_company(
+            company_id=company_id,
+            name=payload.name,
+            currency_code=payload.currency_code,
+        )
     except CompanyNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found") from exc
     return CompanyResponse.model_validate(company)

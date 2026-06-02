@@ -621,6 +621,7 @@ def project_pricing(project_id: str) -> dict:
         "project_id": project_id,
         "project_name": "Main Kitchen",
         "active_price_list_id": "price-list-1",
+        "currency_code": "USD",
         "vat_rate_bps": 1500,
         "markup_bps": 2500,
         "is_complete": True,
