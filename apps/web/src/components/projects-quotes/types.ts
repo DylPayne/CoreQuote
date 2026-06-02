@@ -235,6 +235,8 @@ export type ProjectPricingSummary = {
 
 export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
+export type ProjectWorkspaceTab = 'quotes' | 'pricing'
+export type PricingWorkspaceTab = 'overview' | 'settings' | 'quotes'
 export type QuoteWorkspaceTab = 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
 export type CuttingListViewTab = 'carcass' | 'panels' | 'extras'
 
