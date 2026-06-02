@@ -14,7 +14,9 @@ from corequote_api.projects_quotes import (
 )
 from corequote_api.schemas import (
     AuthUserResponse,
+    PricingSettingsRequest,
     ProjectPricingResponse,
+    ProjectPricingSettingsResponse,
     ProjectRequest,
     ProjectResponse,
     QuoteCustomPanelsRequest,
@@ -22,6 +24,7 @@ from corequote_api.schemas import (
     QuoteCuttingListResponse,
     QuoteExtrasRequest,
     QuoteExtrasResponse,
+    QuotePricingSettingsResponse,
     QuoteRequest,
     QuoteResponse,
     QuoteUnitRequest,
@@ -45,6 +48,7 @@ ProjectsWriter = Annotated[AuthUserResponse, Depends(require_permission("project
 QuotesReader = Annotated[AuthUserResponse, Depends(require_permission("quotes:read"))]
 QuotesWriter = Annotated[AuthUserResponse, Depends(require_permission("quotes:write"))]
 PricingReader = Annotated[AuthUserResponse, Depends(require_permission("pricing:read"))]
+PricingWriter = Annotated[AuthUserResponse, Depends(require_permission("pricing:update"))]
 StoreDep = Annotated[WorkspaceStore, Depends(get_workspace_store)]
 CutlistRuntimeDep = Annotated[CutlistRuntimeService, Depends(get_cutlist_runtime_service)]
 
@@ -346,6 +350,60 @@ def get_project_pricing(
     except WorkspaceValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     return ProjectPricingResponse.model_validate(payload)
+
+
+@router.get(
+    "/projects/{project_id}/pricing-settings",
+    response_model=ProjectPricingSettingsResponse,
+    summary="Get project pricing defaults",
+)
+def get_project_pricing_settings(
+    project_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+) -> ProjectPricingSettingsResponse:
+    return _get_response(ProjectPricingSettingsResponse, store.get_project_pricing_settings, current_user.company_id, project_id)
+
+
+@router.patch(
+    "/projects/{project_id}/pricing-settings",
+    response_model=ProjectPricingSettingsResponse,
+    summary="Update project pricing defaults",
+)
+def update_project_pricing_settings(
+    project_id: str,
+    payload: PricingSettingsRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> ProjectPricingSettingsResponse:
+    return _update_response(ProjectPricingSettingsResponse, store.update_project_pricing_settings, current_user.company_id, project_id, payload)
+
+
+@router.get(
+    "/quotes/{quote_id}/pricing-settings",
+    response_model=QuotePricingSettingsResponse,
+    summary="Get quote pricing settings",
+)
+def get_quote_pricing_settings(
+    quote_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+) -> QuotePricingSettingsResponse:
+    return _get_response(QuotePricingSettingsResponse, store.get_quote_pricing_settings, current_user.company_id, quote_id)
+
+
+@router.patch(
+    "/quotes/{quote_id}/pricing-settings",
+    response_model=QuotePricingSettingsResponse,
+    summary="Update quote pricing settings",
+)
+def update_quote_pricing_settings(
+    quote_id: str,
+    payload: PricingSettingsRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> QuotePricingSettingsResponse:
+    return _update_response(QuotePricingSettingsResponse, store.update_quote_pricing_settings, current_user.company_id, quote_id, payload)
 
 
 def _payload(payload: Any) -> dict[str, Any]:

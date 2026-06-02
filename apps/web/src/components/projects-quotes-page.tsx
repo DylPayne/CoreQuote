@@ -23,7 +23,9 @@ import { customUnitTypeValue, defaultProjectDraft, defaultQuoteDraft, defaultUni
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, quotePayloadFromDraft, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
-import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, ProjectDraft, ProjectPricingSummary, ProjectRow, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
+import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
+import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -53,8 +55,12 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [quoteCustomPanels, setQuoteCustomPanels] = useState<QuoteCustomPanelsState | null>(null)
   const [quoteCustomPanelRows, setQuoteCustomPanelRows] = useState<QuoteCustomPanelComputedRow[]>([])
   const [projectPricing, setProjectPricing] = useState<ProjectPricingSummary | null>(null)
+  const [projectPricingSettings, setProjectPricingSettings] = useState<ProjectPricingSettingsRow | null>(null)
+  const [quotePricingSettings, setQuotePricingSettings] = useState<QuotePricingSettingsRow | null>(null)
 
   const [currentView, setCurrentView] = useState<'projects' | 'project-workspace'>('projects')
+  const [activeProjectTab, setActiveProjectTab] = useState<ProjectWorkspaceTab>('quotes')
+  const [activePricingTab, setActivePricingTab] = useState<PricingWorkspaceTab>('overview')
   const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteWorkspaceTab>('units')
   const [activeCuttingListViewTab, setActiveCuttingListViewTab] = useState<CuttingListViewTab>('carcass')
   const [search, setSearch] = useState('')
@@ -64,6 +70,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft)
   const [quoteDraft, setQuoteDraft] = useState<QuoteDraft>(defaultQuoteDraft)
   const [unitDraft, setUnitDraft] = useState<UnitDraft>(defaultUnitDraft)
+  const [projectPricingSettingsDraft, setProjectPricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
+  const [quotePricingSettingsDraft, setQuotePricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
 
   const [projectEditId, setProjectEditId] = useState<string | null>(null)
   const [quoteEditId, setQuoteEditId] = useState<string | null>(null)
@@ -80,10 +88,14 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [isLoadingQuoteExtras, setIsLoadingQuoteExtras] = useState(false)
   const [isLoadingQuoteCustomPanels, setIsLoadingQuoteCustomPanels] = useState(false)
   const [isLoadingProjectPricing, setIsLoadingProjectPricing] = useState(false)
+  const [isLoadingProjectPricingSettings, setIsLoadingProjectPricingSettings] = useState(false)
+  const [isLoadingQuotePricingSettings, setIsLoadingQuotePricingSettings] = useState(false)
   const [isLoadingLibraries, setIsLoadingLibraries] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingQuoteExtras, setIsSavingQuoteExtras] = useState(false)
   const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
+  const [isSavingProjectPricingSettings, setIsSavingProjectPricingSettings] = useState(false)
+  const [isSavingQuotePricingSettings, setIsSavingQuotePricingSettings] = useState(false)
   const [isQuoteExtrasDirty, setIsQuoteExtrasDirty] = useState(false)
   const [isQuoteCustomPanelsDirty, setIsQuoteCustomPanelsDirty] = useState(false)
 
@@ -277,6 +289,40 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
     [authToken],
   )
 
+  const loadProjectPricingSettings = useCallback(
+    async (projectId: string) => {
+      setIsLoadingProjectPricingSettings(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<ProjectPricingSettingsRow>(`/api/v1/projects/${projectId}/pricing-settings`, { token: authToken })
+        setProjectPricingSettings(payload)
+        setProjectPricingSettingsDraft(pricingSettingsToDraft(payload))
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load project pricing defaults.')
+      } finally {
+        setIsLoadingProjectPricingSettings(false)
+      }
+    },
+    [authToken],
+  )
+
+  const loadQuotePricingSettings = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingQuotePricingSettings(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<QuotePricingSettingsRow>(`/api/v1/quotes/${quoteId}/pricing-settings`, { token: authToken })
+        setQuotePricingSettings(payload)
+        setQuotePricingSettingsDraft(pricingSettingsToDraft(payload))
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not load quote pricing settings.')
+      } finally {
+        setIsLoadingQuotePricingSettings(false)
+      }
+    },
+    [authToken],
+  )
+
   useEffect(() => {
     const handle = window.setTimeout(() => {
       void loadLibraries()
@@ -291,12 +337,15 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
         setQuotes([])
         setSelectedQuoteId(null)
         setProjectPricing(null)
+        setProjectPricingSettings(null)
+        setProjectPricingSettingsDraft(defaultPricingSettingsDraft)
         return
       }
       void loadQuotes(selectedProjectId)
+      void loadProjectPricingSettings(selectedProjectId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadQuotes, selectedProjectId])
+  }, [loadProjectPricingSettings, loadQuotes, selectedProjectId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -306,14 +355,17 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
         setQuoteExtrasSelection({})
         setQuoteCustomPanels(null)
         setQuoteCustomPanelRows([])
+        setQuotePricingSettings(null)
+        setQuotePricingSettingsDraft(defaultPricingSettingsDraft)
         setIsQuoteExtrasDirty(false)
         setIsQuoteCustomPanelsDirty(false)
         return
       }
       void loadUnits(selectedQuoteId)
+      void loadQuotePricingSettings(selectedQuoteId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadUnits, selectedQuoteId])
+  }, [loadQuotePricingSettings, loadUnits, selectedQuoteId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -334,7 +386,21 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   function openProjectWorkspace(projectId: string) {
     setSelectedProjectId(projectId)
     setCurrentView('project-workspace')
+    setActiveProjectTab('quotes')
+    setActivePricingTab('overview')
     setActiveQuoteTab('units')
+  }
+
+  function openProjectPricingTab() {
+    setActiveProjectTab('pricing')
+    setActiveQuoteTab('pricing')
+    if (selectedProjectId) {
+      void loadProjectPricing(selectedProjectId)
+      void loadProjectPricingSettings(selectedProjectId)
+    }
+    if (selectedQuoteId) {
+      void loadQuotePricingSettings(selectedQuoteId)
+    }
   }
 
   function openEditProjectModal(project: ProjectRow) {
@@ -428,7 +494,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       if (activeQuoteTab === 'cutting-lists') {
         await loadQuoteCuttingList(selectedQuoteId)
       }
-      if (selectedProjectId && activeQuoteTab === 'pricing') {
+      if (selectedProjectId && activeProjectTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
     } catch (saveError) {
@@ -457,13 +523,71 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       }, {})
       setQuoteExtrasSelection(nextSelection)
       setIsQuoteExtrasDirty(false)
-      if (selectedProjectId && activeQuoteTab === 'pricing') {
+      if (selectedProjectId && activeProjectTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Could not save selected extras.')
     } finally {
       setIsSavingQuoteExtras(false)
+    }
+  }
+
+  async function handleSaveProjectPricingSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedProjectId) return
+    const payload = pricingSettingsPayloadFromDraft(projectPricingSettingsDraft)
+    if (!payload) {
+      setError('Project pricing defaults must be valid positive numbers.')
+      return
+    }
+
+    setIsSavingProjectPricingSettings(true)
+    setError(null)
+    try {
+      const updated = await apiRequest<ProjectPricingSettingsRow>(`/api/v1/projects/${selectedProjectId}/pricing-settings`, {
+        method: 'PATCH',
+        token: authToken,
+        body: payload,
+      })
+      setProjectPricingSettings(updated)
+      setProjectPricingSettingsDraft(pricingSettingsToDraft(updated))
+      if (activeProjectTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save project pricing defaults.')
+    } finally {
+      setIsSavingProjectPricingSettings(false)
+    }
+  }
+
+  async function handleSaveQuotePricingSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedProjectId || !selectedQuoteId) return
+    const payload = pricingSettingsPayloadFromDraft(quotePricingSettingsDraft)
+    if (!payload) {
+      setError('Quote pricing settings must be valid positive numbers.')
+      return
+    }
+
+    setIsSavingQuotePricingSettings(true)
+    setError(null)
+    try {
+      const updated = await apiRequest<QuotePricingSettingsRow>(`/api/v1/quotes/${selectedQuoteId}/pricing-settings`, {
+        method: 'PATCH',
+        token: authToken,
+        body: payload,
+      })
+      setQuotePricingSettings(updated)
+      setQuotePricingSettingsDraft(pricingSettingsToDraft(updated))
+      if (activeProjectTab === 'pricing' || activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save quote pricing settings.')
+    } finally {
+      setIsSavingQuotePricingSettings(false)
     }
   }
 
@@ -727,185 +851,48 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="grid gap-4">
           <Card>
-            <CardHeader className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <Button onClick={() => setCurrentView('projects')} type="button" variant="outline">
-                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                  Projects
-                </Button>
-                <Button disabled={!selectedProject} onClick={openCreateQuoteModal} size="sm" type="button">
+            <CardHeader className="space-y-3 pb-0">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-wrap items-start gap-3">
+                  <Button onClick={() => setCurrentView('projects')} type="button" variant="outline">
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                    Projects
+                  </Button>
+                  <div>
+                    <CardTitle className="truncate">{selectedProject?.name ?? 'Project'}</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {selectedProject
+                        ? `${selectedProject.client || 'No client'} · ${selectedProject.address || 'No address'}`
+                        : 'No project selected.'}
+                    </p>
+                  </div>
+                </div>
+                <Button disabled={!selectedProject} onClick={openCreateQuoteModal} type="button">
                   <Plus className="h-4 w-4" aria-hidden="true" />
                   New quote
                 </Button>
               </div>
-              <div>
-                <CardTitle className="truncate">{selectedProject?.name ?? 'Project'}</CardTitle>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {selectedProject
-                    ? `${selectedProject.client || 'No client'} · ${selectedProject.address || 'No address'}`
-                    : 'No project selected.'}
-                </p>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {isLoadingQuotes ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  Loading quotes
-                </div>
-              ) : quotes.length > 0 ? (
-                quotes.map((quote) => (
-                  <div
-                    className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${quote.id === selectedQuoteId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
-                    key={quote.id}
+              <div className="border-t border-border pt-3">
+                <div className="flex flex-wrap items-center gap-1">
+                  <button
+                    aria-pressed={activeProjectTab === 'quotes'}
+                    className={`border-b-2 px-2 py-2 text-xs font-semibold transition-colors ${activeProjectTab === 'quotes' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                     onClick={() => {
-                      setSelectedQuoteId(quote.id)
-                      setActiveQuoteTab('units')
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        setSelectedQuoteId(quote.id)
+                      setActiveProjectTab('quotes')
+                      if (activeQuoteTab === 'pricing') {
                         setActiveQuoteTab('units')
                       }
                     }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">{quote.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">{quote.notes || 'No notes'}</p>
-                      </div>
-                      <Badge variant="outline">{quote.unit_count}</Badge>
-                    </div>
-                    <div className="mt-2 flex items-center justify-end gap-1">
-                      <Button
-                        aria-label="Copy quote"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openCopyQuoteModal(quote)
-                        }}
-                        size="icon"
-                        title="Copy quote"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Copy className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                      <Button
-                        aria-label="Edit quote"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openEditQuoteModal(quote)
-                        }}
-                        size="icon"
-                        title="Edit quote"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Pencil className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                      <Button
-                        aria-label="Delete quote"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          void handleDeleteQuote(quote.id)
-                        }}
-                        size="icon"
-                        title="Delete quote"
-                        type="button"
-                        variant="ghost"
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <Alert className="text-xs">No quotes in this project yet.</Alert>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <CardTitle>{selectedQuote ? selectedQuote.name : 'Select a quote'}</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {selectedQuote
-                      ? `Quote tabs provide room for growth as features are added.`
-                      : 'Choose a quote from the left pane to begin.'}
-                  </p>
-                </div>
-                <Button disabled={!selectedQuote} onClick={openCreateUnitModal} type="button">
-                  <Plus className="h-4 w-4" aria-hidden="true" />
-                  Add unit
-                </Button>
-              </div>
-
-              <div className="border-b border-border">
-                <div className="flex flex-wrap items-center gap-1">
-                  <button
-                    aria-pressed={activeQuoteTab === 'units'}
-                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'units' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    onClick={() => setActiveQuoteTab('units')}
                     type="button"
                   >
-                    Units
+                    Quotes
                   </button>
                   <button
-                    aria-pressed={activeQuoteTab === 'panels'}
-                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'panels' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    onClick={() => {
-                      setActiveQuoteTab('panels')
-                      if (selectedQuoteId) {
-                        void loadQuoteCustomPanels(selectedQuoteId)
-                      }
-                    }}
-                    type="button"
-                  >
-                    Panels
-                  </button>
-                  <button
-                    aria-pressed={activeQuoteTab === 'cutting-lists'}
-                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'cutting-lists' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    onClick={() => {
-                      setActiveQuoteTab('cutting-lists')
-                      setActiveCuttingListViewTab('carcass')
-                      if (selectedQuoteId) {
-                        void loadQuoteCuttingList(selectedQuoteId)
-                      }
-                    }}
-                    type="button"
-                  >
-                    Cutting Lists
-                  </button>
-                  <button
-                    aria-pressed={activeQuoteTab === 'extras'}
-                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'extras' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    onClick={() => {
-                      setActiveQuoteTab('extras')
-                      if (selectedQuoteId) {
-                        void loadQuoteExtras(selectedQuoteId)
-                      }
-                    }}
-                    type="button"
-                  >
-                    Extras
-                  </button>
-                  <button
-                    aria-pressed={activeQuoteTab === 'pricing'}
-                    className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'pricing' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    onClick={() => {
-                      setActiveQuoteTab('pricing')
-                      if (selectedProjectId) {
-                        void loadProjectPricing(selectedProjectId)
-                      }
-                    }}
+                    aria-pressed={activeProjectTab === 'pricing'}
+                    className={`border-b-2 px-2 py-2 text-xs font-semibold transition-colors ${activeProjectTab === 'pricing' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                    onClick={openProjectPricingTab}
                     type="button"
                   >
                     Pricing
@@ -913,8 +900,236 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                 </div>
               </div>
             </CardHeader>
+          </Card>
+
+          <div className={`grid gap-4 ${activeProjectTab === 'pricing' ? 'xl:grid-cols-[260px_minmax(0,1fr)]' : 'xl:grid-cols-[340px_minmax(0,1fr)]'}`}>
+            <Card>
+              {activeProjectTab === 'pricing' ? (
+                <>
+                  <CardHeader>
+                    <CardTitle>Pricing</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-4">
+                    <div className="grid gap-1">
+                      {[
+                        ['overview', 'Overview'],
+                        ['settings', 'Settings'],
+                        ['quotes', 'Quotes'],
+                      ].map(([tab, label]) => (
+                        <Button
+                          className="justify-start"
+                          key={tab}
+                          onClick={() => setActivePricingTab(tab as PricingWorkspaceTab)}
+                          type="button"
+                          variant={activePricingTab === tab ? 'default' : 'ghost'}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </>
+              ) : (
+                <>
+                  <CardHeader>
+                    <CardTitle>Quotes</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-2">
+                    {isLoadingQuotes ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                        Loading quotes
+                      </div>
+                    ) : quotes.length > 0 ? (
+                      quotes.map((quote) => (
+                        <div
+                          className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${quote.id === selectedQuoteId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
+                          key={quote.id}
+                          onClick={() => {
+                            setSelectedQuoteId(quote.id)
+                            setActiveQuoteTab('units')
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              setSelectedQuoteId(quote.id)
+                              setActiveQuoteTab('units')
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">{quote.name}</p>
+                              <p className="truncate text-xs text-muted-foreground">{quote.notes || 'No notes'}</p>
+                            </div>
+                            <Badge variant="outline">{quote.unit_count}</Badge>
+                          </div>
+                          <div className="mt-2 flex items-center justify-end gap-1">
+                            <Button
+                              aria-label="Copy quote"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openCopyQuoteModal(quote)
+                              }}
+                              size="icon"
+                              title="Copy quote"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <Copy className="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                            <Button
+                              aria-label="Edit quote"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openEditQuoteModal(quote)
+                              }}
+                              size="icon"
+                              title="Edit quote"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <Pencil className="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                            <Button
+                              aria-label="Delete quote"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                void handleDeleteQuote(quote.id)
+                              }}
+                              size="icon"
+                              title="Delete quote"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <Alert className="text-xs">No quotes in this project yet.</Alert>
+                    )}
+                  </CardContent>
+                </>
+              )}
+            </Card>
+
+            <Card>
+              <CardHeader className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <CardTitle>
+                      {activeProjectTab === 'pricing'
+                        ? activePricingTab === 'overview'
+                          ? 'Pricing overview'
+                          : activePricingTab === 'settings'
+                            ? 'Pricing settings'
+                            : activePricingTab === 'quotes'
+                              ? 'Quote comparison'
+                              : 'Pricing overview'
+                        : selectedQuote
+                          ? selectedQuote.name
+                          : 'Select a quote'}
+                    </CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {activeProjectTab === 'pricing'
+                        ? activePricingTab === 'overview'
+                          ? 'Project totals and pricing status.'
+                          : activePricingTab === 'settings'
+                            ? 'Project defaults and selected quote overrides.'
+                            : activePricingTab === 'quotes'
+                              ? 'Compare priced quotes in this project.'
+                              : 'Project totals and pricing status.'
+                        : selectedQuote
+                          ? activeQuoteTab === 'pricing'
+                            ? 'Review this quote pricing override and priced line breakdown.'
+                            : 'Build this quote using units, panels, cutting lists, and extras.'
+                          : 'Choose a quote from the left pane to begin.'}
+                    </p>
+                  </div>
+                  {activeProjectTab === 'quotes' ? (
+                    <Button disabled={!selectedQuote} onClick={openCreateUnitModal} type="button">
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                      Add unit
+                    </Button>
+                  ) : null}
+                </div>
+                {activeProjectTab === 'quotes' ? (
+                  <div className="border-b border-border">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button
+                        aria-pressed={activeQuoteTab === 'units'}
+                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'units' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                        onClick={() => setActiveQuoteTab('units')}
+                        type="button"
+                      >
+                        Units
+                      </button>
+                      <button
+                        aria-pressed={activeQuoteTab === 'panels'}
+                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'panels' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                        onClick={() => {
+                          setActiveQuoteTab('panels')
+                          if (selectedQuoteId) {
+                            void loadQuoteCustomPanels(selectedQuoteId)
+                          }
+                        }}
+                        type="button"
+                      >
+                        Panels
+                      </button>
+                      <button
+                        aria-pressed={activeQuoteTab === 'cutting-lists'}
+                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'cutting-lists' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                        onClick={() => {
+                          setActiveQuoteTab('cutting-lists')
+                          setActiveCuttingListViewTab('carcass')
+                          if (selectedQuoteId) {
+                            void loadQuoteCuttingList(selectedQuoteId)
+                          }
+                        }}
+                        type="button"
+                      >
+                        Cutting Lists
+                      </button>
+                      <button
+                        aria-pressed={activeQuoteTab === 'extras'}
+                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'extras' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                        onClick={() => {
+                          setActiveQuoteTab('extras')
+                          if (selectedQuoteId) {
+                            void loadQuoteExtras(selectedQuoteId)
+                          }
+                        }}
+                        type="button"
+                      >
+                        Extras
+                      </button>
+                      <button
+                        aria-pressed={activeQuoteTab === 'pricing'}
+                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'pricing' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                        onClick={() => {
+                          setActiveQuoteTab('pricing')
+                          if (selectedProjectId) {
+                            void loadProjectPricing(selectedProjectId)
+                          }
+                          if (selectedQuoteId) {
+                            void loadQuotePricingSettings(selectedQuoteId)
+                          }
+                        }}
+                        type="button"
+                      >
+                        Pricing
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </CardHeader>
             <CardContent>
-              {!selectedQuote ? (
+              {activeProjectTab === 'quotes' && !selectedQuote ? (
                 <Alert className="text-xs">No quote selected.</Alert>
               ) : activeQuoteTab === 'units' ? (
                 isLoadingUnits ? (
@@ -979,7 +1194,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                   <QuotePanelsEditor
                     boardLabel={boardLabel}
                     boards={boards}
-                    defaultPanelBoardId={selectedQuote.default_panel_board_type_id}
+                    defaultPanelBoardId={selectedQuote!.default_panel_board_type_id}
                     isSaving={isSavingQuoteCustomPanels}
                     isSavedStateDirty={isQuoteCustomPanelsDirty}
                     onChange={(next) => {
@@ -990,7 +1205,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                     panelRows={quoteCustomPanelRows}
                     panelState={quoteCustomPanels}
                     presetFamilyCounts={panelFamilyCounts}
-                    selectedQuote={selectedQuote}
+                    selectedQuote={selectedQuote!}
                   />
                 )
               ) : activeQuoteTab === 'cutting-lists' ? (
@@ -1135,8 +1350,113 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                         </TableBody>
                       </Table>
                     </TableContainer>
-                  )}
-                </div>
+	                  )}
+	                </div>
+	              ) : activeProjectTab === 'quotes' && activeQuoteTab === 'pricing' ? (
+	                isLoadingProjectPricing ? (
+	                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+	                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+	                    Loading quote pricing
+	                  </div>
+	                ) : !projectPricing ? (
+	                  <Alert className="text-xs">No pricing summary available yet.</Alert>
+	                ) : (
+	                  <div className="grid gap-5">
+	                    <div className="grid gap-3">
+	                      <details className="grid gap-3">
+	                        <summary className="cursor-pointer text-sm font-semibold">
+	                          <span className="inline-flex flex-wrap items-center gap-2">
+	                            Quote pricing
+	                            {quotePricingSettings ? (
+	                              <Badge variant="outline">{`Markup ${formatPercentFromBps(quotePricingSettings.default_markup_bps)}`}</Badge>
+	                            ) : null}
+	                          </span>
+	                        </summary>
+	                        <div className="pt-3">
+	                          {isLoadingQuotePricingSettings ? (
+	                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+	                              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+	                              Loading quote pricing
+	                            </div>
+	                          ) : (
+	                            <PricingSettingsEditor
+	                              currencyCode={pricingCurrencyCode}
+	                              draft={quotePricingSettingsDraft}
+	                              isSaving={isSavingQuotePricingSettings}
+	                              onDraftChange={setQuotePricingSettingsDraft}
+	                              onSubmit={handleSaveQuotePricingSettings}
+	                            />
+	                          )}
+	                        </div>
+	                      </details>
+	                    </div>
+
+	                    {selectedQuotePricing ? (
+	                      <div className="grid gap-3 border-t border-border pt-4">
+	                        <div className="flex flex-wrap items-center justify-between gap-2">
+	                          <p className="text-xs font-semibold uppercase text-muted-foreground">{`${selectedQuotePricing.quote_name} line items`}</p>
+	                          <div className="flex flex-wrap gap-2">
+	                            <Badge variant="outline">{`Cost ${formatCents(selectedQuotePricing.cost_total_cents, pricingCurrencyCode)}`}</Badge>
+	                            <Badge variant="outline">{`Sell ${formatCents(selectedQuotePricing.sell_before_vat_cents, pricingCurrencyCode)}`}</Badge>
+	                            <Badge variant="outline">{`Profit ${formatCents(selectedQuotePricing.profit_cents, pricingCurrencyCode)}`}</Badge>
+	                          </div>
+	                        </div>
+	                        {selectedQuotePricing.lines.length === 0 ? (
+	                          <Alert className="text-xs">No priced lines yet.</Alert>
+	                        ) : (
+	                          selectedQuotePricingGroups.map((group) => {
+	                            const bucketTotal = selectedQuotePricing.bucket_totals.find((bucket) => bucket.bucket === group.bucket)
+	                            return (
+	                              <div className="grid gap-2" key={group.bucket}>
+	                                <div className="flex flex-wrap items-center gap-2 text-xs">
+	                                  <Badge variant="outline">{formatBucketLabel(group.bucket)}</Badge>
+	                                  {bucketTotal ? (
+	                                    <span className="text-muted-foreground">
+	                                      {`${formatCents(bucketTotal.cost_total_cents, pricingCurrencyCode)} cost · ${formatCents(bucketTotal.sell_total_cents, pricingCurrencyCode)} sell`}
+	                                    </span>
+	                                  ) : null}
+	                                </div>
+	                                <TableContainer>
+	                                  <Table className="min-w-[760px] text-xs">
+	                                    <TableHeader>
+	                                      <TableRow>
+	                                        <TableHead>Item</TableHead>
+	                                        <TableHead>Component</TableHead>
+	                                        <TableHead className="text-right">Qty</TableHead>
+	                                        <TableHead className="text-right">Cost</TableHead>
+	                                        <TableHead className="text-right">Markup</TableHead>
+	                                        <TableHead className="text-right">Sell</TableHead>
+	                                        <TableHead className="text-right">Profit</TableHead>
+	                                      </TableRow>
+	                                    </TableHeader>
+	                                    <TableBody>
+	                                      {group.lines.map((line) => (
+	                                        <TableRow key={`${line.item_key}:${line.price_component}:${line.bucket}`}>
+	                                          <TableCell>
+	                                            {line.description}
+	                                            {line.missing ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
+	                                          </TableCell>
+	                                          <TableCell>{line.price_component}</TableCell>
+	                                          <TableCell className="text-right">{`${formatPricingQty(line.qty)} ${line.uom}`}</TableCell>
+	                                          <TableCell className="text-right">{formatCents(line.cost_total_cents, pricingCurrencyCode)}</TableCell>
+	                                          <TableCell className="text-right">{formatPercentFromBps(line.markup_bps)}</TableCell>
+	                                          <TableCell className="text-right">{formatCents(line.sell_total_cents, pricingCurrencyCode)}</TableCell>
+	                                          <TableCell className="text-right">{formatCents(line.profit_cents, pricingCurrencyCode)}</TableCell>
+	                                        </TableRow>
+	                                      ))}
+	                                    </TableBody>
+	                                  </Table>
+	                                </TableContainer>
+	                              </div>
+	                            )
+	                          })
+	                        )}
+	                      </div>
+	                    ) : (
+	                      <Alert className="text-xs">No priced lines yet.</Alert>
+	                    )}
+	                  </div>
+	                )
               ) : isLoadingProjectPricing ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -1145,8 +1465,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
               ) : !projectPricing ? (
                 <Alert className="text-xs">No pricing summary available yet.</Alert>
               ) : (
-                <div className="grid gap-5">
-                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+	                <div className="grid gap-5">
+	                  {activePricingTab === 'overview' ? (
+	                    <>
+	                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                     <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
                       <p className="text-xs text-muted-foreground">Base cost</p>
                       <p className="text-base font-semibold">{formatCents(projectPricing.cost_total_cents, pricingCurrencyCode)}</p>
@@ -1167,16 +1489,51 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                       <p className="text-xs text-muted-foreground">Grand total</p>
                       <p className="text-base font-semibold">{formatCents(projectPricing.grand_total_cents, pricingCurrencyCode)}</p>
                     </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+	                  </div>
+	                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant={projectPricing.is_complete ? 'outline' : 'warning'}>
                       {projectPricing.is_complete ? 'Complete pricing' : 'Missing prices'}
                     </Badge>
                     <Badge variant="outline">{pricingCurrencyCode}</Badge>
                     <span>{`Default markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
-                  </div>
+	                  </div>
+	                    </>
+	                  ) : null}
 
-                  <TableContainer>
+	                  {activePricingTab === 'settings' ? (
+	                  <div className="grid gap-3">
+                    <details className="grid gap-3">
+                      <summary className="cursor-pointer text-sm font-semibold">
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          Project defaults
+                          {projectPricingSettings ? (
+                            <Badge variant="outline">{`VAT ${formatPercentFromBps(projectPricingSettings.vat_rate_bps)}`}</Badge>
+                          ) : null}
+                        </span>
+                      </summary>
+                      <div className="pt-3">
+                        {isLoadingProjectPricingSettings ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            Loading project defaults
+                          </div>
+                        ) : (
+                          <PricingSettingsEditor
+                            currencyCode={pricingCurrencyCode}
+                            draft={projectPricingSettingsDraft}
+                            isSaving={isSavingProjectPricingSettings}
+                            onDraftChange={setProjectPricingSettingsDraft}
+                            onSubmit={handleSaveProjectPricingSettings}
+                          />
+                        )}
+                      </div>
+                    </details>
+
+		                  </div>
+		                  ) : null}
+
+	                  {activePricingTab === 'quotes' ? (
+	                  <TableContainer>
                     <Table className="min-w-[760px]">
                       <TableHeader>
                         <TableRow>
@@ -1205,9 +1562,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                         ))}
                       </TableBody>
                     </Table>
-                  </TableContainer>
+	                  </TableContainer>
+	                  ) : null}
 
-                  {projectPricing.bucket_totals.length > 0 ? (
+	                  {activePricingTab === 'overview' && projectPricing.bucket_totals.length > 0 ? (
                     <div className="grid gap-2">
                       <p className="text-xs font-semibold uppercase text-muted-foreground">Project bucket totals</p>
                       <TableContainer>
@@ -1235,74 +1593,13 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                     </div>
                   ) : null}
 
-                  {selectedQuotePricing ? (
-                    <div className="grid gap-3 border-t border-border pt-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs font-semibold uppercase text-muted-foreground">{`${selectedQuotePricing.quote_name} line items`}</p>
-                        <div className="flex flex-wrap gap-2">
-                          <Badge variant="outline">{`Cost ${formatCents(selectedQuotePricing.cost_total_cents, pricingCurrencyCode)}`}</Badge>
-                          <Badge variant="outline">{`Sell ${formatCents(selectedQuotePricing.sell_before_vat_cents, pricingCurrencyCode)}`}</Badge>
-                          <Badge variant="outline">{`Profit ${formatCents(selectedQuotePricing.profit_cents, pricingCurrencyCode)}`}</Badge>
-                        </div>
-                      </div>
-                      {selectedQuotePricing.lines.length === 0 ? (
-                        <Alert className="text-xs">No priced lines yet.</Alert>
-                      ) : (
-                        selectedQuotePricingGroups.map((group) => {
-                          const bucketTotal = selectedQuotePricing.bucket_totals.find((bucket) => bucket.bucket === group.bucket)
-                          return (
-                            <div className="grid gap-2" key={group.bucket}>
-                              <div className="flex flex-wrap items-center gap-2 text-xs">
-                                <Badge variant="outline">{formatBucketLabel(group.bucket)}</Badge>
-                                {bucketTotal ? (
-                                  <span className="text-muted-foreground">
-                                    {`${formatCents(bucketTotal.cost_total_cents, pricingCurrencyCode)} cost · ${formatCents(bucketTotal.sell_total_cents, pricingCurrencyCode)} sell`}
-                                  </span>
-                                ) : null}
-                              </div>
-                              <TableContainer>
-                                <Table className="min-w-[760px] text-xs">
-                                  <TableHeader>
-                                    <TableRow>
-                                      <TableHead>Item</TableHead>
-                                      <TableHead>Component</TableHead>
-                                      <TableHead className="text-right">Qty</TableHead>
-                                      <TableHead className="text-right">Cost</TableHead>
-                                      <TableHead className="text-right">Markup</TableHead>
-                                      <TableHead className="text-right">Sell</TableHead>
-                                      <TableHead className="text-right">Profit</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {group.lines.map((line) => (
-                                      <TableRow key={`${line.item_key}:${line.price_component}:${line.bucket}`}>
-                                        <TableCell>
-                                          {line.description}
-                                          {line.missing ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
-                                        </TableCell>
-                                        <TableCell>{line.price_component}</TableCell>
-                                        <TableCell className="text-right">{`${formatPricingQty(line.qty)} ${line.uom}`}</TableCell>
-                                        <TableCell className="text-right">{formatCents(line.cost_total_cents, pricingCurrencyCode)}</TableCell>
-                                        <TableCell className="text-right">{formatPercentFromBps(line.markup_bps)}</TableCell>
-                                        <TableCell className="text-right">{formatCents(line.sell_total_cents, pricingCurrencyCode)}</TableCell>
-                                        <TableCell className="text-right">{formatCents(line.profit_cents, pricingCurrencyCode)}</TableCell>
-                                      </TableRow>
-                                    ))}
-                                  </TableBody>
-                                </Table>
-                              </TableContainer>
-                            </div>
-                          )
-                        })
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+		                </div>
+	              )}
+	            </CardContent>
+	          </Card>
+	        </div>
+	      </div>
+	      )}
 
       {error ? <Alert variant="destructive">{error}</Alert> : null}
       {isLoadingLibraries ? (

@@ -47,6 +47,10 @@ class FakeWorkspaceStore:
         self.requested_cutting_list: tuple[str, str] | None = None
         self.requested_quote_custom_panels: tuple[str, str] | None = None
         self.requested_project_pricing: tuple[str, str] | None = None
+        self.requested_project_pricing_settings: tuple[str, str] | None = None
+        self.updated_project_pricing_settings_payload: tuple[str, str, dict] | None = None
+        self.requested_quote_pricing_settings: tuple[str, str] | None = None
+        self.updated_quote_pricing_settings_payload: tuple[str, str, dict] | None = None
 
     def list_projects(self, company_id: str, search: str | None = None) -> list[dict]:
         return [project("project-1", quote_count=2)]
@@ -185,6 +189,30 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Project not found")
         self.requested_project_pricing = (company_id, project_id)
         return project_pricing(project_id)
+
+    def get_project_pricing_settings(self, company_id: str, project_id: str) -> dict:
+        if project_id == "missing":
+            raise WorkspaceNotFound("Project not found")
+        self.requested_project_pricing_settings = (company_id, project_id)
+        return pricing_settings(project_id=project_id)
+
+    def update_project_pricing_settings(self, company_id: str, project_id: str, payload: dict) -> dict:
+        if project_id == "missing":
+            raise WorkspaceNotFound("Project not found")
+        self.updated_project_pricing_settings_payload = (company_id, project_id, payload)
+        return pricing_settings(project_id=project_id, **payload)
+
+    def get_quote_pricing_settings(self, company_id: str, quote_id: str) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.requested_quote_pricing_settings = (company_id, quote_id)
+        return pricing_settings(quote_id=quote_id)
+
+    def update_quote_pricing_settings(self, company_id: str, quote_id: str, payload: dict) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.updated_quote_pricing_settings_payload = (company_id, quote_id, payload)
+        return pricing_settings(quote_id=quote_id, **payload)
 
 
 def test_list_projects_returns_quote_counts():
@@ -443,6 +471,94 @@ def test_get_project_pricing_returns_project_totals():
     assert store.requested_project_pricing == ("company-1", "project-1")
 
 
+def test_project_pricing_settings_read_and_update():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = pricing_settings_payload(vat_rate_bps=1550, default_markup_bps=3000)
+    try:
+        read_response = client.get("/api/v1/projects/project-1/pricing-settings", headers=auth_header())
+        update_response = client.patch(
+            "/api/v1/projects/project-1/pricing-settings",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert read_response.status_code == 200
+    assert read_response.json()["project_id"] == "project-1"
+    assert read_response.json()["vat_rate_bps"] == 1500
+    assert update_response.status_code == 200
+    assert update_response.json()["vat_rate_bps"] == 1550
+    assert update_response.json()["default_markup_bps"] == 3000
+    assert store.requested_project_pricing_settings == ("company-1", "project-1")
+    assert store.updated_project_pricing_settings_payload == ("company-1", "project-1", payload)
+    assert store.updated_quote_pricing_settings_payload is None
+
+
+def test_project_pricing_settings_update_requires_pricing_update_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/projects/project-1/pricing-settings",
+            json=pricing_settings_payload(vat_rate_bps=1550),
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:update"}
+    assert store.updated_project_pricing_settings_payload is None
+
+
+def test_quote_pricing_settings_read_and_update():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = pricing_settings_payload(carcass_markup_bps=2750, delivery_base_cents=125000)
+    try:
+        read_response = client.get("/api/v1/quotes/quote-1/pricing-settings", headers=auth_header())
+        update_response = client.patch(
+            "/api/v1/quotes/quote-1/pricing-settings",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert read_response.status_code == 200
+    assert read_response.json()["quote_id"] == "quote-1"
+    assert read_response.json()["default_markup_bps"] == 2500
+    assert update_response.status_code == 200
+    assert update_response.json()["carcass_markup_bps"] == 2750
+    assert update_response.json()["delivery_base_cents"] == 125000
+    assert store.requested_quote_pricing_settings == ("company-1", "quote-1")
+    assert store.updated_quote_pricing_settings_payload == ("company-1", "quote-1", payload)
+    assert store.updated_project_pricing_settings_payload is None
+
+
+def test_quote_pricing_settings_update_requires_pricing_update_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/pricing-settings",
+            json=pricing_settings_payload(vat_rate_bps=1550),
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:update"}
+    assert store.updated_quote_pricing_settings_payload is None
+
+
 def project(item_id: str, *, name: str = "Main Kitchen", quote_count: int = 0) -> dict:
     return {
         "id": item_id,
@@ -624,6 +740,7 @@ def project_pricing(project_id: str) -> dict:
         "currency_code": "USD",
         "vat_rate_bps": 1500,
         "markup_bps": 2500,
+        "pricing_settings": pricing_settings(project_id=project_id),
         "is_complete": True,
         "subtotal_cents": 346783,
         "sell_before_vat_cents": 433479,
@@ -633,6 +750,9 @@ def project_pricing(project_id: str) -> dict:
             {
                 "quote_id": "quote-1",
                 "quote_name": "Kitchen Quote",
+                "vat_rate_bps": 1500,
+                "markup_bps": 2500,
+                "pricing_settings": pricing_settings(quote_id="quote-1"),
                 "is_complete": True,
                 "missing_items": [],
                 "subtotal_cents": 346783,
@@ -643,6 +763,54 @@ def project_pricing(project_id: str) -> dict:
             }
         ],
     }
+
+
+def pricing_settings(
+    *,
+    project_id: str | None = None,
+    quote_id: str | None = None,
+    **overrides,
+) -> dict:
+    payload = {
+        "company_id": "company-1",
+        "vat_rate_bps": 1500,
+        "default_markup_bps": 2500,
+        "carcass_markup_bps": 2500,
+        "door_panel_markup_bps": 2500,
+        "component_markup_bps": 2500,
+        "handle_markup_bps": 2500,
+        "extras_markup_bps": 2500,
+        "fabrication_markup_bps": 2500,
+        "install_markup_bps": 2500,
+        "delivery_markup_bps": 2500,
+        "joinery_commission_bps": 0,
+        "labour_cents_per_m2": 2000,
+        "consumables_cents_per_m2": 1000,
+        "install_day_cost_cents": 190000,
+        "delivery_base_cents": 95000,
+        "install_units_per_day": 3,
+        "delivery_units_per_trip": 20,
+        "minimum_install_days_bps": 5000,
+        "minimum_delivery_trips_bps": 5000,
+        "created_at": NOW,
+        "updated_at": NOW,
+    }
+    if project_id is not None:
+        payload["project_id"] = project_id
+    if quote_id is not None:
+        payload["quote_id"] = quote_id
+    payload.update(overrides)
+    return payload
+
+
+def pricing_settings_payload(**overrides) -> dict:
+    payload = pricing_settings(**overrides)
+    payload.pop("company_id")
+    payload.pop("created_at")
+    payload.pop("updated_at")
+    payload.pop("project_id", None)
+    payload.pop("quote_id", None)
+    return payload
 
 
 def auth_header() -> dict[str, str]:
