@@ -211,7 +211,6 @@ class QuoteUnitRequest(BaseModel):
     height: int = Field(gt=0)
     width: int = Field(gt=0)
     depth: int = Field(gt=0)
-    thickness: int = Field(default=16, gt=0)
     carcass_board_type_id: str | None = None
     door_board_type_id: str | None = None
     extra_params: dict[str, Any] = Field(default_factory=dict)
@@ -224,6 +223,7 @@ class QuoteUnitResponse(QuoteUnitRequest):
     company_id: str
     quote_id: str
     unit_number: int = Field(ge=1)
+    thickness: int = Field(gt=0)
     created_at: datetime
     updated_at: datetime
 
@@ -327,7 +327,7 @@ class CutlistUnitRequest(BaseModel):
     height: int = Field(gt=0)
     width: int = Field(gt=0)
     depth: int = Field(gt=0)
-    thickness: int = Field(default=16, gt=0)
+    board_type_id: str = Field(min_length=1)
     extra_params: dict[str, Any] = Field(default_factory=dict)
 
 

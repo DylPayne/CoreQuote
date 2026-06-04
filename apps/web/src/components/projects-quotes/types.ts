@@ -275,7 +275,6 @@ export type UnitDraft = {
   height: string
   width: string
   depth: string
-  thickness: string
   carcass_board_type_id: string
   door_board_type_id: string
   num_drawers: string

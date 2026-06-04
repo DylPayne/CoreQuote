@@ -5,6 +5,7 @@ MIGRATION_0005 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrati
 MIGRATION_0006 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0006_inline_cutting_rule_edges.sql"
 MIGRATION_0007 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0007_simplify_default_unit_types.sql"
 MIGRATION_0008 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0008_cutting_ruleset_history.sql"
+MIGRATION_0017 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0017_default_non_drawer_cutting_formulas.sql"
 
 
 def test_unit_config_migration_is_postgres_first():
@@ -68,3 +69,16 @@ def test_ruleset_history_migration_tracks_snapshot_rows():
     assert "CREATE TABLE IF NOT EXISTS cutting_ruleset_history" in sql
     assert "rows            JSONB NOT NULL DEFAULT '[]'::jsonb" in sql
     assert "snapshot_reason TEXT NOT NULL DEFAULT 'update'" in sql
+
+
+def test_default_non_drawer_formula_migration_matches_spreadsheet_defaults():
+    sql = MIGRATION_0017.read_text()
+
+    assert "'Base Draw'" not in sql
+    assert "variant_config = unit_configs.variant_config || desired_defaults.variant_config_patch" in sql
+    assert "('Wall Door'::text, '{\"default_shelves\":2}'::jsonb)" in sql
+    assert "('Tall Door'::text, '{\"default_shelves\":5}'::jsonb)" in sql
+    assert "('Wall Door'::text, 20, 'carcass', 'Base', 'w', 'd', '1', '')" in sql
+    assert "('Wall Door'::text, 30, 'carcass', 'Top', 'w', 'd', '1', '')" in sql
+    assert "('Wall Door'::text, 100, 'panel', 'Door', 'h - panel_gap_mm + 20', '(w / num_doors) - panel_gap_mm', 'num_doors', 'num_doors > 0')" in sql
+    assert "('Tall Door'::text, 30, 'carcass', 'Top', 'w', 'd', '1', '')" in sql

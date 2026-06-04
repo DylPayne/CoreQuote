@@ -124,7 +124,6 @@ Request payload (`POST` / `PATCH`):
   "height": 780,
   "width": 900,
   "depth": 580,
-  "thickness": 16,
   "carcass_board_type_id": "board-uuid",
   "door_board_type_id": "board-uuid",
   "extra_params": {
@@ -132,6 +131,8 @@ Request payload (`POST` / `PATCH`):
   }
 }
 ```
+
+`thickness` is not accepted in unit create/update requests. The API resolves it from the unit `carcass_board_type_id`, falling back to the quote `default_carcass_board_type_id` when the unit does not override the carcass board. An effective carcass board is required.
 
 Response shape:
 

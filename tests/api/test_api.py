@@ -39,6 +39,10 @@ class FakeCutlistRuntimeService:
         return self.result
 
 
+def fake_board_thickness_lookup(company_id: str, board_ids: set[str]) -> dict[str, int]:
+    return {board_id: 16 for board_id in board_ids}
+
+
 def test_health_endpoints():
     assert client.get("/health/live").json() == {"status": "ok", "service": "corequote-api"}
     assert client.get("/health/ready").json() == {"status": "ok", "service": "corequote-api"}
@@ -103,6 +107,7 @@ def test_database_health_endpoint_returns_503_when_connection_fails():
 
 def test_cutlist_preview_uses_core_cutlist_logic():
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore()
+    app.dependency_overrides[cutlists.get_board_thickness_lookup] = lambda: fake_board_thickness_lookup
     try:
         response = client.post(
             "/api/v1/cutlists/preview",
@@ -114,7 +119,7 @@ def test_cutlist_preview_uses_core_cutlist_logic():
                         "height": 780,
                         "width": 900,
                         "depth": 560,
-                        "thickness": 16,
+                        "board_type_id": "board-1",
                         "extra_params": {"num_doors": 2, "num_shelves": 1},
                     }
                 ]
@@ -180,6 +185,7 @@ def test_cutlist_preview_uses_ruleset_runtime_when_feature_flag_enabled(monkeypa
     monkeypatch.setenv("CUTLIST_USE_DB_RULESETS", "true")
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore()
     app.dependency_overrides[cutlists.get_cutlist_runtime_service] = lambda: runtime_service
+    app.dependency_overrides[cutlists.get_board_thickness_lookup] = lambda: fake_board_thickness_lookup
     try:
         response = client.post(
             "/api/v1/cutlists/preview",
@@ -191,7 +197,7 @@ def test_cutlist_preview_uses_ruleset_runtime_when_feature_flag_enabled(monkeypa
                         "height": 780,
                         "width": 900,
                         "depth": 560,
-                        "thickness": 16,
+                        "board_type_id": "board-1",
                         "extra_params": {"num_doors": 2, "num_shelves": 1},
                     }
                 ]
@@ -206,6 +212,8 @@ def test_cutlist_preview_uses_ruleset_runtime_when_feature_flag_enabled(monkeypa
     assert response.json()["runtime_mode"] == "ruleset"
     assert runtime_service.calls[0]["company_id"] == "company-1"
     assert runtime_service.calls[0]["use_db_rulesets"] is True
+    assert runtime_service.calls[0]["units"][0]["thickness"] == 16
+    assert "board_type_id" not in runtime_service.calls[0]["units"][0]
 
 
 def test_cutlist_preview_accepts_custom_unit_type_strings(monkeypatch):
@@ -232,6 +240,7 @@ def test_cutlist_preview_accepts_custom_unit_type_strings(monkeypatch):
     monkeypatch.setenv("CUTLIST_USE_DB_RULESETS", "true")
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore()
     app.dependency_overrides[cutlists.get_cutlist_runtime_service] = lambda: runtime_service
+    app.dependency_overrides[cutlists.get_board_thickness_lookup] = lambda: fake_board_thickness_lookup
     try:
         response = client.post(
             "/api/v1/cutlists/preview",
@@ -243,7 +252,7 @@ def test_cutlist_preview_accepts_custom_unit_type_strings(monkeypatch):
                         "height": 780,
                         "width": 900,
                         "depth": 560,
-                        "thickness": 16,
+                        "board_type_id": "board-1",
                         "extra_params": {"num_doors": 2},
                     }
                 ]
@@ -257,6 +266,8 @@ def test_cutlist_preview_accepts_custom_unit_type_strings(monkeypatch):
     assert response.status_code == 200
     assert response.json()["unit_sources"][0]["unit_type_key"] == "Corner Door"
     assert runtime_service.calls[0]["units"][0]["unit_type"] == "Corner Door"
+    assert runtime_service.calls[0]["units"][0]["thickness"] == 16
+    assert "board_type_id" not in runtime_service.calls[0]["units"][0]
 
 
 def test_cutlist_preview_requires_authentication():
@@ -270,7 +281,7 @@ def test_cutlist_preview_requires_authentication():
                     "height": 780,
                     "width": 900,
                     "depth": 560,
-                    "thickness": 16,
+                    "board_type_id": "board-1",
                     "extra_params": {"num_doors": 2, "num_shelves": 1},
                 }
             ]
