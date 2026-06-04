@@ -376,7 +376,19 @@ def update_project_pricing_settings(
     current_user: PricingWriter,
     store: StoreDep,
 ) -> ProjectPricingSettingsResponse:
-    return _update_response(ProjectPricingSettingsResponse, store.update_project_pricing_settings, current_user.company_id, project_id, payload)
+    try:
+        row = store.update_project_pricing_settings(
+            current_user.company_id,
+            project_id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found") from exc
+    return ProjectPricingSettingsResponse.model_validate(row)
 
 
 @router.get(
@@ -403,7 +415,19 @@ def update_quote_pricing_settings(
     current_user: PricingWriter,
     store: StoreDep,
 ) -> QuotePricingSettingsResponse:
-    return _update_response(QuotePricingSettingsResponse, store.update_quote_pricing_settings, current_user.company_id, quote_id, payload)
+    try:
+        row = store.update_quote_pricing_settings(
+            current_user.company_id,
+            quote_id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    return QuotePricingSettingsResponse.model_validate(row)
 
 
 def _payload(payload: Any) -> dict[str, Any]:
