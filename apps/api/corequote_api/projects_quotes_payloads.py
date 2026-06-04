@@ -60,7 +60,6 @@ def _clean_unit_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "height": _positive_int(payload.get("height"), field="height"),
         "width": _positive_int(payload.get("width"), field="width"),
         "depth": _positive_int(payload.get("depth"), field="depth"),
-        "thickness": _positive_int(payload.get("thickness", 16), field="thickness"),
         "carcass_board_type_id": _optional_uuid(payload.get("carcass_board_type_id")),
         "door_board_type_id": _optional_uuid(payload.get("door_board_type_id")),
         "extra_params": extra_params,

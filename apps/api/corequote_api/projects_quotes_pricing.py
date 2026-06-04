@@ -5,6 +5,7 @@ from typing import Any
 from corequote_core.detailed_pricing import price_quote_detailed, settings_from_mapping
 from corequote_core.panels import PANEL_PRESET_KEYS, PANEL_PRESET_LABELS, compute_panel_rows
 from corequote_api.cutting_runtime import CutlistRuntimeService
+from corequote_api.projects_quotes_errors import WorkspaceValidationError
 from corequote_api.projects_quotes_payloads import (
     _clean_custom_panels_payload,
     _default_dims_for_panel_preset_from_quote,
@@ -67,7 +68,15 @@ def _build_cutting_list_preview(
     slide_lookup: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     default_slide = slide_lookup.get(str(quote.get("default_slide_id") or ""))
-    payload_units = [_to_runtime_unit(unit, default_slide=default_slide) for unit in units]
+    payload_units = [
+        _to_runtime_unit(
+            unit,
+            quote=quote,
+            board_lookup=board_lookup,
+            default_slide=default_slide,
+        )
+        for unit in units
+    ]
     preview = runtime_service.build_preview(
         company_id=company_id,
         units=payload_units,
@@ -116,7 +125,13 @@ def _build_cutting_list_preview(
     return preview
 
 
-def _to_runtime_unit(unit: dict[str, Any], *, default_slide: dict[str, Any] | None) -> dict[str, Any]:
+def _to_runtime_unit(
+    unit: dict[str, Any],
+    *,
+    quote: dict[str, Any],
+    board_lookup: dict[str, dict[str, Any]],
+    default_slide: dict[str, Any] | None,
+) -> dict[str, Any]:
     extra_params = dict(unit.get("extra_params") or {})
     if default_slide:
         extra_params.setdefault("slide_brand", default_slide.get("brand", ""))
@@ -126,15 +141,34 @@ def _to_runtime_unit(unit: dict[str, Any], *, default_slide: dict[str, Any] | No
         extra_params.setdefault("slide_side_length", int(default_slide.get("side_length", 0) or 0))
         extra_params.setdefault("slide_side_clearance_total", int(default_slide.get("side_clearance_total", 0) or 0))
         extra_params.setdefault("slide_side_height_uplift", int(default_slide.get("side_height_uplift", 0) or 0))
+    thickness = _resolved_unit_thickness(unit, quote=quote, board_lookup=board_lookup)
     return {
         "unit_number": int(unit["unit_number"]),
         "unit_type": str(unit["unit_type_key"]),
         "height": int(unit["height"]),
         "width": int(unit["width"]),
         "depth": int(unit["depth"]),
-        "thickness": int(unit.get("thickness", 16) or 16),
+        "thickness": thickness,
         "extra_params": extra_params,
     }
+
+
+def _resolved_unit_thickness(
+    unit: dict[str, Any],
+    *,
+    quote: dict[str, Any],
+    board_lookup: dict[str, dict[str, Any]],
+) -> int:
+    board_id = str(unit.get("carcass_board_type_id") or quote.get("default_carcass_board_type_id") or "").strip()
+    if not board_id:
+        raise WorkspaceValidationError("Unit carcass board is required to determine thickness")
+    board = board_lookup.get(board_id)
+    if not board:
+        raise WorkspaceValidationError("Unit carcass board is not visible for this company")
+    thickness = int(board.get("thickness", 0) or 0)
+    if thickness <= 0:
+        raise WorkspaceValidationError("Unit carcass board thickness must be a positive integer")
+    return thickness
 
 
 def _price_quote(

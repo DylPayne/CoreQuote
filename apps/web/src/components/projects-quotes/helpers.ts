@@ -36,7 +36,6 @@ export function unitPayloadFromDraft(draft: UnitDraft) {
     height: parsePositiveInteger(draft.height, 780),
     width: parsePositiveInteger(draft.width, 600),
     depth: parsePositiveInteger(draft.depth, 580),
-    thickness: parsePositiveInteger(draft.thickness, 16),
     carcass_board_type_id: optionalId(draft.carcass_board_type_id),
     door_board_type_id: optionalId(draft.door_board_type_id),
     extra_params: isDrawer

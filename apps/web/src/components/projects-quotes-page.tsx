@@ -468,9 +468,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       height: String(unit.height),
       width: String(unit.width),
       depth: String(unit.depth),
-      thickness: String(unit.thickness),
-      carcass_board_type_id: unit.carcass_board_type_id ?? '',
-      door_board_type_id: unit.door_board_type_id ?? '',
+      carcass_board_type_id: unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? '',
+      door_board_type_id: unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? '',
       num_drawers: String(numberFromExtra(unit.extra_params, 'num_drawers', 3)),
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
       num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
@@ -679,6 +678,11 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
     setModalError(null)
     try {
       const payload = unitPayloadFromDraft(unitDraft)
+      if (!payload.carcass_board_type_id) {
+        setModalError('Carcass board is required.')
+        setIsSaving(false)
+        return
+      }
       if (unitEditId) {
         await apiRequest<UnitRow>(`/api/v1/quotes/${selectedQuoteId}/units/${unitEditId}`, {
           method: 'PATCH',
@@ -1158,25 +1162,29 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                             </TableCell>
                           </TableRow>
                         ) : (
-                          units.map((unit) => (
-                            <TableRow key={unit.id}>
-                              <TableCell>{unit.unit_number}</TableCell>
-                              <TableCell>{unit.unit_type_key}</TableCell>
-                              <TableCell>{`${unit.height} x ${unit.width} x ${unit.depth} · t${unit.thickness}`}</TableCell>
-                              <TableCell>{`${boardLabel(unit.carcass_board_type_id)} / ${boardLabel(unit.door_board_type_id)}`}</TableCell>
-                              <TableCell className="max-w-72 truncate text-xs text-muted-foreground">{formatExtraParams(unit.extra_params)}</TableCell>
-                              <TableCell>
-                                <div className="flex justify-end gap-1">
-                                  <Button onClick={() => openEditUnitModal(unit)} size="icon" type="button" variant="ghost">
-                                    <Pencil className="h-4 w-4" aria-hidden="true" />
-                                  </Button>
-                                  <Button onClick={() => void handleDeleteUnit(unit.id)} size="icon" type="button" variant="ghost">
-                                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))
+                          units.map((unit) => {
+                            const carcassBoardId = unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? null
+                            const doorBoardId = unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? null
+                            return (
+                              <TableRow key={unit.id}>
+                                <TableCell>{unit.unit_number}</TableCell>
+                                <TableCell>{unit.unit_type_key}</TableCell>
+                                <TableCell>{`${unit.height} x ${unit.width} x ${unit.depth} · t${unit.thickness}`}</TableCell>
+                                <TableCell>{`${boardLabel(carcassBoardId)} / ${boardLabel(doorBoardId)}`}</TableCell>
+                                <TableCell className="max-w-72 truncate text-xs text-muted-foreground">{formatExtraParams(unit.extra_params)}</TableCell>
+                                <TableCell>
+                                  <div className="flex justify-end gap-1">
+                                    <Button onClick={() => openEditUnitModal(unit)} size="icon" type="button" variant="ghost">
+                                      <Pencil className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
+                                    <Button onClick={() => void handleDeleteUnit(unit.id)} size="icon" type="button" variant="ghost">
+                                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })
                         )}
                       </TableBody>
                     </Table>
@@ -1804,7 +1812,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
               </Label>
             ) : null}
 
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-3">
               <Label className="grid gap-1.5">
                 Width (mm)
                 <Input
@@ -1835,16 +1843,6 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                   value={unitDraft.depth}
                 />
               </Label>
-              <Label className="grid gap-1.5">
-                Thickness (mm)
-                <Input
-                  min={1}
-                  onChange={(event) => setUnitDraft((current) => ({ ...current, thickness: event.target.value }))}
-                  required
-                  type="number"
-                  value={unitDraft.thickness}
-                />
-              </Label>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
@@ -1852,6 +1850,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                 label="Carcass board"
                 options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
                 onChange={(value) => setUnitDraft((current) => ({ ...current, carcass_board_type_id: value }))}
+                required
                 value={unitDraft.carcass_board_type_id}
               />
               <LibrarySelect

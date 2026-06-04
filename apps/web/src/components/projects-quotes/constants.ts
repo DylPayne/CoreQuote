@@ -69,7 +69,6 @@ export const defaultUnitDraft: UnitDraft = {
   height: String(fallbackUnitDefaults['Base Draw'].height),
   width: '600',
   depth: String(fallbackUnitDefaults['Base Draw'].depth),
-  thickness: '16',
   carcass_board_type_id: '',
   door_board_type_id: '',
   num_drawers: '3',

@@ -81,7 +81,24 @@ UNIT_SELECT = """
     u.height,
     u.width,
     u.depth,
-    u.thickness,
+    COALESCE(
+        (
+            SELECT bt.thickness
+            FROM board_types bt
+            WHERE bt.company_id = u.company_id
+              AND bt.id = u.carcass_board_type_id
+        ),
+        (
+            SELECT default_bt.thickness
+            FROM quotes uq
+            JOIN board_types default_bt
+              ON default_bt.company_id = uq.company_id
+             AND default_bt.id = uq.default_carcass_board_type_id
+            WHERE uq.company_id = u.company_id
+              AND uq.id = u.quote_id
+        ),
+        u.thickness
+    )::int AS thickness,
     u.carcass_board_type_id::text,
     u.door_board_type_id::text,
     u.extra_params,
@@ -363,6 +380,11 @@ class WorkspaceStore:
             with conn.transaction():
                 self._ensure_quote_visible(conn, company_id, quote_id)
                 self._validate_quote_defaults(conn, company_id, data)
+                default_carcass_thickness = self._board_thickness_for_id(
+                    conn,
+                    company_id,
+                    data["default_carcass_board_type_id"],
+                )
                 row = conn.execute(
                     """
                     UPDATE quotes
@@ -399,6 +421,17 @@ class WorkspaceStore:
                         quote_id,
                     ),
                 ).fetchone()
+                if default_carcass_thickness is not None:
+                    conn.execute(
+                        """
+                        UPDATE quote_units
+                        SET thickness = %s
+                        WHERE company_id = %s
+                          AND quote_id = %s
+                          AND carcass_board_type_id IS NULL
+                        """,
+                        (default_carcass_thickness, company_id, quote_id),
+                    )
         if not row:
             raise WorkspaceNotFound("Quote not found")
         return self.get_quote(company_id, quote_id)
@@ -449,8 +482,9 @@ class WorkspaceStore:
         data = _clean_unit_payload(payload)
         with self._connect() as conn:
             with conn.transaction():
-                self._ensure_quote_visible(conn, company_id, quote_id)
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
                 self._validate_unit_defaults(conn, company_id, data)
+                thickness = self._resolve_unit_thickness(conn, company_id, quote, data)
                 next_number_row = conn.execute(
                     """
                     SELECT COALESCE(MAX(unit_number), 0) + 1 AS next_unit_number
@@ -486,7 +520,7 @@ class WorkspaceStore:
                         data["height"],
                         data["width"],
                         data["depth"],
-                        data["thickness"],
+                        thickness,
                         data["carcass_board_type_id"],
                         data["door_board_type_id"],
                         Jsonb(data["extra_params"]),
@@ -514,8 +548,9 @@ class WorkspaceStore:
         data = _clean_unit_payload(payload)
         with self._connect() as conn:
             with conn.transaction():
-                self._ensure_quote_visible(conn, company_id, quote_id)
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
                 self._validate_unit_defaults(conn, company_id, data)
+                thickness = self._resolve_unit_thickness(conn, company_id, quote, data)
                 row = conn.execute(
                     """
                     UPDATE quote_units
@@ -537,7 +572,7 @@ class WorkspaceStore:
                         data["height"],
                         data["width"],
                         data["depth"],
-                        data["thickness"],
+                        thickness,
                         data["carcass_board_type_id"],
                         data["door_board_type_id"],
                         Jsonb(data["extra_params"]),
@@ -1119,6 +1154,29 @@ class WorkspaceStore:
             "Unit door board",
         )
 
+    def _resolve_unit_thickness(self, conn, company_id: str, quote: dict[str, Any], data: dict[str, Any]) -> int:
+        board_id = data["carcass_board_type_id"] or quote.get("default_carcass_board_type_id")
+        thickness = self._board_thickness_for_id(conn, company_id, board_id)
+        if thickness is None:
+            raise WorkspaceValidationError("Unit carcass board is required to determine thickness")
+        return thickness
+
+    def _board_thickness_for_id(self, conn, company_id: str, board_id: str | None) -> int | None:
+        if not board_id:
+            return None
+        row = conn.execute(
+            """
+            SELECT thickness
+            FROM board_types
+            WHERE company_id = %s
+              AND id = %s
+            """,
+            (company_id, board_id),
+        ).fetchone()
+        if not row:
+            raise WorkspaceValidationError("Unit carcass board is not visible for this company")
+        return int(row["thickness"])
+
     def _validate_quote_extras(self, conn, company_id: str, items: list[dict[str, Any]]) -> None:
         if not items:
             return
@@ -1187,7 +1245,12 @@ class WorkspaceStore:
     def _ensure_quote_visible(self, conn, company_id: str, quote_id: str) -> dict:
         row = conn.execute(
             """
-            SELECT id::text, project_id::text, created_at, updated_at
+            SELECT
+                id::text,
+                project_id::text,
+                default_carcass_board_type_id::text,
+                created_at,
+                updated_at
             FROM quotes
             WHERE company_id = %s
               AND id = %s

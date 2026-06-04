@@ -35,7 +35,7 @@ Request:
       "height": 780,
       "width": 900,
       "depth": 560,
-      "thickness": 16,
+      "board_type_id": "board-uuid",
       "extra_params": {
         "num_doors": 2,
         "num_shelves": 1
@@ -53,6 +53,8 @@ Request:
 - `Tall Door`
 
 Custom unit type keys are supported for company-specific rulesets.
+
+`board_type_id` must reference a board visible to the authenticated user's company. The API resolves formula thickness from that board type and does not accept raw unit thickness in preview requests.
 
 Response:
 
