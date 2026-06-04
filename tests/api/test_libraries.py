@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from corequote_api.auth import AuthenticatedUser
-from corequote_api.libraries import LibraryConflict, LibraryNotFound, LibraryValidationError
+from corequote_api.libraries import LibraryConflict, LibraryNotFound, LibraryValidationError, _calculate_discounted_cost_cents
 from corequote_api.main import app
 from corequote_api.routers import auth, libraries
 
@@ -44,6 +44,7 @@ class FakeLibraryStore:
         self.price_item_payload: tuple[str, dict] | None = None
         self.item_supplier_payload: dict | None = None
         self.supplier_cost_payload: tuple[str, dict] | None = None
+        self.supplier_discount_payload: tuple[str, dict] | None = None
         self.generation_payload: tuple[str, dict] | None = None
 
     def list_boards(self, company_id: str):
@@ -115,6 +116,17 @@ class FakeLibraryStore:
 
     def delete_supplier(self, company_id: str, supplier_id: str):
         self.deleted.append(("suppliers", supplier_id))
+
+    def apply_supplier_discount(self, company_id: str, supplier_id: str, payload: dict):
+        self.supplier_discount_payload = (supplier_id, payload)
+        return {
+            "supplier_id": supplier_id,
+            "discount_bps": payload["discount_bps"],
+            "matched_item_supplier_count": 3,
+            "updated_cost_count": 2,
+            "unchanged_cost_count": 1,
+            "skipped_without_active_cost_count": 0,
+        }
 
     def list_handles(self, company_id: str):
         return [handle("handle-1")]
@@ -387,6 +399,7 @@ def supplier(item_id: str, *, name: str = "Grass ZA") -> dict:
         "email": "sales@example.com",
         "phone": "",
         "notes": "",
+        "default_discount_bps": 0,
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -744,6 +757,54 @@ def test_supplier_item_cost_create_upsert_and_history():
     assert upsert_response.json()["unit_cost_cents"] == 48000
     assert get_response.status_code == 200
     assert store.supplier_cost_payload == ("item-supplier-1", {**payload, "unit_cost_cents": 48000, "effective_from": None})
+
+
+def test_apply_supplier_discount_updates_default_and_active_costs():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "discount_bps": 3500,
+        "apply_to_active_costs": True,
+        "source": "supplier-discount",
+        "source_ref": "libraries-ui",
+    }
+    try:
+        response = client.post(
+            "/api/v1/libraries/suppliers/supplier-1/discount",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["supplier_id"] == "supplier-1"
+    assert response.json()["discount_bps"] == 3500
+    assert response.json()["updated_cost_count"] == 2
+    assert store.supplier_discount_payload == ("supplier-1", {**payload, "effective_from": None})
+
+
+def test_apply_supplier_discount_requires_pricing_update_permission():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.post(
+            "/api/v1/libraries/suppliers/supplier-1/discount",
+            json={"discount_bps": 3500},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:update"}
+
+
+def test_calculate_discounted_supplier_cost_rounds_to_cents():
+    assert _calculate_discounted_cost_cents(68498, 3000) == 47949
+    assert _calculate_discounted_cost_cents(68498, 10000) == 0
 
 
 def test_generate_price_list_from_supplier_costs():

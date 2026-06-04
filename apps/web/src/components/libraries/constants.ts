@@ -44,6 +44,7 @@ export const defaultSupplierDraft: SupplierDraft = {
   email: '',
   phone: '',
   notes: '',
+  default_discount_percent: '0.00',
 }
 
 export const defaultItemSupplierDraft: ItemSupplierDraft = {

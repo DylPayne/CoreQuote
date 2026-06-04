@@ -104,8 +104,8 @@ BRAND_TABLES = {"board_types", "slides", "hinges"}
 
 SUPPLIER_CONFIG = ResourceConfig(
     table="suppliers",
-    fields=("name", "code", "contact_name", "email", "phone", "notes"),
-    select_clause="id::text, name, code, contact_name, email, phone, notes, created_at, updated_at",
+    fields=("name", "code", "contact_name", "email", "phone", "notes", "default_discount_bps"),
+    select_clause="id::text, name, code, contact_name, email, phone, notes, default_discount_bps, created_at, updated_at",
     order_by="name ASC, code ASC",
 )
 
@@ -196,6 +196,111 @@ class LibraryStore:
 
     def delete_supplier(self, company_id: str, supplier_id: str) -> None:
         self._delete(SUPPLIER_CONFIG, company_id, supplier_id)
+
+    def apply_supplier_discount(self, company_id: str, supplier_id: str, payload: dict[str, Any]) -> dict:
+        self._ensure_supplier(company_id, supplier_id)
+        data = _clean_payload(payload)
+        discount_bps = int(data.get("discount_bps", 0))
+        apply_to_active_costs = bool(data.get("apply_to_active_costs", True))
+        replacement_time = data.get("effective_from")
+        source = str(data.get("source") or "supplier-discount").strip()
+        source_ref = str(data.get("source_ref") or "").strip()
+
+        with self._connect() as conn:
+            updated_supplier = conn.execute(
+                """
+                UPDATE suppliers
+                SET default_discount_bps = %s
+                WHERE company_id = %s
+                  AND id = %s
+                RETURNING id::text
+                """,
+                (discount_bps, company_id, supplier_id),
+            ).fetchone()
+            if not updated_supplier:
+                raise LibraryNotFound("Library row not found")
+            matched_count = conn.execute(
+                """
+                SELECT count(*) AS count
+                FROM item_suppliers
+                WHERE company_id = %s
+                  AND supplier_id = %s
+                """,
+                (company_id, supplier_id),
+            ).fetchone()["count"]
+
+            updated_count = 0
+            unchanged_count = 0
+            active_count = 0
+            if apply_to_active_costs:
+                active_rows = conn.execute(
+                    """
+                    SELECT
+                        cost.id::text,
+                        cost.item_supplier_id::text,
+                        cost.list_price_cents,
+                        cost.discount_bps,
+                        cost.unit_cost_cents,
+                        cost.currency_code
+                    FROM item_suppliers item
+                    JOIN supplier_item_costs cost
+                      ON cost.company_id = item.company_id
+                     AND cost.item_supplier_id = item.id
+                     AND cost.effective_to IS NULL
+                    WHERE item.company_id = %s
+                      AND item.supplier_id = %s
+                    ORDER BY item.item_type ASC, item.item_ref_id ASC, item.price_component ASC, item.id ASC
+                    FOR UPDATE OF cost
+                    """,
+                    (company_id, supplier_id),
+                ).fetchall()
+                active_count = len(active_rows)
+
+                for row in active_rows:
+                    unit_cost_cents = _calculate_discounted_cost_cents(row["list_price_cents"], discount_bps)
+                    if int(row["discount_bps"]) == discount_bps and int(row["unit_cost_cents"]) == unit_cost_cents:
+                        unchanged_count += 1
+                        continue
+
+                    conn.execute(
+                        """
+                        UPDATE supplier_item_costs
+                        SET effective_to = COALESCE(%s, now())
+                        WHERE company_id = %s
+                          AND id = %s
+                        """,
+                        (replacement_time, company_id, row["id"]),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO supplier_item_costs
+                            (company_id, item_supplier_id, list_price_cents, discount_bps, unit_cost_cents,
+                             currency_code, source, source_ref, effective_from, replaces_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()), %s)
+                        """,
+                        (
+                            company_id,
+                            row["item_supplier_id"],
+                            row["list_price_cents"],
+                            discount_bps,
+                            unit_cost_cents,
+                            row["currency_code"],
+                            source,
+                            source_ref,
+                            replacement_time,
+                            row["id"],
+                        ),
+                    )
+                    updated_count += 1
+
+        return {
+            "supplier_id": supplier_id,
+            "discount_bps": discount_bps,
+            "matched_item_supplier_count": matched_count,
+            "updated_cost_count": updated_count,
+            "unchanged_cost_count": unchanged_count,
+            "skipped_without_active_cost_count": matched_count - active_count if apply_to_active_costs else 0,
+        }
 
     def list_handles(self, company_id: str) -> list[dict]:
         return self._list(HANDLE_CONFIG, company_id)
@@ -1284,6 +1389,10 @@ def _try_extract_ref_id(item_type: str, item_key: str) -> str | None:
     if not raw_ref or "::" in raw_ref:
         return None
     return raw_ref
+
+
+def _calculate_discounted_cost_cents(list_price_cents: int, discount_bps: int) -> int:
+    return (int(list_price_cents) * (10000 - int(discount_bps)) + 5000) // 10000
 
 
 def _supplier_cost_matches(row: dict[str, Any], data: dict[str, Any]) -> bool:

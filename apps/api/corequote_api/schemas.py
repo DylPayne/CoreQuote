@@ -670,6 +670,7 @@ class SupplierRequest(BaseModel):
     email: str = Field(default="", max_length=320)
     phone: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=1000)
+    default_discount_bps: int = Field(default=0, ge=0, le=10000)
 
 
 class SupplierResponse(SupplierRequest):
@@ -678,6 +679,27 @@ class SupplierResponse(SupplierRequest):
     id: str
     created_at: datetime
     updated_at: datetime
+
+
+class SupplierDiscountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    discount_bps: int = Field(default=0, ge=0, le=10000)
+    apply_to_active_costs: bool = True
+    source: str = Field(default="supplier-discount", min_length=1, max_length=80)
+    source_ref: str = Field(default="", max_length=240)
+    effective_from: datetime | None = Field(default=None)
+
+
+class SupplierDiscountResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    supplier_id: str
+    discount_bps: int = Field(ge=0, le=10000)
+    matched_item_supplier_count: int = Field(ge=0)
+    updated_cost_count: int = Field(ge=0)
+    unchanged_cost_count: int = Field(ge=0)
+    skipped_without_active_cost_count: int = Field(ge=0)
 
 
 class HandleRequest(BaseModel):
