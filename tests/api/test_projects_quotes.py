@@ -515,6 +515,23 @@ def test_project_pricing_settings_update_requires_pricing_update_permission():
     assert store.updated_project_pricing_settings_payload is None
 
 
+def test_project_pricing_settings_partial_patch_only_sends_changed_fields():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/projects/project-1/pricing-settings",
+            json={"vat_rate_bps": 1550},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.updated_project_pricing_settings_payload == ("company-1", "project-1", {"vat_rate_bps": 1550})
+
+
 def test_quote_pricing_settings_read_and_update():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
@@ -557,6 +574,23 @@ def test_quote_pricing_settings_update_requires_pricing_update_permission():
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: pricing:update"}
     assert store.updated_quote_pricing_settings_payload is None
+
+
+def test_quote_pricing_settings_partial_patch_only_sends_changed_fields():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/pricing-settings",
+            json={"delivery_base_cents": 125000},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.updated_quote_pricing_settings_payload == ("company-1", "quote-1", {"delivery_base_cents": 125000})
 
 
 def project(item_id: str, *, name: str = "Main Kitchen", quote_count: int = 0) -> dict:

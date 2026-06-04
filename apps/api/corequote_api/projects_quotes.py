@@ -123,8 +123,8 @@ def _pricing_settings_values(payload: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _clean_pricing_settings_payload(payload: dict[str, Any]) -> dict[str, int]:
-    defaults = _default_pricing_settings()
+def _clean_pricing_settings_payload(payload: dict[str, Any], *, defaults: dict[str, int] | None = None) -> dict[str, int]:
+    defaults = defaults or _default_pricing_settings()
     cleaned: dict[str, int] = {}
     for field in PRICING_SETTINGS_COLUMNS:
         value = payload.get(field, defaults[field])
@@ -264,10 +264,11 @@ class WorkspaceStore:
             return self._get_project_pricing_settings_response(conn, company_id, project_id, project)
 
     def update_project_pricing_settings(self, company_id: str, project_id: str, payload: dict[str, Any]) -> dict:
-        data = _clean_pricing_settings_payload(payload)
         with self._connect() as conn:
             with conn.transaction():
                 self._ensure_project_visible(conn, company_id, project_id)
+                current = self._get_project_pricing_settings(conn, company_id, project_id)
+                data = _clean_pricing_settings_payload({**current, **payload}, defaults=current)
                 row = self._upsert_project_pricing_settings(conn, company_id, project_id, data)
         return row
 
@@ -422,10 +423,11 @@ class WorkspaceStore:
             return self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
 
     def update_quote_pricing_settings(self, company_id: str, quote_id: str, payload: dict[str, Any]) -> dict:
-        data = _clean_pricing_settings_payload(payload)
         with self._connect() as conn:
             with conn.transaction():
-                self._ensure_quote_visible(conn, company_id, quote_id)
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
+                current = self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
+                data = _clean_pricing_settings_payload({**current, **payload}, defaults=_pricing_settings_values(current))
                 row = self._upsert_quote_pricing_settings(conn, company_id, quote_id, data)
         return row
 
