@@ -32,6 +32,8 @@ from corequote_api.schemas import (
     SlideResponse,
     SupplierItemCostRequest,
     SupplierItemCostResponse,
+    SupplierDiscountRequest,
+    SupplierDiscountResponse,
     SupplierRequest,
     SupplierResponse,
 )
@@ -149,6 +151,26 @@ def update_supplier(
     store: StoreDep,
 ) -> SupplierResponse:
     return _update_response(SupplierResponse, store.update_supplier, current_user.company_id, supplier_id, payload)
+
+
+@router.post(
+    "/suppliers/{supplier_id}/discount",
+    response_model=SupplierDiscountResponse,
+    summary="Apply a supplier discount",
+)
+def apply_supplier_discount(
+    supplier_id: str,
+    payload: SupplierDiscountRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> SupplierDiscountResponse:
+    return _create_response(
+        SupplierDiscountResponse,
+        store.apply_supplier_discount,
+        current_user.company_id,
+        supplier_id,
+        payload,
+    )
 
 
 @router.delete("/suppliers/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a supplier")
