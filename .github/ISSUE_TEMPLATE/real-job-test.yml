@@ -1,0 +1,49 @@
+name: Real Job Test
+description: Define or record a realistic cabinetry workflow test.
+title: "[Real Job Test]: "
+labels:
+  - type-test
+  - needs-real-job-test
+body:
+  - type: input
+    id: scenario_name
+    attributes:
+      label: Scenario name
+      placeholder: Smith Kitchen Phase 1
+    validations:
+      required: true
+  - type: textarea
+    id: job_description
+    attributes:
+      label: Job description
+      description: Describe the real cabinetry job being tested.
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup data
+      description: List required boards, hardware, extras, markups, VAT, and quote details.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Test steps
+      placeholder: "1. Create the project...\n2. Add units..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What must be true when the scenario passes?
+    validations:
+      required: true
+  - type: textarea
+    id: followups
+    attributes:
+      label: Follow-up issues
+      description: Link issues created from failures or gaps.
+    validations:
+      required: false

@@ -1,0 +1,55 @@
+name: Bug
+description: Report a broken, confusing, or unsafe app behavior.
+title: "[Bug]: "
+labels:
+  - type-bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the incorrect behavior in plain language.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened?
+      description: Describe the expected user outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open...\n2. Click...\n3. See..."
+    validations:
+      required: true
+  - type: textarea
+    id: real_job_impact
+    attributes:
+      label: Real job impact
+      description: How could this affect quoting, pricing, cutting, ordering, or client communication?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Quote flow
+        - Pricing
+        - Cutting schedule
+        - Libraries
+        - Outputs/export
+        - Login/settings
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Add screenshots, data examples, browser details, or notes.
+    validations:
+      required: false
