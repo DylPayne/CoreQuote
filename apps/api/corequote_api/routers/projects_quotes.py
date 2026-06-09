@@ -27,6 +27,7 @@ from corequote_api.schemas import (
     QuotePricingSettingsResponse,
     QuoteRequest,
     QuoteResponse,
+    QuoteStatusRequest,
     QuoteUnitRequest,
     QuoteUnitResponse,
 )
@@ -152,6 +153,46 @@ def update_quote(
     store: StoreDep,
 ) -> QuoteResponse:
     return _update_response(QuoteResponse, store.update_quote, current_user.company_id, quote_id, payload)
+
+
+@router.patch("/quotes/{quote_id}/status", response_model=QuoteResponse, summary="Update quote status")
+def update_quote_status(
+    quote_id: str,
+    payload: QuoteStatusRequest,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> QuoteResponse:
+    try:
+        row = store.update_quote_status(current_user.company_id, quote_id, payload.status)
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return QuoteResponse.model_validate(row)
+
+
+@router.post(
+    "/quotes/{quote_id}/revisions",
+    response_model=QuoteResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create quote revision",
+)
+def create_quote_revision(
+    quote_id: str,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> QuoteResponse:
+    try:
+        row = store.create_quote_revision(current_user.company_id, quote_id)
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return QuoteResponse.model_validate(row)
 
 
 @router.delete("/quotes/{quote_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete quote")

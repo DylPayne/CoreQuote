@@ -1,6 +1,7 @@
 import type { ProjectPricingSettingsRow, QuotePricingSettingsRow } from '@/components/pricing-settings'
 
 export type UnitDefaults = Record<string, { height: number; depth: number }>
+export type QuoteStatus = 'draft' | 'ready' | 'sent' | 'accepted' | 'rejected' | 'revised' | 'expired'
 
 export type ProjectRow = {
   id: string
@@ -20,6 +21,12 @@ export type QuoteRow = {
   project_id: string
   name: string
   notes: string
+  status: QuoteStatus
+  quote_number: string
+  revision: number
+  previous_revision_id: string | null
+  previous_revision_quote_number: string | null
+  previous_revision_revision: number | null
   default_carcass_board_type_id: string | null
   default_door_board_type_id: string | null
   default_panel_board_type_id: string | null
@@ -199,6 +206,12 @@ export type PricingBucketTotal = {
 export type QuotePricingSummary = {
   quote_id: string
   quote_name: string
+  quote_status: QuoteStatus
+  quote_number: string
+  revision: number
+  previous_revision_id: string | null
+  previous_revision_quote_number: string | null
+  previous_revision_revision: number | null
   vat_rate_bps: number
   markup_bps: number
   pricing_settings: QuotePricingSettingsRow

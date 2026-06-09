@@ -38,6 +38,8 @@ class FakeWorkspaceStore:
         self.deleted_project: tuple[str, str] | None = None
         self.created_quote_payload: tuple[str, str, dict] | None = None
         self.updated_quote_payload: tuple[str, str, dict] | None = None
+        self.updated_quote_status_payload: tuple[str, str, str] | None = None
+        self.created_quote_revision: tuple[str, str] | None = None
         self.deleted_quote: tuple[str, str] | None = None
         self.created_unit_payload: tuple[str, str, dict] | None = None
         self.updated_unit_payload: tuple[str, str, str, dict] | None = None
@@ -96,6 +98,29 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Quote not found")
         self.updated_quote_payload = (company_id, quote_id, payload)
         return quote(quote_id, project_id="project-1", name=payload["name"], notes=payload.get("notes", ""), unit_count=2)
+
+    def update_quote_status(self, company_id: str, quote_id: str, status: str) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.updated_quote_status_payload = (company_id, quote_id, status)
+        return quote(quote_id, project_id="project-1", status=status, unit_count=2)
+
+    def create_quote_revision(self, company_id: str, quote_id: str) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.created_quote_revision = (company_id, quote_id)
+        return quote(
+            "quote-2",
+            project_id="project-1",
+            name="Kitchen Quote v2",
+            quote_number="Q-001",
+            revision=2,
+            previous_revision_id=quote_id,
+            previous_revision_quote_number="Q-001",
+            previous_revision_revision=1,
+            status="draft",
+            unit_count=2,
+        )
 
     def delete_quote(self, company_id: str, quote_id: str) -> None:
         if quote_id == "missing":
@@ -268,6 +293,9 @@ def test_list_quotes_returns_unit_counts():
 
     assert response.status_code == 200
     assert response.json()[0]["unit_count"] == 3
+    assert response.json()[0]["status"] == "draft"
+    assert response.json()[0]["quote_number"] == "Q-001"
+    assert response.json()[0]["revision"] == 1
 
 
 def test_create_quote_returns_404_if_project_not_visible():
@@ -309,6 +337,79 @@ def test_update_quote_requires_quotes_write_permission():
 
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: quotes:write"}
+
+
+def test_update_quote_status_from_workspace():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/status",
+            json={"status": "sent"},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "sent"
+    assert response.json()["quote_number"] == "Q-001"
+    assert response.json()["revision"] == 1
+    assert store.updated_quote_status_payload == ("company-1", "quote-1", "sent")
+
+
+def test_update_quote_status_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/status",
+            json={"status": "sent"},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.updated_quote_status_payload is None
+
+
+def test_create_quote_revision_links_to_previous_quote():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/revisions", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] == "quote-2"
+    assert body["status"] == "draft"
+    assert body["quote_number"] == "Q-001"
+    assert body["revision"] == 2
+    assert body["previous_revision_id"] == "quote-1"
+    assert body["previous_revision_quote_number"] == "Q-001"
+    assert body["previous_revision_revision"] == 1
+    assert store.created_quote_revision == ("company-1", "quote-1")
+
+
+def test_create_quote_revision_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/revisions", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.created_quote_revision is None
 
 
 def test_create_unit_and_update_unit_use_nested_quote_scope():
@@ -611,6 +712,12 @@ def quote(
     project_id: str,
     name: str = "Kitchen Quote",
     notes: str = "",
+    status: str = "draft",
+    quote_number: str = "Q-001",
+    revision: int = 1,
+    previous_revision_id: str | None = None,
+    previous_revision_quote_number: str | None = None,
+    previous_revision_revision: int | None = None,
     unit_count: int = 0,
 ) -> dict:
     return {
@@ -619,6 +726,12 @@ def quote(
         "project_id": project_id,
         "name": name,
         "notes": notes,
+        "status": status,
+        "quote_number": quote_number,
+        "revision": revision,
+        "previous_revision_id": previous_revision_id,
+        "previous_revision_quote_number": previous_revision_quote_number,
+        "previous_revision_revision": previous_revision_revision,
         "default_carcass_board_type_id": None,
         "default_door_board_type_id": None,
         "default_panel_board_type_id": None,
@@ -781,6 +894,12 @@ def project_pricing(project_id: str) -> dict:
             {
                 "quote_id": "quote-1",
                 "quote_name": "Kitchen Quote",
+                "quote_status": "draft",
+                "quote_number": "Q-001",
+                "revision": 1,
+                "previous_revision_id": None,
+                "previous_revision_quote_number": None,
+                "previous_revision_revision": None,
                 "vat_rate_bps": 1500,
                 "markup_bps": 2500,
                 "pricing_settings": pricing_settings(quote_id="quote-1"),
