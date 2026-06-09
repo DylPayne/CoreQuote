@@ -1,0 +1,58 @@
+name: Feature
+description: Plan a product capability or workflow improvement.
+title: "[Feature]: "
+labels:
+  - type-feature
+body:
+  - type: textarea
+    id: real_job
+    attributes:
+      label: Real-world job supported
+      description: What cabinetry or quoting job should this help someone complete?
+      placeholder: A cabinetmaker needs to...
+    validations:
+      required: true
+  - type: textarea
+    id: user_flow
+    attributes:
+      label: User flow
+      description: Describe the practical steps a user should take.
+      placeholder: "1. The estimator opens...\n2. They choose..."
+    validations:
+      required: true
+  - type: textarea
+    id: scope_included
+    attributes:
+      label: Scope included
+      description: What should be built in this issue?
+    validations:
+      required: true
+  - type: textarea
+    id: scope_excluded
+    attributes:
+      label: Scope excluded
+      description: What is intentionally out of scope?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How will we know this is ready?
+      placeholder: "- The user can...\n- The screen shows..."
+    validations:
+      required: true
+  - type: textarea
+    id: test_scenario
+    attributes:
+      label: Real cabinetry test scenario
+      description: Describe the job to test this against.
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks/regressions to watch
+      description: What could break or mislead a real shop?
+    validations:
+      required: true
