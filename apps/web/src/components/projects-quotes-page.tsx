@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   Copy,
+  GitBranch,
   LoaderCircle,
   Pencil,
   Plus,
@@ -19,13 +20,13 @@ import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest } from '@/components/projects-quotes/api'
-import { customUnitTypeValue, defaultProjectDraft, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, unitPresets } from '@/components/projects-quotes/constants'
+import { customUnitTypeValue, defaultProjectDraft, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
-import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, quotePayloadFromDraft, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
+import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -92,6 +93,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [isLoadingQuotePricingSettings, setIsLoadingQuotePricingSettings] = useState(false)
   const [isLoadingLibraries, setIsLoadingLibraries] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isSavingQuoteStatus, setIsSavingQuoteStatus] = useState(false)
+  const [isCreatingQuoteRevision, setIsCreatingQuoteRevision] = useState(false)
   const [isSavingQuoteExtras, setIsSavingQuoteExtras] = useState(false)
   const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
   const [isSavingProjectPricingSettings, setIsSavingProjectPricingSettings] = useState(false)
@@ -439,6 +442,52 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       name: hasCopyLabel ? sourceDraft.name : `${sourceDraft.name} (Copy)`,
     })
     setIsQuoteModalOpen(true)
+  }
+
+  async function handleQuoteStatusChange(nextStatus: QuoteStatus) {
+    if (!selectedQuoteId) return
+    setIsSavingQuoteStatus(true)
+    setError(null)
+    try {
+      const updated = await apiRequest<QuoteRow>(`/api/v1/quotes/${selectedQuoteId}/status`, {
+        method: 'PATCH',
+        token: authToken,
+        body: { status: nextStatus },
+      })
+      setQuotes((current) => current.map((quote) => (quote.id === updated.id ? updated : quote)))
+      if (selectedProjectId && (activeProjectTab === 'pricing' || activeQuoteTab === 'pricing')) {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save quote status.')
+    } finally {
+      setIsSavingQuoteStatus(false)
+    }
+  }
+
+  async function handleCreateQuoteRevision(quote: QuoteRow) {
+    if (!selectedProjectId) return
+    setIsCreatingQuoteRevision(true)
+    setError(null)
+    try {
+      const revisedQuote = await apiRequest<QuoteRow>(`/api/v1/quotes/${quote.id}/revisions`, {
+        method: 'POST',
+        token: authToken,
+      })
+      setSelectedQuoteId(revisedQuote.id)
+      setActiveProjectTab('quotes')
+      setActiveQuoteTab('units')
+      await loadProjects(search)
+      await loadQuotes(selectedProjectId)
+      await loadUnits(revisedQuote.id)
+      if (activeProjectTab === 'pricing' || activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not create quote revision.')
+    } finally {
+      setIsCreatingQuoteRevision(false)
+    }
   }
 
   function openCreateUnitModal() {
@@ -941,74 +990,98 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                         Loading quotes
                       </div>
                     ) : quotes.length > 0 ? (
-                      quotes.map((quote) => (
-                        <div
-                          className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${quote.id === selectedQuoteId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
-                          key={quote.id}
-                          onClick={() => {
-                            setSelectedQuoteId(quote.id)
-                            setActiveQuoteTab('units')
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault()
+                      quotes.map((quote) => {
+                        const previousRevision = previousQuoteRevisionLabel(quote)
+                        return (
+                          <div
+                            className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${quote.id === selectedQuoteId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
+                            key={quote.id}
+                            onClick={() => {
                               setSelectedQuoteId(quote.id)
                               setActiveQuoteTab('units')
-                            }
-                          }}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold">{quote.name}</p>
-                              <p className="truncate text-xs text-muted-foreground">{quote.notes || 'No notes'}</p>
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                setSelectedQuoteId(quote.id)
+                                setActiveQuoteTab('units')
+                              }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold">{quote.name}</p>
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  <Badge variant={quoteStatusBadgeVariant(quote.status)}>{quoteStatusLabels[quote.status]}</Badge>
+                                  <Badge variant="outline">{quoteRevisionLabel(quote)}</Badge>
+                                  <Badge variant="outline">{`${quote.unit_count} ${quote.unit_count === 1 ? 'unit' : 'units'}`}</Badge>
+                                </div>
+                                {previousRevision ? (
+                                  <p className="mt-1 truncate text-xs text-muted-foreground">{previousRevision}</p>
+                                ) : null}
+                                <p className="mt-1 truncate text-xs text-muted-foreground">{quote.notes || 'No notes'}</p>
+                              </div>
                             </div>
-                            <Badge variant="outline">{quote.unit_count}</Badge>
+                            <div className="mt-2 flex items-center justify-end gap-1">
+                              <Button
+                                aria-label="Create revision"
+                                disabled={isCreatingQuoteRevision}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleCreateQuoteRevision(quote)
+                                }}
+                                size="icon"
+                                title="Create revision"
+                                type="button"
+                                variant="ghost"
+                              >
+                                <GitBranch className="h-4 w-4" aria-hidden="true" />
+                              </Button>
+                              <Button
+                                aria-label="Copy quote setup"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openCopyQuoteModal(quote)
+                                }}
+                                size="icon"
+                                title="Copy quote setup"
+                                type="button"
+                                variant="ghost"
+                              >
+                                <Copy className="h-4 w-4" aria-hidden="true" />
+                              </Button>
+                              <Button
+                                aria-label="Edit quote"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openEditQuoteModal(quote)
+                                }}
+                                size="icon"
+                                title="Edit quote"
+                                type="button"
+                                variant="ghost"
+                              >
+                                <Pencil className="h-4 w-4" aria-hidden="true" />
+                              </Button>
+                              <Button
+                                aria-label="Delete quote"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleDeleteQuote(quote.id)
+                                }}
+                                size="icon"
+                                title="Delete quote"
+                                type="button"
+                                variant="ghost"
+                              >
+                                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                              </Button>
+                            </div>
                           </div>
-                          <div className="mt-2 flex items-center justify-end gap-1">
-                            <Button
-                              aria-label="Copy quote"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                openCopyQuoteModal(quote)
-                              }}
-                              size="icon"
-                              title="Copy quote"
-                              type="button"
-                              variant="ghost"
-                            >
-                              <Copy className="h-4 w-4" aria-hidden="true" />
-                            </Button>
-                            <Button
-                              aria-label="Edit quote"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                openEditQuoteModal(quote)
-                              }}
-                              size="icon"
-                              title="Edit quote"
-                              type="button"
-                              variant="ghost"
-                            >
-                              <Pencil className="h-4 w-4" aria-hidden="true" />
-                            </Button>
-                            <Button
-                              aria-label="Delete quote"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                void handleDeleteQuote(quote.id)
-                              }}
-                              size="icon"
-                              title="Delete quote"
-                              type="button"
-                              variant="ghost"
-                            >
-                              <Trash2 className="h-4 w-4" aria-hidden="true" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))
+                        )
+                      })
                     ) : (
                       <Alert className="text-xs">No quotes in this project yet.</Alert>
                     )}
@@ -1051,12 +1124,51 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                     </p>
                   </div>
                   {activeProjectTab === 'quotes' ? (
-                    <Button disabled={!selectedQuote} onClick={openCreateUnitModal} type="button">
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                      Add unit
-                    </Button>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {selectedQuote ? (
+                        <>
+                          <Select
+                            aria-label="Quote status"
+                            className="h-9 w-36 text-xs"
+                            disabled={isSavingQuoteStatus}
+                            onChange={(event) => void handleQuoteStatusChange(event.target.value as QuoteStatus)}
+                            value={selectedQuote.status}
+                          >
+                            {quoteStatusOptions.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </Select>
+                          <Button
+                            disabled={isCreatingQuoteRevision}
+                            onClick={() => void handleCreateQuoteRevision(selectedQuote)}
+                            type="button"
+                            variant="outline"
+                          >
+                            {isCreatingQuoteRevision ? (
+                              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <GitBranch className="h-4 w-4" aria-hidden="true" />
+                            )}
+                            New revision
+                          </Button>
+                        </>
+                      ) : null}
+                      <Button disabled={!selectedQuote} onClick={openCreateUnitModal} type="button">
+                        <Plus className="h-4 w-4" aria-hidden="true" />
+                        Add unit
+                      </Button>
+                    </div>
                   ) : null}
                 </div>
+                {activeProjectTab === 'quotes' && selectedQuote ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <Badge variant={quoteStatusBadgeVariant(selectedQuote.status)}>{quoteStatusLabels[selectedQuote.status]}</Badge>
+                    <Badge variant="outline">{quoteRevisionLabel(selectedQuote)}</Badge>
+                    {previousQuoteRevisionLabel(selectedQuote) ? <span>{previousQuoteRevisionLabel(selectedQuote)}</span> : null}
+                  </div>
+                ) : null}
                 {activeProjectTab === 'quotes' ? (
                   <div className="border-b border-border">
                     <div className="flex flex-wrap items-center gap-1">
@@ -1538,7 +1650,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                       <TableHeader>
                         <TableRow>
                           <TableHead>Quote</TableHead>
-                          <TableHead>Status</TableHead>
+                          <TableHead>Quote status</TableHead>
+                          <TableHead>Pricing</TableHead>
                           <TableHead className="text-right">Cost</TableHead>
                           <TableHead className="text-right">Sell</TableHead>
                           <TableHead className="text-right">Profit</TableHead>
@@ -1546,20 +1659,34 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {projectPricing.quotes.map((quotePricing) => (
-                          <TableRow key={quotePricing.quote_id}>
-                            <TableCell>{quotePricing.quote_name}</TableCell>
-                            <TableCell>
-                              <Badge variant={quotePricing.is_complete ? 'outline' : 'warning'}>
-                                {quotePricing.is_complete ? 'Complete' : 'Missing prices'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.cost_total_cents, pricingCurrencyCode)}</TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.sell_before_vat_cents, pricingCurrencyCode)}</TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.profit_cents, pricingCurrencyCode)}</TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.grand_total_cents, pricingCurrencyCode)}</TableCell>
-                          </TableRow>
-                        ))}
+                        {projectPricing.quotes.map((quotePricing) => {
+                          const previousRevision = previousQuoteRevisionLabel(quotePricing)
+                          return (
+                            <TableRow key={quotePricing.quote_id}>
+                              <TableCell>
+                                <div className="grid gap-1">
+                                  <span>{quotePricing.quote_name}</span>
+                                  <span className="text-xs text-muted-foreground">{quoteRevisionLabel(quotePricing)}</span>
+                                  {previousRevision ? <span className="text-xs text-muted-foreground">{previousRevision}</span> : null}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={quoteStatusBadgeVariant(quotePricing.quote_status)}>
+                                  {quoteStatusLabels[quotePricing.quote_status]}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={quotePricing.is_complete ? 'outline' : 'warning'}>
+                                  {quotePricing.is_complete ? 'Complete' : 'Missing prices'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right">{formatCents(quotePricing.cost_total_cents, pricingCurrencyCode)}</TableCell>
+                              <TableCell className="text-right">{formatCents(quotePricing.sell_before_vat_cents, pricingCurrencyCode)}</TableCell>
+                              <TableCell className="text-right">{formatCents(quotePricing.profit_cents, pricingCurrencyCode)}</TableCell>
+                              <TableCell className="text-right">{formatCents(quotePricing.grand_total_cents, pricingCurrencyCode)}</TableCell>
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
 	                  </TableContainer>

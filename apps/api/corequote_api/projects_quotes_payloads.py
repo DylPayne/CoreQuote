@@ -8,6 +8,9 @@ from corequote_core.panels import PANEL_PRESET_KEYS
 from corequote_api.projects_quotes_errors import WorkspaceValidationError
 
 
+QUOTE_STATUSES = ("draft", "ready", "sent", "accepted", "rejected", "revised", "expired")
+
+
 def _clean_project_payload(payload: dict[str, Any]) -> dict[str, str]:
     return {
         "name": _clean_required(payload.get("name"), field="name"),
@@ -48,6 +51,13 @@ def _clean_quote_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "default_drawer_handle_id": _optional_uuid(payload.get("default_drawer_handle_id")),
         "unit_defaults": cleaned_unit_defaults,
     }
+
+
+def _clean_quote_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status not in QUOTE_STATUSES:
+        raise WorkspaceValidationError("Quote status is not supported")
+    return status
 
 
 def _clean_unit_payload(payload: dict[str, Any]) -> dict[str, Any]:

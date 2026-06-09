@@ -10,6 +10,7 @@ from corequote_api.authorization import Role
 
 
 UnitType = str
+QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 
 
 class HealthResponse(BaseModel):
@@ -192,12 +193,24 @@ class QuoteRequest(BaseModel):
     unit_defaults: dict[str, UnitDefaultsDimensions] = Field(default_factory=dict)
 
 
+class QuoteStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: QuoteStatus
+
+
 class QuoteResponse(QuoteRequest):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     company_id: str
     project_id: str
+    status: QuoteStatus = "draft"
+    quote_number: str
+    revision: int = Field(ge=1)
+    previous_revision_id: str | None = None
+    previous_revision_quote_number: str | None = None
+    previous_revision_revision: int | None = Field(default=None, ge=1)
     unit_count: int = Field(default=0, ge=0)
     custom_panels: "QuoteCustomPanelsRequest" = Field(default_factory=lambda: QuoteCustomPanelsRequest())
     created_at: datetime
@@ -456,6 +469,12 @@ class QuotePricingSettingsResponse(PricingSettingsFields):
 class QuotePricingSummaryResponse(BaseModel):
     quote_id: str
     quote_name: str
+    quote_status: QuoteStatus = "draft"
+    quote_number: str
+    revision: int = Field(ge=1)
+    previous_revision_id: str | None = None
+    previous_revision_quote_number: str | None = None
+    previous_revision_revision: int | None = Field(default=None, ge=1)
     vat_rate_bps: int = Field(ge=0)
     markup_bps: int = Field(ge=0)
     pricing_settings: QuotePricingSettingsResponse

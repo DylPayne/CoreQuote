@@ -78,6 +78,8 @@ GET   /api/v1/projects/{project_id}/quotes
 POST  /api/v1/projects/{project_id}/quotes
 GET   /api/v1/quotes/{quote_id}
 PATCH /api/v1/quotes/{quote_id}
+PATCH /api/v1/quotes/{quote_id}/status
+POST  /api/v1/quotes/{quote_id}/revisions
 DELETE /api/v1/quotes/{quote_id}
 ```
 
@@ -105,7 +107,56 @@ Request payload (`POST` / `PATCH`):
 }
 ```
 
-Quote responses include `unit_count` so UIs can render quote cards without extra unit queries.
+Quote responses include `unit_count`, status, quote number, and revision fields so UIs can render quote cards without extra unit queries:
+
+```json
+{
+  "id": "quote-uuid",
+  "company_id": "company-uuid",
+  "project_id": "project-uuid",
+  "name": "Kitchen Quote v1",
+  "notes": "Client wants matte white doors",
+  "status": "sent",
+  "quote_number": "Q-001",
+  "revision": 1,
+  "previous_revision_id": null,
+  "previous_revision_quote_number": null,
+  "previous_revision_revision": null,
+  "unit_count": 5,
+  "created_at": "2026-06-01T10:30:00Z",
+  "updated_at": "2026-06-01T10:30:00Z"
+}
+```
+
+Status values:
+
+- `draft`: The quote is still being prepared and is safe to edit.
+- `ready`: The quote is ready for review or sending.
+- `sent`: The quote has been sent to the client.
+- `accepted`: The client has accepted this quote.
+- `rejected`: The client has rejected this quote.
+- `revised`: The quote has been superseded by later client changes.
+- `expired`: The quote is no longer valid.
+
+`POST /api/v1/projects/{project_id}/quotes` creates quotes as `draft`, with the next project quote number and revision `1`.
+
+Status update payload:
+
+```json
+{
+  "status": "ready"
+}
+```
+
+Status changes are permissive in this version so cabinetmakers can reflect the real job conversation without workflow lock-in.
+
+Creating a revision:
+
+```http
+POST /api/v1/quotes/{quote_id}/revisions
+```
+
+The API copies the source quote header, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
 
 ## Quote Units
 
@@ -432,6 +483,12 @@ Response shape:
     {
       "quote_id": "quote-uuid",
       "quote_name": "Kitchen Quote v1",
+      "quote_status": "sent",
+      "quote_number": "Q-001",
+      "revision": 1,
+      "previous_revision_id": null,
+      "previous_revision_quote_number": null,
+      "previous_revision_revision": null,
       "vat_rate_bps": 1500,
       "markup_bps": 2500,
       "pricing_settings": {
@@ -491,6 +548,8 @@ Line `bucket` values group the spreadsheet-derived pricing categories:
 - Project list can be loaded once via `GET /projects` and filtered with `search`.
 - Opening a project should call `GET /projects/{project_id}/quotes`.
 - Opening a quote should call `GET /quotes/{quote_id}/units`.
+- Quote cards and workspace headers should show `status`, `quote_number`, and `revision`; use `PATCH /quotes/{quote_id}/status` for status controls.
+- Use `POST /quotes/{quote_id}/revisions` when client changes require a new editable revision of a sent or accepted quote.
 - Panels tab can load and save quote panel config via `GET/PUT /quotes/{quote_id}/custom-panels`.
 - Cutting list tab can call `GET /quotes/{quote_id}/cutting-list`.
 - Extras tab can load and save quote-selected extras via `GET/PUT /quotes/{quote_id}/extras`.

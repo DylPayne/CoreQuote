@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,6 +22,7 @@ from corequote_api.projects_quotes_payloads import (
     _clean_project_payload,
     _clean_quote_extras_items,
     _clean_quote_payload,
+    _clean_quote_status,
     _clean_unit_payload,
     _is_enabled,
 )
@@ -50,6 +52,20 @@ QUOTE_SELECT = """
     q.project_id::text,
     q.name,
     q.notes,
+    q.status,
+    q.quote_number,
+    q.revision,
+    q.previous_revision_id::text,
+    (
+        SELECT prev.quote_number
+        FROM quotes prev
+        WHERE prev.id = q.previous_revision_id
+    ) AS previous_revision_quote_number,
+    (
+        SELECT prev.revision
+        FROM quotes prev
+        WHERE prev.id = q.previous_revision_id
+    ) AS previous_revision_revision,
     q.default_carcass_board_type_id::text,
     q.default_door_board_type_id::text,
     q.default_panel_board_type_id::text,
@@ -113,6 +129,13 @@ def _sum_bucket_totals(quote_summaries: list[dict[str, Any]]) -> list[dict[str, 
 def _default_pricing_settings() -> dict[str, int]:
     defaults = DetailedPricingSettings()
     return {field: int(getattr(defaults, field)) for field in PRICING_SETTINGS_COLUMNS}
+
+
+def _quote_revision_name(name: str, revision: int) -> str:
+    trimmed = name.strip() or "Quote"
+    if re.search(r"\bv\d+\b$", trimmed, flags=re.IGNORECASE):
+        return re.sub(r"\bv\d+\b$", f"v{revision}", trimmed, flags=re.IGNORECASE)
+    return f"{trimmed} v{revision}"
 
 
 def _pricing_settings_values(payload: dict[str, Any]) -> dict[str, int]:
@@ -296,6 +319,7 @@ class WorkspaceStore:
                 self._ensure_project_visible(conn, company_id, project_id)
                 self._validate_quote_defaults(conn, company_id, data)
                 project_pricing_settings = self._get_project_pricing_settings(conn, company_id, project_id)
+                quote_number = self._next_quote_number(conn, company_id, project_id)
                 row = conn.execute(
                     """
                     INSERT INTO quotes (
@@ -303,6 +327,9 @@ class WorkspaceStore:
                         project_id,
                         name,
                         notes,
+                        status,
+                        quote_number,
+                        revision,
                         default_carcass_board_type_id,
                         default_door_board_type_id,
                         default_panel_board_type_id,
@@ -314,7 +341,7 @@ class WorkspaceStore:
                         default_drawer_handle_id,
                         unit_defaults
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id::text
                     """,
                     (
@@ -322,6 +349,9 @@ class WorkspaceStore:
                         project_id,
                         data["name"],
                         data["notes"],
+                        "draft",
+                        quote_number,
+                        1,
                         data["default_carcass_board_type_id"],
                         data["default_door_board_type_id"],
                         data["default_panel_board_type_id"],
@@ -401,6 +431,131 @@ class WorkspaceStore:
         if not row:
             raise WorkspaceNotFound("Quote not found")
         return self.get_quote(company_id, quote_id)
+
+    def update_quote_status(self, company_id: str, quote_id: str, status: str) -> dict:
+        cleaned_status = _clean_quote_status(status)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE quotes
+                SET status = %s
+                WHERE company_id = %s
+                  AND id = %s
+                RETURNING id::text
+                """,
+                (cleaned_status, company_id, quote_id),
+            ).fetchone()
+        if not row:
+            raise WorkspaceNotFound("Quote not found")
+        return self.get_quote(company_id, quote_id)
+
+    def create_quote_revision(self, company_id: str, quote_id: str) -> dict:
+        with self._connect() as conn:
+            with conn.transaction():
+                source = self._get_quote_revision_source(conn, company_id, quote_id)
+                next_revision = self._next_quote_revision(
+                    conn,
+                    company_id,
+                    source["project_id"],
+                    source["quote_number"],
+                )
+                source_pricing_settings = self._get_quote_pricing_settings_response(conn, company_id, source["id"], source)
+                row = conn.execute(
+                    """
+                    INSERT INTO quotes (
+                        company_id,
+                        project_id,
+                        name,
+                        notes,
+                        status,
+                        quote_number,
+                        revision,
+                        previous_revision_id,
+                        default_carcass_board_type_id,
+                        default_door_board_type_id,
+                        default_panel_board_type_id,
+                        default_slide_id,
+                        default_hinge_id,
+                        default_base_handle_id,
+                        default_wall_handle_id,
+                        default_tall_handle_id,
+                        default_drawer_handle_id,
+                        unit_defaults,
+                        custom_panels
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id::text
+                    """,
+                    (
+                        company_id,
+                        source["project_id"],
+                        _quote_revision_name(source["name"], next_revision),
+                        source["notes"],
+                        "draft",
+                        source["quote_number"],
+                        next_revision,
+                        source["id"],
+                        source["default_carcass_board_type_id"],
+                        source["default_door_board_type_id"],
+                        source["default_panel_board_type_id"],
+                        source["default_slide_id"],
+                        source["default_hinge_id"],
+                        source["default_base_handle_id"],
+                        source["default_wall_handle_id"],
+                        source["default_tall_handle_id"],
+                        source["default_drawer_handle_id"],
+                        Jsonb(source["unit_defaults"]),
+                        Jsonb(source["custom_panels"]),
+                    ),
+                ).fetchone()
+                new_quote_id = row["id"]
+                conn.execute(
+                    """
+                    INSERT INTO quote_units (
+                        company_id,
+                        quote_id,
+                        unit_number,
+                        unit_type_key,
+                        height,
+                        width,
+                        depth,
+                        thickness,
+                        carcass_board_type_id,
+                        door_board_type_id,
+                        extra_params
+                    )
+                    SELECT
+                        company_id,
+                        %s,
+                        unit_number,
+                        unit_type_key,
+                        height,
+                        width,
+                        depth,
+                        thickness,
+                        carcass_board_type_id,
+                        door_board_type_id,
+                        extra_params
+                    FROM quote_units
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    ORDER BY unit_number ASC, created_at ASC
+                    """,
+                    (new_quote_id, company_id, quote_id),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
+                    SELECT company_id, %s, extra_id, quantity
+                    FROM quote_extras
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (new_quote_id, company_id, quote_id),
+                )
+                self._insert_quote_pricing_settings(conn, company_id, new_quote_id, source_pricing_settings)
+        return self.get_quote(company_id, new_quote_id)
 
     def delete_quote(self, company_id: str, quote_id: str) -> None:
         with self._connect() as conn:
@@ -777,6 +932,12 @@ class WorkspaceStore:
             summary["vat_rate_bps"] = int(quote_settings["vat_rate_bps"])
             summary["markup_bps"] = int(quote_settings["default_markup_bps"])
             summary["pricing_settings"] = quote_settings
+            summary["quote_status"] = quote["status"]
+            summary["quote_number"] = quote["quote_number"]
+            summary["revision"] = int(quote["revision"])
+            summary["previous_revision_id"] = quote.get("previous_revision_id")
+            summary["previous_revision_quote_number"] = quote.get("previous_revision_quote_number")
+            summary["previous_revision_revision"] = quote.get("previous_revision_revision")
             quote_summaries.append(summary)
 
         subtotal_cents = sum(int(row["subtotal_cents"]) for row in quote_summaries)
@@ -809,6 +970,75 @@ class WorkspaceStore:
             "bucket_totals": bucket_totals,
             "quotes": quote_summaries,
         }
+
+    def _next_quote_number(self, conn, company_id: str, project_id: str) -> str:
+        row = conn.execute(
+            """
+            SELECT COALESCE(
+                MAX(
+                    CASE
+                        WHEN quote_number ~ '^Q-[0-9]+$'
+                        THEN substring(quote_number FROM 3)::int
+                        ELSE 0
+                    END
+                ),
+                0
+            ) + 1 AS next_number
+            FROM quotes
+            WHERE company_id = %s
+              AND project_id = %s
+            """,
+            (company_id, project_id),
+        ).fetchone()
+        return f"Q-{int(row['next_number']):03d}"
+
+    def _next_quote_revision(self, conn, company_id: str, project_id: str, quote_number: str) -> int:
+        row = conn.execute(
+            """
+            SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision
+            FROM quotes
+            WHERE company_id = %s
+              AND project_id = %s
+              AND quote_number = %s
+            """,
+            (company_id, project_id, quote_number),
+        ).fetchone()
+        return int(row["next_revision"])
+
+    def _get_quote_revision_source(self, conn, company_id: str, quote_id: str) -> dict:
+        row = conn.execute(
+            """
+            SELECT
+                id::text,
+                company_id::text,
+                project_id::text,
+                name,
+                notes,
+                status,
+                quote_number,
+                revision,
+                default_carcass_board_type_id::text,
+                default_door_board_type_id::text,
+                default_panel_board_type_id::text,
+                default_slide_id::text,
+                default_hinge_id::text,
+                default_base_handle_id::text,
+                default_wall_handle_id::text,
+                default_tall_handle_id::text,
+                default_drawer_handle_id::text,
+                unit_defaults,
+                custom_panels,
+                created_at,
+                updated_at
+            FROM quotes
+            WHERE company_id = %s
+              AND id = %s
+            """,
+            (company_id, quote_id),
+        ).fetchone()
+        if not row:
+            raise WorkspaceNotFound("Quote not found")
+        return row
 
     def _get_company_currency_code(self, conn, company_id: str) -> str:
         row = conn.execute(
