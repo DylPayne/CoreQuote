@@ -32,12 +32,15 @@ class FakeAuthStore:
 
 
 class FakeWorkspaceStore:
-    def __init__(self):
+    def __init__(self, *, project_pricing_payload: dict | None = None):
+        self.project_pricing_payload = project_pricing_payload
         self.created_project_payload: tuple[str, dict] | None = None
         self.updated_project_payload: tuple[str, str, dict] | None = None
         self.deleted_project: tuple[str, str] | None = None
         self.created_quote_payload: tuple[str, str, dict] | None = None
         self.updated_quote_payload: tuple[str, str, dict] | None = None
+        self.updated_quote_status_payload: tuple[str, str, str] | None = None
+        self.created_quote_revision: tuple[str, str] | None = None
         self.deleted_quote: tuple[str, str] | None = None
         self.created_unit_payload: tuple[str, str, dict] | None = None
         self.updated_unit_payload: tuple[str, str, str, dict] | None = None
@@ -45,6 +48,7 @@ class FakeWorkspaceStore:
         self.replaced_quote_extras_payload: tuple[str, str, list[dict]] | None = None
         self.replaced_quote_custom_panels_payload: tuple[str, str, dict] | None = None
         self.requested_cutting_list: tuple[str, str] | None = None
+        self.requested_quote_readiness: tuple[str, str] | None = None
         self.requested_quote_custom_panels: tuple[str, str] | None = None
         self.requested_project_pricing: tuple[str, str] | None = None
         self.requested_project_pricing_settings: tuple[str, str] | None = None
@@ -97,6 +101,29 @@ class FakeWorkspaceStore:
         self.updated_quote_payload = (company_id, quote_id, payload)
         return quote(quote_id, project_id="project-1", name=payload["name"], notes=payload.get("notes", ""), unit_count=2)
 
+    def update_quote_status(self, company_id: str, quote_id: str, status: str) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.updated_quote_status_payload = (company_id, quote_id, status)
+        return quote(quote_id, project_id="project-1", status=status, unit_count=2)
+
+    def create_quote_revision(self, company_id: str, quote_id: str) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.created_quote_revision = (company_id, quote_id)
+        return quote(
+            "quote-2",
+            project_id="project-1",
+            name="Kitchen Quote v2",
+            quote_number="Q-001",
+            revision=2,
+            previous_revision_id=quote_id,
+            previous_revision_quote_number="Q-001",
+            previous_revision_revision=1,
+            status="draft",
+            unit_count=2,
+        )
+
     def delete_quote(self, company_id: str, quote_id: str) -> None:
         if quote_id == "missing":
             raise WorkspaceNotFound("Quote not found")
@@ -119,7 +146,6 @@ class FakeWorkspaceStore:
             width=payload["width"],
             height=payload["height"],
             depth=payload["depth"],
-            thickness=payload["thickness"],
             carcass_board_type_id=payload.get("carcass_board_type_id"),
             door_board_type_id=payload.get("door_board_type_id"),
             extra_params=payload.get("extra_params", {}),
@@ -137,7 +163,6 @@ class FakeWorkspaceStore:
             width=payload["width"],
             height=payload["height"],
             depth=payload["depth"],
-            thickness=payload["thickness"],
             carcass_board_type_id=payload.get("carcass_board_type_id"),
             door_board_type_id=payload.get("door_board_type_id"),
             extra_params=payload.get("extra_params", {}),
@@ -153,6 +178,12 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Quote not found")
         self.requested_cutting_list = (company_id, quote_id)
         return quote_cutting_list(quote_id)
+
+    def get_quote_readiness(self, company_id: str, quote_id: str, runtime_service=None) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.requested_quote_readiness = (company_id, quote_id)
+        return quote_readiness(quote_id)
 
     def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
         if quote_id == "missing":
@@ -188,7 +219,7 @@ class FakeWorkspaceStore:
         if project_id == "missing":
             raise WorkspaceNotFound("Project not found")
         self.requested_project_pricing = (company_id, project_id)
-        return project_pricing(project_id)
+        return self.project_pricing_payload or project_pricing(project_id)
 
     def get_project_pricing_settings(self, company_id: str, project_id: str) -> dict:
         if project_id == "missing":
@@ -270,6 +301,9 @@ def test_list_quotes_returns_unit_counts():
 
     assert response.status_code == 200
     assert response.json()[0]["unit_count"] == 3
+    assert response.json()[0]["status"] == "draft"
+    assert response.json()[0]["quote_number"] == "Q-001"
+    assert response.json()[0]["revision"] == 1
 
 
 def test_create_quote_returns_404_if_project_not_visible():
@@ -311,6 +345,79 @@ def test_update_quote_requires_quotes_write_permission():
 
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: quotes:write"}
+
+
+def test_update_quote_status_from_workspace():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/status",
+            json={"status": "sent"},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "sent"
+    assert response.json()["quote_number"] == "Q-001"
+    assert response.json()["revision"] == 1
+    assert store.updated_quote_status_payload == ("company-1", "quote-1", "sent")
+
+
+def test_update_quote_status_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/status",
+            json={"status": "sent"},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.updated_quote_status_payload is None
+
+
+def test_create_quote_revision_links_to_previous_quote():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/revisions", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] == "quote-2"
+    assert body["status"] == "draft"
+    assert body["quote_number"] == "Q-001"
+    assert body["revision"] == 2
+    assert body["previous_revision_id"] == "quote-1"
+    assert body["previous_revision_quote_number"] == "Q-001"
+    assert body["previous_revision_revision"] == 1
+    assert store.created_quote_revision == ("company-1", "quote-1")
+
+
+def test_create_quote_revision_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/revisions", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.created_quote_revision is None
 
 
 def test_create_unit_and_update_unit_use_nested_quote_scope():
@@ -362,6 +469,38 @@ def test_get_quote_cutting_list_returns_cutlist_payload():
     assert response.json()["quote_id"] == "quote-1"
     assert response.json()["carcass"][0]["desc"] == "Side"
     assert store.requested_cutting_list == ("company-1", "quote-1")
+
+
+def test_get_quote_readiness_returns_structured_checks():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/quote-1/readiness", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quote_id"] == "quote-1"
+    assert body["status"] == "needs_attention"
+    assert body["checks"][0]["id"] == "unit_count"
+    assert body["checks"][0]["action_target"] == "units"
+    assert store.requested_quote_readiness == ("company-1", "quote-1")
+
+
+def test_get_quote_readiness_returns_404_if_quote_not_visible():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/missing/readiness", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Quote not found"}
+    assert store.requested_quote_readiness is None
 
 
 def test_quote_extras_read_and_replace():
@@ -471,6 +610,67 @@ def test_get_project_pricing_returns_project_totals():
     assert store.requested_project_pricing == ("company-1", "project-1")
 
 
+def test_get_project_pricing_returns_missing_price_guidance():
+    payload = project_pricing(
+        "project-1",
+        is_complete=False,
+        missing_prices=[
+            missing_price(
+                item_type="handle",
+                item_type_label="Handle",
+                item_key="handle::handle-1",
+                item_ref_id="handle-1",
+                price_component="unit",
+                component="Unit price",
+                bucket="handle",
+                item_name="Bar pull",
+                affected_quote_id="quote-1",
+                affected_quote_name="Kitchen Quote",
+                quantity=3,
+                uom="pcs",
+                used_in=["Handle"],
+                usage_label="Handle",
+                action_label="Add a price for Bar pull",
+                message="Add a price for Bar pull using Unit price in the pricing library.",
+            )
+        ],
+        quote_missing_prices=[
+            missing_price(
+                item_type="handle",
+                item_type_label="Handle",
+                item_key="handle::handle-1",
+                item_ref_id="handle-1",
+                price_component="unit",
+                component="Unit price",
+                bucket="handle",
+                item_name="Bar pull",
+                affected_quote_id="quote-1",
+                affected_quote_name="Kitchen Quote",
+                quantity=3,
+                uom="pcs",
+                used_in=["Handle"],
+                usage_label="Handle",
+                action_label="Add a price for Bar pull",
+                message="Add a price for Bar pull using Unit price in the pricing library.",
+            )
+        ],
+    )
+    store = FakeWorkspaceStore(project_pricing_payload=payload)
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/projects/project-1/pricing", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_complete"] is False
+    assert body["missing_prices"][0]["action_label"] == "Add a price for Bar pull"
+    assert body["missing_prices"][0]["affected_quote_name"] == "Kitchen Quote"
+    assert body["quotes"][0]["missing_prices"][0]["item_ref_id"] == "handle-1"
+
+
 def test_project_pricing_settings_read_and_update():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
@@ -513,6 +713,23 @@ def test_project_pricing_settings_update_requires_pricing_update_permission():
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: pricing:update"}
     assert store.updated_project_pricing_settings_payload is None
+
+
+def test_project_pricing_settings_partial_patch_only_sends_changed_fields():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/projects/project-1/pricing-settings",
+            json={"vat_rate_bps": 1550},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.updated_project_pricing_settings_payload == ("company-1", "project-1", {"vat_rate_bps": 1550})
 
 
 def test_quote_pricing_settings_read_and_update():
@@ -559,6 +776,23 @@ def test_quote_pricing_settings_update_requires_pricing_update_permission():
     assert store.updated_quote_pricing_settings_payload is None
 
 
+def test_quote_pricing_settings_partial_patch_only_sends_changed_fields():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/pricing-settings",
+            json={"delivery_base_cents": 125000},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.updated_quote_pricing_settings_payload == ("company-1", "quote-1", {"delivery_base_cents": 125000})
+
+
 def project(item_id: str, *, name: str = "Main Kitchen", quote_count: int = 0) -> dict:
     return {
         "id": item_id,
@@ -579,6 +813,12 @@ def quote(
     project_id: str,
     name: str = "Kitchen Quote",
     notes: str = "",
+    status: str = "draft",
+    quote_number: str = "Q-001",
+    revision: int = 1,
+    previous_revision_id: str | None = None,
+    previous_revision_quote_number: str | None = None,
+    previous_revision_revision: int | None = None,
     unit_count: int = 0,
 ) -> dict:
     return {
@@ -587,6 +827,12 @@ def quote(
         "project_id": project_id,
         "name": name,
         "notes": notes,
+        "status": status,
+        "quote_number": quote_number,
+        "revision": revision,
+        "previous_revision_id": previous_revision_id,
+        "previous_revision_quote_number": previous_revision_quote_number,
+        "previous_revision_revision": previous_revision_revision,
         "default_carcass_board_type_id": None,
         "default_door_board_type_id": None,
         "default_panel_board_type_id": None,
@@ -675,7 +921,6 @@ def unit_payload(*, unit_type_key: str = "Base Draw", width: int = 900) -> dict:
         "height": 780,
         "width": width,
         "depth": 580,
-        "thickness": 16,
         "carcass_board_type_id": None,
         "door_board_type_id": None,
         "extra_params": {"num_drawers": 3},
@@ -732,7 +977,35 @@ def quote_cutting_list(quote_id: str) -> dict:
     }
 
 
-def project_pricing(project_id: str) -> dict:
+def quote_readiness(quote_id: str) -> dict:
+    return {
+        "quote_id": quote_id,
+        "status": "needs_attention",
+        "is_ready": False,
+        "summary_title": "Needs attention before review",
+        "summary_message": "1 readiness check needs attention before this quote is ready for review.",
+        "warning_count": 1,
+        "error_count": 0,
+        "checks": [
+            {
+                "id": "unit_count",
+                "severity": "warning",
+                "title": "Add cabinet units",
+                "message": "This quote has no cabinets yet, so there is nothing to price, cut, or review.",
+                "action_label": "Add units",
+                "action_target": "units",
+            }
+        ],
+    }
+
+
+def project_pricing(
+    project_id: str,
+    *,
+    is_complete: bool = True,
+    missing_prices: list[dict] | None = None,
+    quote_missing_prices: list[dict] | None = None,
+) -> dict:
     return {
         "project_id": project_id,
         "project_name": "Main Kitchen",
@@ -741,28 +1014,66 @@ def project_pricing(project_id: str) -> dict:
         "vat_rate_bps": 1500,
         "markup_bps": 2500,
         "pricing_settings": pricing_settings(project_id=project_id),
-        "is_complete": True,
+        "is_complete": is_complete,
+        "missing_prices": missing_prices or [],
         "subtotal_cents": 346783,
+        "cost_total_cents": 346783,
         "sell_before_vat_cents": 433479,
         "vat_cents": 65021,
         "grand_total_cents": 498000,
+        "profit_cents": 86696,
+        "bucket_totals": [],
         "quotes": [
             {
                 "quote_id": "quote-1",
                 "quote_name": "Kitchen Quote",
+                "quote_status": "draft",
+                "quote_number": "Q-001",
+                "revision": 1,
+                "previous_revision_id": None,
+                "previous_revision_quote_number": None,
+                "previous_revision_revision": None,
                 "vat_rate_bps": 1500,
                 "markup_bps": 2500,
                 "pricing_settings": pricing_settings(quote_id="quote-1"),
-                "is_complete": True,
+                "is_complete": is_complete,
                 "missing_items": [],
+                "missing_prices": quote_missing_prices or [],
                 "subtotal_cents": 346783,
+                "cost_total_cents": 346783,
                 "sell_before_vat_cents": 433479,
                 "vat_cents": 65021,
                 "grand_total_cents": 498000,
+                "profit_cents": 86696,
+                "bucket_totals": [],
                 "lines": [],
             }
         ],
     }
+
+
+def missing_price(**overrides) -> dict:
+    payload = {
+        "item_type": "board",
+        "item_type_label": "Board",
+        "item_key": "board::board-1",
+        "item_ref_id": "board-1",
+        "price_component": "sqm",
+        "component": "Square metre price",
+        "bucket": "material",
+        "item_name": "PG White (16mm)",
+        "uom": "m2",
+        "quantity": 1,
+        "used_in": ["Carcass material"],
+        "usage_label": "Carcass material",
+        "affected_quote_id": "quote-1",
+        "affected_quote_name": "Kitchen Quote",
+        "library_area": "pricing",
+        "action_label": "Add a price for PG White (16mm)",
+        "message": "Add a price for PG White (16mm) using Square metre price in the pricing library.",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def pricing_settings(

@@ -1,6 +1,7 @@
 import type { ProjectPricingSettingsRow, QuotePricingSettingsRow } from '@/components/pricing-settings'
 
 export type UnitDefaults = Record<string, { height: number; depth: number }>
+export type QuoteStatus = 'draft' | 'ready' | 'sent' | 'accepted' | 'rejected' | 'revised' | 'expired'
 
 export type ProjectRow = {
   id: string
@@ -20,6 +21,12 @@ export type QuoteRow = {
   project_id: string
   name: string
   notes: string
+  status: QuoteStatus
+  quote_number: string
+  revision: number
+  previous_revision_id: string | null
+  previous_revision_quote_number: string | null
+  previous_revision_revision: number | null
   default_carcass_board_type_id: string | null
   default_door_board_type_id: string | null
   default_panel_board_type_id: string | null
@@ -126,6 +133,30 @@ export type QuoteCuttingList = {
   readiness: CutlistReadiness
 }
 
+export type QuoteReadinessSeverity = 'pass' | 'warning' | 'error'
+export type QuoteReadinessStatus = 'ready' | 'needs_attention'
+export type QuoteReadinessActionTarget = 'project' | 'quote' | 'units' | 'panels' | 'cutting-lists' | 'pricing' | 'outputs'
+
+export type QuoteReadinessCheck = {
+  id: string
+  severity: QuoteReadinessSeverity
+  title: string
+  message: string
+  action_label: string
+  action_target: QuoteReadinessActionTarget
+}
+
+export type QuoteReadiness = {
+  quote_id: string
+  status: QuoteReadinessStatus
+  is_ready: boolean
+  summary_title: string
+  summary_message: string
+  warning_count: number
+  error_count: number
+  checks: QuoteReadinessCheck[]
+}
+
 export type QuoteExtrasResponse = {
   quote_id: string
   items: Array<{ extra_id: string; quantity: number }>
@@ -212,15 +243,42 @@ export type PricingBucketTotal = {
   profit_cents: number
 }
 
+export type MissingPrice = {
+  item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra' | 'labour' | 'consumable' | 'installation' | 'delivery' | 'adjustment'
+  item_type_label: string
+  item_key: string
+  item_ref_id: string
+  price_component: string
+  component: string
+  bucket: string
+  item_name: string
+  uom: string
+  quantity: number
+  used_in: string[]
+  usage_label: string
+  affected_quote_id: string
+  affected_quote_name: string
+  library_area: string
+  action_label: string
+  message: string
+}
+
 export type QuotePricingSummary = {
   quote_id: string
   quote_name: string
+  quote_status: QuoteStatus
+  quote_number: string
+  revision: number
+  previous_revision_id: string | null
+  previous_revision_quote_number: string | null
+  previous_revision_revision: number | null
   vat_rate_bps: number
   markup_bps: number
   pricing_settings: QuotePricingSettingsRow
   is_complete: boolean
   missing_items: string[]
   cutlist_warnings: CutlistValidationWarning[]
+  missing_prices: MissingPrice[]
   subtotal_cents: number
   cost_total_cents: number
   sell_before_vat_cents: number
@@ -240,6 +298,7 @@ export type ProjectPricingSummary = {
   markup_bps: number
   pricing_settings: ProjectPricingSettingsRow
   is_complete: boolean
+  missing_prices: MissingPrice[]
   subtotal_cents: number
   cost_total_cents: number
   sell_before_vat_cents: number
@@ -254,7 +313,7 @@ export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
 export type ProjectWorkspaceTab = 'quotes' | 'pricing'
 export type PricingWorkspaceTab = 'overview' | 'settings' | 'quotes'
-export type QuoteWorkspaceTab = 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
+export type QuoteWorkspaceTab = 'readiness' | 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
 export type CuttingListViewTab = 'carcass' | 'panels' | 'extras'
 
 export type ProjectDraft = {
@@ -292,7 +351,6 @@ export type UnitDraft = {
   height: string
   width: string
   depth: string
-  thickness: string
   carcass_board_type_id: string
   door_board_type_id: string
   num_drawers: string

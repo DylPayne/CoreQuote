@@ -8,6 +8,9 @@ from corequote_core.panels import PANEL_PRESET_KEYS
 from corequote_api.projects_quotes_errors import WorkspaceValidationError
 
 
+QUOTE_STATUSES = ("draft", "ready", "sent", "accepted", "rejected", "revised", "expired")
+
+
 def _clean_project_payload(payload: dict[str, Any]) -> dict[str, str]:
     return {
         "name": _clean_required(payload.get("name"), field="name"),
@@ -50,6 +53,13 @@ def _clean_quote_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _clean_quote_status(value: Any) -> str:
+    status = str(value or "").strip().lower()
+    if status not in QUOTE_STATUSES:
+        raise WorkspaceValidationError("Quote status is not supported")
+    return status
+
+
 def _clean_unit_payload(payload: dict[str, Any]) -> dict[str, Any]:
     extra_params = payload.get("extra_params") or {}
     if not isinstance(extra_params, dict):
@@ -60,7 +70,6 @@ def _clean_unit_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "height": _positive_int(payload.get("height"), field="height"),
         "width": _positive_int(payload.get("width"), field="width"),
         "depth": _positive_int(payload.get("depth"), field="depth"),
-        "thickness": _positive_int(payload.get("thickness", 16), field="thickness"),
         "carcass_board_type_id": _optional_uuid(payload.get("carcass_board_type_id")),
         "door_board_type_id": _optional_uuid(payload.get("door_board_type_id")),
         "extra_params": extra_params,

@@ -1,6 +1,7 @@
 import {
   CircleDollarSign,
   LoaderCircle,
+  Percent,
   Plus,
   RefreshCcw,
   Save,
@@ -28,12 +29,12 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
 import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
-import { amountStringToCents, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
+import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
 import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -115,6 +116,9 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
   const [handleDraft, setHandleDraft] = useState<HandleDraft>(defaultHandleDraft)
   const [extraCategoryDraft, setExtraCategoryDraft] = useState<ExtraCategoryDraft>(defaultExtraCategoryDraft)
   const [extraDraft, setExtraDraft] = useState<ExtraDraft>(defaultExtraDraft)
+  const [discountSupplierId, setDiscountSupplierId] = useState('')
+  const [supplierDiscountPercent, setSupplierDiscountPercent] = useState('0.00')
+  const [applyDiscountToCosts, setApplyDiscountToCosts] = useState(true)
 
   const [editingBoard, setEditingBoard] = useState<BoardTypeRow | null>(null)
   const [editingSlide, setEditingSlide] = useState<SlideRow | null>(null)
@@ -144,6 +148,24 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     () => priceLists.find((item) => item.id === selectedPriceListId) ?? null,
     [priceLists, selectedPriceListId],
   )
+
+  const selectedDiscountSupplier = useMemo(
+    () => suppliers.find((item) => item.id === discountSupplierId) ?? null,
+    [discountSupplierId, suppliers],
+  )
+
+  const supplierCostCountsBySupplierId = useMemo(() => {
+    const counts = new Map<string, { active: number; total: number }>()
+    for (const row of itemSuppliers) {
+      const current = counts.get(row.supplier_id) ?? { active: 0, total: 0 }
+      current.total += 1
+      if (row.active_supplier_item_cost_id) {
+        current.active += 1
+      }
+      counts.set(row.supplier_id, current)
+    }
+    return counts
+  }, [itemSuppliers])
 
   const selectedBoardForPricing = useMemo(
     () => boards.find((item) => item.id === pricingItemRefId) ?? null,
@@ -228,9 +250,8 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
             ? current.category_id
             : nextCategories[0]?.id ?? '',
       }))
-      setItemSupplierDraft((current) => ({
-        ...current,
-        item_ref_id:
+      setItemSupplierDraft((current) => {
+        const nextItemRefId =
           current.item_ref_id && _itemExistsForType(current.item_type, current.item_ref_id, {
             boards: nextBoards,
             extras: nextExtras,
@@ -245,12 +266,25 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                 handles: nextHandles,
                 hinges: nextHinges,
                 slides: nextSlides,
-              }),
-        supplier_id:
+              })
+        const nextSupplierId =
           current.supplier_id && nextSuppliers.some((item) => item.id === current.supplier_id)
             ? current.supplier_id
-            : nextSuppliers[0]?.id ?? '',
-      }))
+            : nextSuppliers[0]?.id ?? ''
+        const nextSupplier = nextSuppliers.find((item) => item.id === nextSupplierId)
+        const discount_percent = bpsToPercentString(nextSupplier?.default_discount_bps ?? 0)
+        return {
+          ...current,
+          item_ref_id: nextItemRefId,
+          supplier_id: nextSupplierId,
+          discount_percent,
+          unit_cost_amount:
+            calculateDiscountedAmountString(current.list_price_amount, discount_percent) ?? current.unit_cost_amount,
+        }
+      })
+      setDiscountSupplierId((current) =>
+        current && nextSuppliers.some((item) => item.id === current) ? current : nextSuppliers[0]?.id ?? '',
+      )
     } catch (error) {
       setCatalogError(error instanceof Error ? error.message : 'Could not load libraries.')
     } finally {
@@ -344,6 +378,14 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     return () => window.clearTimeout(handle)
   }, [supplierItemOptions])
 
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setSupplierDiscountPercent(bpsToPercentString(selectedDiscountSupplier?.default_discount_bps ?? 0))
+    }, 0)
+
+    return () => window.clearTimeout(handle)
+  }, [selectedDiscountSupplier])
+
   const lookupPriceCents = useCallback(
     (itemType: PriceItemType, itemRefId: string, priceComponent: string) => {
       const canonicalKey = `${itemType}::${itemRefId}`
@@ -391,13 +433,13 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     return () => window.clearTimeout(handle)
   }, [boards, lookupPriceCents, pricingItemRefId, pricingItemType])
 
-  async function withActionState(action: () => Promise<void>, successMessage: string) {
+  async function withActionState(action: () => Promise<void>, successMessage: string | (() => string)) {
     setIsSaving(true)
     setActionError(null)
     setActionSuccess(null)
     try {
       await action()
-      setActionSuccess(successMessage)
+      setActionSuccess(typeof successMessage === 'function' ? successMessage() : successMessage)
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Action failed.')
     } finally {
@@ -699,7 +741,7 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     event.preventDefault()
     const payload = buildSupplierPayload(supplierDraft)
     if (!payload) {
-      setActionError('Supplier name is required.')
+      setActionError('Supplier name and discount must be valid.')
       return
     }
 
@@ -715,7 +757,7 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     if (!editingSupplier) return
     const payload = buildSupplierPayload(editingSupplier)
     if (!payload) {
-      setActionError('Supplier name is required.')
+      setActionError('Supplier name and discount must be valid.')
       return
     }
 
@@ -738,6 +780,66 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
       }
       await refreshCatalog()
     }, 'Supplier deleted.')
+  }
+
+  function updateItemSupplierSupplier(nextSupplierId: string) {
+    const supplier = suppliers.find((item) => item.id === nextSupplierId)
+    const discountPercent = bpsToPercentString(supplier?.default_discount_bps ?? 0)
+    setItemSupplierDraft((current) => ({
+      ...current,
+      supplier_id: nextSupplierId,
+      discount_percent: discountPercent,
+      unit_cost_amount: calculateDiscountedAmountString(current.list_price_amount, discountPercent) ?? current.unit_cost_amount,
+    }))
+  }
+
+  function updateItemSupplierListPrice(nextListPriceAmount: string) {
+    setItemSupplierDraft((current) => ({
+      ...current,
+      list_price_amount: nextListPriceAmount,
+      unit_cost_amount: calculateDiscountedAmountString(nextListPriceAmount, current.discount_percent) ?? current.unit_cost_amount,
+    }))
+  }
+
+  function updateItemSupplierDiscount(nextDiscountPercent: string) {
+    setItemSupplierDraft((current) => ({
+      ...current,
+      discount_percent: nextDiscountPercent,
+      unit_cost_amount: calculateDiscountedAmountString(current.list_price_amount, nextDiscountPercent) ?? current.unit_cost_amount,
+    }))
+  }
+
+  async function applySupplierDiscount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!discountSupplierId) {
+      setActionError('Select a supplier before applying a discount.')
+      return
+    }
+    const discountBps = percentStringToBps(supplierDiscountPercent)
+    if (discountBps === null) {
+      setActionError('Supplier discount must be between 0 and 100%.')
+      return
+    }
+
+    let summary: SupplierDiscountSummary | null = null
+    await withActionState(async () => {
+      summary = await apiRequest<SupplierDiscountSummary>(`/api/v1/libraries/suppliers/${discountSupplierId}/discount`, {
+        body: {
+          discount_bps: discountBps,
+          apply_to_active_costs: applyDiscountToCosts,
+          source: 'supplier-discount',
+          source_ref: 'libraries-ui',
+          effective_from: null,
+        },
+        method: 'POST',
+        token: authToken,
+      })
+      await refreshCatalog()
+    }, () => {
+      if (!summary) return 'Supplier discount saved.'
+      if (!applyDiscountToCosts) return 'Supplier default discount saved.'
+      return `Supplier discount saved. Updated ${summary.updated_cost_count} costs; ${summary.unchanged_cost_count} already matched.`
+    })
   }
 
   async function saveItemSupplierCost(event: FormEvent<HTMLFormElement>) {
@@ -1473,6 +1575,10 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                     Phone
                     <Input value={supplierDraft.phone} onChange={(event) => setSupplierDraft((current) => ({ ...current, phone: event.target.value }))} />
                   </Label>
+                  <Label className="grid gap-1.5">
+                    Default discount (%)
+                    <Input value={supplierDraft.default_discount_percent} onChange={(event) => setSupplierDraft((current) => ({ ...current, default_discount_percent: event.target.value }))} />
+                  </Label>
                   <Label className="grid gap-1.5 md:col-span-2">
                     Notes
                     <Textarea value={supplierDraft.notes} onChange={(event) => setSupplierDraft((current) => ({ ...current, notes: event.target.value }))} />
@@ -1484,6 +1590,51 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                     </Button>
                   </div>
                 </form>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Supplier Discount</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {suppliers.length === 0 ? (
+                  <Alert variant="destructive">Add at least one supplier before applying supplier discounts.</Alert>
+                ) : (
+                  <form className="grid gap-3 md:grid-cols-2" onSubmit={applySupplierDiscount}>
+                    <Label className="grid gap-1.5">
+                      Supplier
+                      <Select value={discountSupplierId} onChange={(event) => setDiscountSupplierId(event.target.value)}>
+                        <option value="">Select a supplier</option>
+                        {suppliers.map((supplier) => {
+                          const counts = supplierCostCountsBySupplierId.get(supplier.id)
+                          return (
+                            <option key={supplier.id} value={supplier.id}>
+                              {supplier.name}{counts ? ` (${counts.active}/${counts.total})` : ''}
+                            </option>
+                          )
+                        })}
+                      </Select>
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Discount (%)
+                      <Input value={supplierDiscountPercent} onChange={(event) => setSupplierDiscountPercent(event.target.value)} />
+                    </Label>
+                    <Label className="flex items-center gap-2 text-sm font-normal md:col-span-2">
+                      <Checkbox
+                        checked={applyDiscountToCosts}
+                        onChange={(event) => setApplyDiscountToCosts(event.target.checked)}
+                      />
+                      Apply to active supplier costs
+                    </Label>
+                    <div className="md:col-span-2">
+                      <Button disabled={isSaving || !selectedDiscountSupplier} type="submit" variant="outline">
+                        <Percent className="h-4 w-4" aria-hidden="true" />
+                        Apply Discount
+                      </Button>
+                    </div>
+                  </form>
+                )}
               </CardContent>
             </Card>
 
@@ -1529,7 +1680,7 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                       Supplier
                       <Select
                         value={itemSupplierDraft.supplier_id}
-                        onChange={(event) => setItemSupplierDraft((current) => ({ ...current, supplier_id: event.target.value }))}
+                        onChange={(event) => updateItemSupplierSupplier(event.target.value)}
                       >
                         <option value="">Select a supplier</option>
                         {suppliers.map((supplier) => (
@@ -1557,11 +1708,11 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                     </Label>
                     <Label className="grid gap-1.5">
                       List price ({displayCurrencyCode})
-                      <Input value={itemSupplierDraft.list_price_amount} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, list_price_amount: event.target.value }))} />
+                      <Input value={itemSupplierDraft.list_price_amount} onChange={(event) => updateItemSupplierListPrice(event.target.value)} />
                     </Label>
                     <Label className="grid gap-1.5">
                       Discount (%)
-                      <Input value={itemSupplierDraft.discount_percent} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, discount_percent: event.target.value }))} />
+                      <Input value={itemSupplierDraft.discount_percent} onChange={(event) => updateItemSupplierDiscount(event.target.value)} />
                     </Label>
                     <Label className="grid gap-1.5">
                       Net cost ({displayCurrencyCode})
@@ -1602,13 +1753,14 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                       <TableHead>Name</TableHead>
                       <TableHead>Code</TableHead>
                       <TableHead>Contact</TableHead>
+                      <TableHead>Discount</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {suppliers.length === 0 ? (
                       <TableRow>
-                        <TableCell className="text-muted-foreground" colSpan={4}>
+                        <TableCell className="text-muted-foreground" colSpan={5}>
                           No suppliers in the library yet.
                         </TableCell>
                       </TableRow>
@@ -1618,6 +1770,7 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                           <TableCell>{row.name}</TableCell>
                           <TableCell>{row.code || '-'}</TableCell>
                           <TableCell>{row.contact_name || row.email || row.phone || '-'}</TableCell>
+                          <TableCell>{bpsToPercentString(row.default_discount_bps)}%</TableCell>
                           <TableCell className="flex gap-2">
                             <Button size="sm" variant="outline" onClick={() => setEditingSupplier({ ...row })}>
                               Edit
@@ -1656,6 +1809,13 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                     Phone
                     <Input value={editingSupplier.phone} onChange={(event) => setEditingSupplier({ ...editingSupplier, phone: event.target.value })} />
                   </Label>
+                  <Label className="grid gap-1.5">
+                    Default discount (%)
+                    <Input
+                      value={bpsToPercentString(editingSupplier.default_discount_bps)}
+                      onChange={(event) => setEditingSupplier({ ...editingSupplier, default_discount_bps: percentStringToBps(event.target.value) ?? 0 })}
+                    />
+                  </Label>
                   <Label className="grid gap-1.5 md:col-span-3">
                     Notes
                     <Textarea value={editingSupplier.notes} onChange={(event) => setEditingSupplier({ ...editingSupplier, notes: event.target.value })} />
@@ -1687,6 +1847,7 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                       <TableHead>Supplier</TableHead>
                       <TableHead>SKU</TableHead>
                       <TableHead>Component</TableHead>
+                      <TableHead>Discount</TableHead>
                       <TableHead>Cost</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -1694,7 +1855,7 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                   <TableBody>
                     {itemSuppliers.length === 0 ? (
                       <TableRow>
-                        <TableCell className="text-muted-foreground" colSpan={6}>
+                        <TableCell className="text-muted-foreground" colSpan={7}>
                           No supplier sources linked yet.
                         </TableCell>
                       </TableRow>
@@ -1708,6 +1869,7 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                           <TableCell>{row.supplier_name}</TableCell>
                           <TableCell>{row.supplier_sku || '-'}</TableCell>
                           <TableCell>{row.price_component}</TableCell>
+                          <TableCell>{row.active_discount_bps === null ? '-' : `${bpsToPercentString(row.active_discount_bps)}%`}</TableCell>
                           <TableCell>
                             {row.active_unit_cost_cents === null
                               ? '-'

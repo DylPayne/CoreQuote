@@ -10,6 +10,10 @@ from corequote_api.authorization import Role
 
 
 UnitType = str
+QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
+QuoteReadinessStatus = Literal["ready", "needs_attention"]
+QuoteReadinessSeverity = Literal["pass", "warning", "error"]
+QuoteReadinessActionTarget = Literal["project", "quote", "units", "panels", "cutting-lists", "pricing", "outputs"]
 
 
 class HealthResponse(BaseModel):
@@ -192,12 +196,24 @@ class QuoteRequest(BaseModel):
     unit_defaults: dict[str, UnitDefaultsDimensions] = Field(default_factory=dict)
 
 
+class QuoteStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: QuoteStatus
+
+
 class QuoteResponse(QuoteRequest):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     company_id: str
     project_id: str
+    status: QuoteStatus = "draft"
+    quote_number: str
+    revision: int = Field(ge=1)
+    previous_revision_id: str | None = None
+    previous_revision_quote_number: str | None = None
+    previous_revision_revision: int | None = Field(default=None, ge=1)
     unit_count: int = Field(default=0, ge=0)
     custom_panels: "QuoteCustomPanelsRequest" = Field(default_factory=lambda: QuoteCustomPanelsRequest())
     created_at: datetime
@@ -211,7 +227,6 @@ class QuoteUnitRequest(BaseModel):
     height: int = Field(gt=0)
     width: int = Field(gt=0)
     depth: int = Field(gt=0)
-    thickness: int = Field(default=16, gt=0)
     carcass_board_type_id: str | None = None
     door_board_type_id: str | None = None
     extra_params: dict[str, Any] = Field(default_factory=dict)
@@ -224,6 +239,7 @@ class QuoteUnitResponse(QuoteUnitRequest):
     company_id: str
     quote_id: str
     unit_number: int = Field(ge=1)
+    thickness: int = Field(gt=0)
     created_at: datetime
     updated_at: datetime
 
@@ -327,7 +343,7 @@ class CutlistUnitRequest(BaseModel):
     height: int = Field(gt=0)
     width: int = Field(gt=0)
     depth: int = Field(gt=0)
-    thickness: int = Field(default=16, gt=0)
+    board_type_id: str = Field(min_length=1)
     extra_params: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -393,6 +409,26 @@ class QuoteCuttingListResponse(CutlistPreviewResponse):
     quote_id: str
 
 
+class QuoteReadinessCheckResponse(BaseModel):
+    id: str
+    severity: QuoteReadinessSeverity
+    title: str
+    message: str
+    action_label: str
+    action_target: QuoteReadinessActionTarget
+
+
+class QuoteReadinessResponse(BaseModel):
+    quote_id: str
+    status: QuoteReadinessStatus
+    is_ready: bool
+    summary_title: str
+    summary_message: str
+    warning_count: int = Field(ge=0)
+    error_count: int = Field(ge=0)
+    checks: list[QuoteReadinessCheckResponse] = Field(default_factory=list)
+
+
 class QuotePricingLineResponse(BaseModel):
     item_type: Literal[
         "board",
@@ -427,6 +463,37 @@ class PricingBucketTotalResponse(BaseModel):
     cost_total_cents: int = 0
     sell_total_cents: int = 0
     profit_cents: int = 0
+
+
+class MissingPriceResponse(BaseModel):
+    item_type: Literal[
+        "board",
+        "slide",
+        "hinge",
+        "handle",
+        "extra",
+        "labour",
+        "consumable",
+        "installation",
+        "delivery",
+        "adjustment",
+    ]
+    item_type_label: str
+    item_key: str
+    item_ref_id: str
+    price_component: str
+    component: str
+    bucket: str = "other"
+    item_name: str
+    uom: str
+    quantity: float
+    used_in: list[str] = Field(default_factory=list)
+    usage_label: str
+    affected_quote_id: str
+    affected_quote_name: str
+    library_area: str = "pricing"
+    action_label: str
+    message: str
 
 
 class PricingSettingsFields(BaseModel):
@@ -472,12 +539,19 @@ class QuotePricingSettingsResponse(PricingSettingsFields):
 class QuotePricingSummaryResponse(BaseModel):
     quote_id: str
     quote_name: str
+    quote_status: QuoteStatus = "draft"
+    quote_number: str
+    revision: int = Field(ge=1)
+    previous_revision_id: str | None = None
+    previous_revision_quote_number: str | None = None
+    previous_revision_revision: int | None = Field(default=None, ge=1)
     vat_rate_bps: int = Field(ge=0)
     markup_bps: int = Field(ge=0)
     pricing_settings: QuotePricingSettingsResponse
     is_complete: bool
     missing_items: list[str] = Field(default_factory=list)
     cutlist_warnings: list[CutlistValidationWarningResponse] = Field(default_factory=list)
+    missing_prices: list[MissingPriceResponse] = Field(default_factory=list)
     subtotal_cents: int = 0
     cost_total_cents: int = 0
     sell_before_vat_cents: int = 0
@@ -497,6 +571,7 @@ class ProjectPricingResponse(BaseModel):
     markup_bps: int = Field(ge=0)
     pricing_settings: ProjectPricingSettingsResponse
     is_complete: bool
+    missing_prices: list[MissingPriceResponse] = Field(default_factory=list)
     subtotal_cents: int = 0
     cost_total_cents: int = 0
     sell_before_vat_cents: int = 0
@@ -687,6 +762,7 @@ class SupplierRequest(BaseModel):
     email: str = Field(default="", max_length=320)
     phone: str = Field(default="", max_length=80)
     notes: str = Field(default="", max_length=1000)
+    default_discount_bps: int = Field(default=0, ge=0, le=10000)
 
 
 class SupplierResponse(SupplierRequest):
@@ -695,6 +771,27 @@ class SupplierResponse(SupplierRequest):
     id: str
     created_at: datetime
     updated_at: datetime
+
+
+class SupplierDiscountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    discount_bps: int = Field(default=0, ge=0, le=10000)
+    apply_to_active_costs: bool = True
+    source: str = Field(default="supplier-discount", min_length=1, max_length=80)
+    source_ref: str = Field(default="", max_length=240)
+    effective_from: datetime | None = Field(default=None)
+
+
+class SupplierDiscountResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    supplier_id: str
+    discount_bps: int = Field(ge=0, le=10000)
+    matched_item_supplier_count: int = Field(ge=0)
+    updated_cost_count: int = Field(ge=0)
+    unchanged_cost_count: int = Field(ge=0)
+    skipped_without_active_cost_count: int = Field(ge=0)
 
 
 class HandleRequest(BaseModel):

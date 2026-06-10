@@ -161,6 +161,17 @@ Always run the relevant tests before finishing. For changes to shared business l
 - Review diffs before finishing.
 - If generated files or local data change unexpectedly, investigate before including them.
 
+## GitHub Planning Source Of Truth
+
+- Treat GitHub Issues, Milestones, and the CoreQuote Product Roadmap project board as the product planning source of truth.
+- Before starting implementation work, inspect the relevant GitHub issue and project board item, confirm the issue is ready, and keep the work scoped to that issue unless the user explicitly changes scope.
+- Prefer working from one issue at a time. Use the issue acceptance criteria, real cabinetry test scenario, and definition of done as the implementation contract.
+- When creating branches, commits, PRs, and final updates for product work, reference the GitHub issue number and keep the issue/project status aligned with the work state when GitHub access is available.
+- After work has been completed for a roadmap issue, update the GitHub project board item before finishing: move its status, refresh any relevant fields, and leave a short issue or PR note if the outcome or next step is not obvious.
+- PR descriptions for implementation work should link the issue. When a PR fully satisfies an issue, use a GitHub closing keyword such as `Closes #123`, `Fixes #123`, or `Resolves #123` so the issue closes automatically when the PR is merged.
+- If GitHub access is unavailable and the project board cannot be updated, state that clearly in the final response and include the exact board or issue update that still needs to be made.
+- If local notes or repository planning files conflict with an active GitHub issue or project board item, stop and ask which source should win before implementing.
+
 ## Change Management
 
 - Keep changes scoped to the user request.

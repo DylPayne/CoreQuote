@@ -192,7 +192,11 @@ function App() {
             user={user}
           />
         ) : currentPage === 'projects' ? (
-          <ProjectsQuotesPage authToken={authToken} currencyCode={user.company_currency_code} />
+          <ProjectsQuotesPage
+            authToken={authToken}
+            currencyCode={user.company_currency_code}
+            onOpenLibraries={() => setCurrentPage('libraries')}
+          />
         ) : currentPage === 'libraries' ? (
           <LibrariesPage authToken={authToken} currencyCode={user.company_currency_code} />
         ) : currentPage === 'cutlist' ? (

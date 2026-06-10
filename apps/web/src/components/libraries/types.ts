@@ -55,6 +55,7 @@ export type SupplierRow = {
   email: string
   phone: string
   notes: string
+  default_discount_bps: number
   created_at: string
   updated_at: string
 }
@@ -150,6 +151,15 @@ export type GeneratePriceListSummary = {
   missing_price_count: number
 }
 
+export type SupplierDiscountSummary = {
+  supplier_id: string
+  discount_bps: number
+  matched_item_supplier_count: number
+  updated_cost_count: number
+  unchanged_cost_count: number
+  skipped_without_active_cost_count: number
+}
+
 export type BoardDraft = {
   brand: string
   material: string
@@ -183,6 +193,7 @@ export type SupplierDraft = {
   email: string
   phone: string
   notes: string
+  default_discount_percent: string
 }
 
 export type ItemSupplierDraft = {

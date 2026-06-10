@@ -7,11 +7,19 @@ import type {
   QuoteCustomPanelsState,
   QuoteDraft,
   QuoteRow,
+  QuoteStatus,
   UnitDefaults,
   UnitDraft,
   UnitPresetKey,
   UnitRow,
 } from './types'
+
+type QuoteRevisionMeta = {
+  quote_number: string
+  revision: number
+  previous_revision_quote_number: string | null
+  previous_revision_revision: number | null
+}
 
 export function formatCents(value: number | null, currencyCode = DEFAULT_CURRENCY_CODE): string {
   return formatCurrencyFromCents(value, currencyCode)
@@ -19,6 +27,21 @@ export function formatCents(value: number | null, currencyCode = DEFAULT_CURRENC
 
 export function formatPercentFromBps(bps: number): string {
   return `${(bps / 100).toFixed(2)}%`
+}
+
+export function quoteRevisionLabel(quote: Pick<QuoteRevisionMeta, 'quote_number' | 'revision'>): string {
+  return `${quote.quote_number} rev ${quote.revision}`
+}
+
+export function previousQuoteRevisionLabel(quote: QuoteRevisionMeta): string | null {
+  if (!quote.previous_revision_quote_number || !quote.previous_revision_revision) return null
+  return `From ${quote.previous_revision_quote_number} rev ${quote.previous_revision_revision}`
+}
+
+export function quoteStatusBadgeVariant(status: QuoteStatus): 'outline' | 'success' | 'warning' {
+  if (status === 'accepted') return 'success'
+  if (status === 'rejected' || status === 'expired') return 'warning'
+  return 'outline'
 }
 
 export function resolvedUnitType(draft: UnitDraft): string {
@@ -36,7 +59,6 @@ export function unitPayloadFromDraft(draft: UnitDraft) {
     height: parsePositiveInteger(draft.height, 780),
     width: parsePositiveInteger(draft.width, 600),
     depth: parsePositiveInteger(draft.depth, 580),
-    thickness: parsePositiveInteger(draft.thickness, 16),
     carcass_board_type_id: optionalId(draft.carcass_board_type_id),
     door_board_type_id: optionalId(draft.door_board_type_id),
     extra_params: isDrawer

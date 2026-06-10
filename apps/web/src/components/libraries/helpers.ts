@@ -1,4 +1,4 @@
-import type { BoardDraft, BoardTypeRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideRow, SupplierDraft } from './types'
+import type { BoardDraft, BoardTypeRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
 export { formatCurrencyFromCents } from '@/lib/currency'
 
 export function formatBoardLabel(row: BoardTypeRow) {
@@ -37,8 +37,19 @@ export function bpsToPercentString(bps: number) {
 
 export function percentStringToBps(value: string): number | null {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed < 0) return null
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null
   return Math.round(parsed * 100)
+}
+
+export function calculateDiscountedCostCents(listPriceCents: number, discountBps: number) {
+  return Math.round(listPriceCents * (1 - discountBps / 10000))
+}
+
+export function calculateDiscountedAmountString(listPriceAmount: string, discountPercent: string) {
+  const listPriceCents = amountStringToCents(listPriceAmount)
+  const discountBps = percentStringToBps(discountPercent)
+  if (listPriceCents === null || discountBps === null) return null
+  return centsToAmountString(calculateDiscountedCostCents(listPriceCents, discountBps))
 }
 
 export function parsePositiveInteger(value: string) {
@@ -115,9 +126,16 @@ export function buildHingePayload(draft: HingeDraft) {
   }
 }
 
-export function buildSupplierPayload(draft: SupplierDraft) {
+export function buildSupplierPayload(draft: SupplierDraft | SupplierRow) {
   const name = draft.name.trim()
+  const default_discount_bps =
+    'default_discount_percent' in draft
+      ? percentStringToBps(draft.default_discount_percent)
+      : draft.default_discount_bps
   if (!name) {
+    return null
+  }
+  if (default_discount_bps === null || default_discount_bps < 0 || default_discount_bps > 10000) {
     return null
   }
   return {
@@ -127,6 +145,7 @@ export function buildSupplierPayload(draft: SupplierDraft) {
     email: draft.email.trim(),
     phone: draft.phone.trim(),
     notes: draft.notes.trim(),
+    default_discount_bps,
   }
 }
 

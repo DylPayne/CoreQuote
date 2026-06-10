@@ -207,10 +207,10 @@ type CutlistTesterDraft = {
   unitType: UnitType
   customUnitType: string
   useCustomUnitType: boolean
+  boardTypeId: string
   height: string
   width: string
   depth: string
-  thickness: string
   parameterValues: Record<string, string>
 }
 
@@ -237,6 +237,15 @@ type SlideLibraryRow = {
   side_length: number
   side_clearance_total: number
   side_height_uplift: number
+}
+
+type BoardLibraryRow = {
+  id: string
+  brand: string
+  material: string
+  thickness: number
+  length_mm: number
+  width_mm: number
 }
 
 type NewUnitTypeDraft = {
@@ -1434,6 +1443,8 @@ function CutlistGeneratorTester({
   const [isGenerating, setIsGenerating] = useState(false)
   const [preview, setPreview] = useState<CutlistPreviewResponse | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const [boards, setBoards] = useState<BoardLibraryRow[]>([])
+  const [boardsError, setBoardsError] = useState<string | null>(null)
   const [slides, setSlides] = useState<SlideLibraryRow[]>([])
   const [slidesError, setSlidesError] = useState<string | null>(null)
 
@@ -1448,6 +1459,18 @@ function CutlistGeneratorTester({
 
   useEffect(() => {
     let isCurrent = true
+    async function loadBoards() {
+      setBoardsError(null)
+      try {
+        const response = await apiRequest<BoardLibraryRow[]>('/api/v1/libraries/boards', { token: authToken })
+        if (!isCurrent) return
+        setBoards(response)
+        setDraft((current) => (current.boardTypeId || !response[0] ? current : { ...current, boardTypeId: response[0].id }))
+      } catch (error) {
+        if (!isCurrent) return
+        setBoardsError(error instanceof Error ? error.message : 'Could not load board types.')
+      }
+    }
     async function loadSlides() {
       setSlidesError(null)
       try {
@@ -1459,6 +1482,7 @@ function CutlistGeneratorTester({
         setSlidesError(error instanceof Error ? error.message : 'Could not load slide profiles.')
       }
     }
+    loadBoards()
     loadSlides()
     return () => {
       isCurrent = false
@@ -1478,7 +1502,9 @@ function CutlistGeneratorTester({
         )
         const resolvedCurrentUnitType = current.useCustomUnitType ? current.customUnitType : current.unitType
         const resolvedSelectedUnitType = selected.useCustomUnitType ? selected.customUnitType : selected.unitType
-        return resolvedCurrentUnitType === resolvedSelectedUnitType ? current : selected
+        return resolvedCurrentUnitType === resolvedSelectedUnitType
+          ? current
+          : { ...selected, boardTypeId: current.boardTypeId }
       })
     }, 0)
     return () => window.clearTimeout(handle)
@@ -1546,6 +1572,7 @@ function CutlistGeneratorTester({
       return {
         ...current,
         ...resolveCutlistTesterDefaults(defaultsForType, unitConfigs, unitParameterDefinitionsByType),
+        boardTypeId: current.boardTypeId,
       }
     })
   }
@@ -1556,7 +1583,7 @@ function CutlistGeneratorTester({
     setIsGenerating(true)
     try {
       const response = await apiRequest<CutlistPreviewResponse>('/api/v1/cutlists/preview', {
-        body: buildCutlistPreviewPayload(draft, activeParameterDefinitions, slides),
+        body: buildCutlistPreviewPayload(draft, activeParameterDefinitions, boards, slides),
         method: 'POST',
         token: authToken,
       })
@@ -1650,13 +1677,19 @@ function CutlistGeneratorTester({
               />
             </Label>
             <Label className="grid gap-1.5">
-              Thickness (mm)
-              <Input
-                min={1}
-                onChange={(event) => updateDraftField('thickness', event.target.value)}
-                type="number"
-                value={draft.thickness}
-              />
+              Carcass board
+              <Select
+                onChange={(event) => updateDraftField('boardTypeId', event.target.value)}
+                required
+                value={draft.boardTypeId}
+              >
+                <option value="">Select board type</option>
+                {boards.map((board) => (
+                  <option key={board.id} value={board.id}>
+                    {formatBoardOptionLabel(board)}
+                  </option>
+                ))}
+              </Select>
             </Label>
             {activeParameterDefinitions.map((definition) => (
               <Label className="grid gap-1.5" key={definition.id}>
@@ -1812,6 +1845,7 @@ function CutlistGeneratorTester({
           </div>
         </form>
 
+        {boardsError ? <Alert variant="destructive">{boardsError}</Alert> : null}
         {slidesError ? <Alert variant="destructive">{slidesError}</Alert> : null}
         {previewError ? <Alert variant="destructive">{previewError}</Alert> : null}
 
@@ -2147,10 +2181,10 @@ function resolveCutlistTesterDefaults(
 
   return {
     unitNumber: '1',
+    boardTypeId: '',
     height: String(config?.default_height ?? 780),
     width: String(config?.default_width ?? 600),
     depth: String(config?.default_depth ?? 560),
-    thickness: '16',
     parameterValues,
   }
 }
@@ -2184,10 +2218,12 @@ function findUnitConfigForType(unitType: string, unitConfigs: UnitConfigResponse
 function buildCutlistPreviewPayload(
   draft: CutlistTesterDraft,
   parameterDefinitions: UnitParameterDefinition[],
+  boards: BoardLibraryRow[],
   slides: SlideLibraryRow[],
 ) {
   const extraParams: Record<string, number | boolean> = {}
   const resolvedUnitType = draft.useCustomUnitType ? (draft.customUnitType.trim() || 'Custom Unit') : draft.unitType
+  const selectedBoard = boards.find((board) => board.id === draft.boardTypeId)
 
   for (const definition of parameterDefinitions) {
     const parameterKey = sanitizeParameterKey(definition.key)
@@ -2219,11 +2255,15 @@ function buildCutlistPreviewPayload(
         height: parsePositiveInteger(draft.height, 780),
         width: parsePositiveInteger(draft.width, 600),
         depth: parsePositiveInteger(draft.depth, 560),
-        thickness: parsePositiveInteger(draft.thickness, 16),
+        board_type_id: selectedBoard?.id ?? '',
         extra_params: extraParams,
       },
     ],
   }
+}
+
+function formatBoardOptionLabel(board: BoardLibraryRow): string {
+  return `${board.brand} ${board.material} (${board.thickness}mm)`
 }
 
 function parseOptionalNonNegativeInteger(value: string): number | null {

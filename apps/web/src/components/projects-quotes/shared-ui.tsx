@@ -120,17 +120,21 @@ export function LibrarySelect({
   options,
   onChange,
   value,
+  placeholder = 'None',
+  required = false,
 }: {
   label: string
   options: Array<{ value: string; label: string }>
   onChange: (value: string) => void
   value: string
+  placeholder?: string
+  required?: boolean
 }) {
   return (
     <Label className="grid gap-1.5">
       {label}
-      <Select onChange={(event) => onChange(event.target.value)} value={value}>
-        <option value="">None</option>
+      <Select onChange={(event) => onChange(event.target.value)} required={required} value={value}>
+        <option value="">{placeholder}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

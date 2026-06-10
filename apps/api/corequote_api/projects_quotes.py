@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,6 +10,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from corequote_core.detailed_pricing import DetailedPricingSettings
+from corequote_core.quote_readiness import evaluate_quote_readiness
 from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes_errors import (
     WorkspaceConflict,
@@ -21,6 +23,7 @@ from corequote_api.projects_quotes_payloads import (
     _clean_project_payload,
     _clean_quote_extras_items,
     _clean_quote_payload,
+    _clean_quote_status,
     _clean_unit_payload,
     _is_enabled,
 )
@@ -50,6 +53,20 @@ QUOTE_SELECT = """
     q.project_id::text,
     q.name,
     q.notes,
+    q.status,
+    q.quote_number,
+    q.revision,
+    q.previous_revision_id::text,
+    (
+        SELECT prev.quote_number
+        FROM quotes prev
+        WHERE prev.id = q.previous_revision_id
+    ) AS previous_revision_quote_number,
+    (
+        SELECT prev.revision
+        FROM quotes prev
+        WHERE prev.id = q.previous_revision_id
+    ) AS previous_revision_revision,
     q.default_carcass_board_type_id::text,
     q.default_door_board_type_id::text,
     q.default_panel_board_type_id::text,
@@ -81,7 +98,24 @@ UNIT_SELECT = """
     u.height,
     u.width,
     u.depth,
-    u.thickness,
+    COALESCE(
+        (
+            SELECT bt.thickness
+            FROM board_types bt
+            WHERE bt.company_id = u.company_id
+              AND bt.id = u.carcass_board_type_id
+        ),
+        (
+            SELECT default_bt.thickness
+            FROM quotes uq
+            JOIN board_types default_bt
+              ON default_bt.company_id = uq.company_id
+             AND default_bt.id = uq.default_carcass_board_type_id
+            WHERE uq.company_id = u.company_id
+              AND uq.id = u.quote_id
+        ),
+        u.thickness
+    )::int AS thickness,
     u.carcass_board_type_id::text,
     u.door_board_type_id::text,
     u.extra_params,
@@ -115,6 +149,13 @@ def _default_pricing_settings() -> dict[str, int]:
     return {field: int(getattr(defaults, field)) for field in PRICING_SETTINGS_COLUMNS}
 
 
+def _quote_revision_name(name: str, revision: int) -> str:
+    trimmed = name.strip() or "Quote"
+    if re.search(r"\bv\d+\b$", trimmed, flags=re.IGNORECASE):
+        return re.sub(r"\bv\d+\b$", f"v{revision}", trimmed, flags=re.IGNORECASE)
+    return f"{trimmed} v{revision}"
+
+
 def _pricing_settings_values(payload: dict[str, Any]) -> dict[str, int]:
     defaults = _default_pricing_settings()
     return {
@@ -123,8 +164,8 @@ def _pricing_settings_values(payload: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _clean_pricing_settings_payload(payload: dict[str, Any]) -> dict[str, int]:
-    defaults = _default_pricing_settings()
+def _clean_pricing_settings_payload(payload: dict[str, Any], *, defaults: dict[str, int] | None = None) -> dict[str, int]:
+    defaults = defaults or _default_pricing_settings()
     cleaned: dict[str, int] = {}
     for field in PRICING_SETTINGS_COLUMNS:
         value = payload.get(field, defaults[field])
@@ -264,10 +305,11 @@ class WorkspaceStore:
             return self._get_project_pricing_settings_response(conn, company_id, project_id, project)
 
     def update_project_pricing_settings(self, company_id: str, project_id: str, payload: dict[str, Any]) -> dict:
-        data = _clean_pricing_settings_payload(payload)
         with self._connect() as conn:
             with conn.transaction():
                 self._ensure_project_visible(conn, company_id, project_id)
+                current = self._get_project_pricing_settings(conn, company_id, project_id)
+                data = _clean_pricing_settings_payload({**current, **payload}, defaults=current)
                 row = self._upsert_project_pricing_settings(conn, company_id, project_id, data)
         return row
 
@@ -296,6 +338,7 @@ class WorkspaceStore:
                 self._ensure_project_visible(conn, company_id, project_id)
                 self._validate_quote_defaults(conn, company_id, data)
                 project_pricing_settings = self._get_project_pricing_settings(conn, company_id, project_id)
+                quote_number = self._next_quote_number(conn, company_id, project_id)
                 row = conn.execute(
                     """
                     INSERT INTO quotes (
@@ -303,6 +346,9 @@ class WorkspaceStore:
                         project_id,
                         name,
                         notes,
+                        status,
+                        quote_number,
+                        revision,
                         default_carcass_board_type_id,
                         default_door_board_type_id,
                         default_panel_board_type_id,
@@ -314,7 +360,7 @@ class WorkspaceStore:
                         default_drawer_handle_id,
                         unit_defaults
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id::text
                     """,
                     (
@@ -322,6 +368,9 @@ class WorkspaceStore:
                         project_id,
                         data["name"],
                         data["notes"],
+                        "draft",
+                        quote_number,
+                        1,
                         data["default_carcass_board_type_id"],
                         data["default_door_board_type_id"],
                         data["default_panel_board_type_id"],
@@ -362,6 +411,11 @@ class WorkspaceStore:
             with conn.transaction():
                 self._ensure_quote_visible(conn, company_id, quote_id)
                 self._validate_quote_defaults(conn, company_id, data)
+                default_carcass_thickness = self._board_thickness_for_id(
+                    conn,
+                    company_id,
+                    data["default_carcass_board_type_id"],
+                )
                 row = conn.execute(
                     """
                     UPDATE quotes
@@ -398,9 +452,145 @@ class WorkspaceStore:
                         quote_id,
                     ),
                 ).fetchone()
+                if default_carcass_thickness is not None:
+                    conn.execute(
+                        """
+                        UPDATE quote_units
+                        SET thickness = %s
+                        WHERE company_id = %s
+                          AND quote_id = %s
+                          AND carcass_board_type_id IS NULL
+                        """,
+                        (default_carcass_thickness, company_id, quote_id),
+                    )
         if not row:
             raise WorkspaceNotFound("Quote not found")
         return self.get_quote(company_id, quote_id)
+
+    def update_quote_status(self, company_id: str, quote_id: str, status: str) -> dict:
+        cleaned_status = _clean_quote_status(status)
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE quotes
+                SET status = %s
+                WHERE company_id = %s
+                  AND id = %s
+                RETURNING id::text
+                """,
+                (cleaned_status, company_id, quote_id),
+            ).fetchone()
+        if not row:
+            raise WorkspaceNotFound("Quote not found")
+        return self.get_quote(company_id, quote_id)
+
+    def create_quote_revision(self, company_id: str, quote_id: str) -> dict:
+        with self._connect() as conn:
+            with conn.transaction():
+                source = self._get_quote_revision_source(conn, company_id, quote_id)
+                next_revision = self._next_quote_revision(
+                    conn,
+                    company_id,
+                    source["project_id"],
+                    source["quote_number"],
+                )
+                source_pricing_settings = self._get_quote_pricing_settings_response(conn, company_id, source["id"], source)
+                row = conn.execute(
+                    """
+                    INSERT INTO quotes (
+                        company_id,
+                        project_id,
+                        name,
+                        notes,
+                        status,
+                        quote_number,
+                        revision,
+                        previous_revision_id,
+                        default_carcass_board_type_id,
+                        default_door_board_type_id,
+                        default_panel_board_type_id,
+                        default_slide_id,
+                        default_hinge_id,
+                        default_base_handle_id,
+                        default_wall_handle_id,
+                        default_tall_handle_id,
+                        default_drawer_handle_id,
+                        unit_defaults,
+                        custom_panels
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id::text
+                    """,
+                    (
+                        company_id,
+                        source["project_id"],
+                        _quote_revision_name(source["name"], next_revision),
+                        source["notes"],
+                        "draft",
+                        source["quote_number"],
+                        next_revision,
+                        source["id"],
+                        source["default_carcass_board_type_id"],
+                        source["default_door_board_type_id"],
+                        source["default_panel_board_type_id"],
+                        source["default_slide_id"],
+                        source["default_hinge_id"],
+                        source["default_base_handle_id"],
+                        source["default_wall_handle_id"],
+                        source["default_tall_handle_id"],
+                        source["default_drawer_handle_id"],
+                        Jsonb(source["unit_defaults"]),
+                        Jsonb(source["custom_panels"]),
+                    ),
+                ).fetchone()
+                new_quote_id = row["id"]
+                conn.execute(
+                    """
+                    INSERT INTO quote_units (
+                        company_id,
+                        quote_id,
+                        unit_number,
+                        unit_type_key,
+                        height,
+                        width,
+                        depth,
+                        thickness,
+                        carcass_board_type_id,
+                        door_board_type_id,
+                        extra_params
+                    )
+                    SELECT
+                        company_id,
+                        %s,
+                        unit_number,
+                        unit_type_key,
+                        height,
+                        width,
+                        depth,
+                        thickness,
+                        carcass_board_type_id,
+                        door_board_type_id,
+                        extra_params
+                    FROM quote_units
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    ORDER BY unit_number ASC, created_at ASC
+                    """,
+                    (new_quote_id, company_id, quote_id),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
+                    SELECT company_id, %s, extra_id, quantity
+                    FROM quote_extras
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (new_quote_id, company_id, quote_id),
+                )
+                self._insert_quote_pricing_settings(conn, company_id, new_quote_id, source_pricing_settings)
+        return self.get_quote(company_id, new_quote_id)
 
     def delete_quote(self, company_id: str, quote_id: str) -> None:
         with self._connect() as conn:
@@ -422,10 +612,11 @@ class WorkspaceStore:
             return self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
 
     def update_quote_pricing_settings(self, company_id: str, quote_id: str, payload: dict[str, Any]) -> dict:
-        data = _clean_pricing_settings_payload(payload)
         with self._connect() as conn:
             with conn.transaction():
-                self._ensure_quote_visible(conn, company_id, quote_id)
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
+                current = self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
+                data = _clean_pricing_settings_payload({**current, **payload}, defaults=_pricing_settings_values(current))
                 row = self._upsert_quote_pricing_settings(conn, company_id, quote_id, data)
         return row
 
@@ -447,8 +638,9 @@ class WorkspaceStore:
         data = _clean_unit_payload(payload)
         with self._connect() as conn:
             with conn.transaction():
-                self._ensure_quote_visible(conn, company_id, quote_id)
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
                 self._validate_unit_defaults(conn, company_id, data)
+                thickness = self._resolve_unit_thickness(conn, company_id, quote, data)
                 next_number_row = conn.execute(
                     """
                     SELECT COALESCE(MAX(unit_number), 0) + 1 AS next_unit_number
@@ -484,7 +676,7 @@ class WorkspaceStore:
                         data["height"],
                         data["width"],
                         data["depth"],
-                        data["thickness"],
+                        thickness,
                         data["carcass_board_type_id"],
                         data["door_board_type_id"],
                         Jsonb(data["extra_params"]),
@@ -512,8 +704,9 @@ class WorkspaceStore:
         data = _clean_unit_payload(payload)
         with self._connect() as conn:
             with conn.transaction():
-                self._ensure_quote_visible(conn, company_id, quote_id)
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
                 self._validate_unit_defaults(conn, company_id, data)
+                thickness = self._resolve_unit_thickness(conn, company_id, quote, data)
                 row = conn.execute(
                     """
                     UPDATE quote_units
@@ -535,7 +728,7 @@ class WorkspaceStore:
                         data["height"],
                         data["width"],
                         data["depth"],
-                        data["thickness"],
+                        thickness,
                         data["carcass_board_type_id"],
                         data["door_board_type_id"],
                         Jsonb(data["extra_params"]),
@@ -606,6 +799,88 @@ class WorkspaceStore:
             use_rulesets=use_rulesets,
             board_lookup=lookups["boards"],
             slide_lookup=lookups["slides"],
+        )
+
+    def get_quote_readiness(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict:
+        quote = self.get_quote(company_id, quote_id)
+        project = self.get_project(company_id, quote["project_id"])
+        units = self.list_units(company_id, quote_id)
+        use_rulesets = _is_enabled("CUTLIST_USE_DB_RULESETS")
+
+        with self._connect() as conn:
+            quote_settings = self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
+            active_price_list_id = self._get_active_price_list_id(conn, company_id)
+            price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id)
+            lookups = self._load_company_item_lookups(conn, company_id)
+            try:
+                quote_extras = conn.execute(
+                    """
+                    SELECT quote_id::text, extra_id::text, quantity
+                    FROM quote_extras
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (company_id, quote_id),
+                ).fetchall()
+            except psycopg.errors.UndefinedTable:
+                quote_extras = []
+
+        cutting_list = None
+        cutting_error = None
+        try:
+            cutting_list = _build_cutting_list_preview(
+                company_id=company_id,
+                quote=quote,
+                units=units,
+                runtime_service=runtime_service,
+                use_rulesets=use_rulesets,
+                board_lookup=lookups["boards"],
+                slide_lookup=lookups["slides"],
+            )
+        except WorkspaceValidationError as exc:
+            cutting_error = str(exc)
+
+        pricing_summary = None
+        pricing_error = None
+        if cutting_error is None:
+            try:
+                pricing_summary = _price_quote(
+                    quote=quote,
+                    units=units,
+                    quote_extras=quote_extras,
+                    runtime_service=runtime_service,
+                    company_id=company_id,
+                    use_rulesets=use_rulesets,
+                    price_lookup=price_lookup,
+                    board_lookup=lookups["boards"],
+                    slide_lookup=lookups["slides"],
+                    hinge_lookup=lookups["hinges"],
+                    handle_lookup=lookups["handles"],
+                    extra_lookup=lookups["extras"],
+                    active_price_list_id=active_price_list_id,
+                    pricing_settings=quote_settings,
+                )
+            except WorkspaceValidationError as exc:
+                pricing_error = str(exc)
+        else:
+            pricing_error = cutting_error
+
+        return evaluate_quote_readiness(
+            quote=quote,
+            project=project,
+            units=units,
+            cutting_list=cutting_list,
+            pricing_summary=pricing_summary,
+            active_price_list_id=active_price_list_id,
+            cutting_error=cutting_error,
+            pricing_error=pricing_error,
         )
 
     def get_quote_custom_panels(self, company_id: str, quote_id: str) -> dict:
@@ -777,6 +1052,12 @@ class WorkspaceStore:
             summary["vat_rate_bps"] = int(quote_settings["vat_rate_bps"])
             summary["markup_bps"] = int(quote_settings["default_markup_bps"])
             summary["pricing_settings"] = quote_settings
+            summary["quote_status"] = quote["status"]
+            summary["quote_number"] = quote["quote_number"]
+            summary["revision"] = int(quote["revision"])
+            summary["previous_revision_id"] = quote.get("previous_revision_id")
+            summary["previous_revision_quote_number"] = quote.get("previous_revision_quote_number")
+            summary["previous_revision_revision"] = quote.get("previous_revision_revision")
             quote_summaries.append(summary)
 
         subtotal_cents = sum(int(row["subtotal_cents"]) for row in quote_summaries)
@@ -789,6 +1070,11 @@ class WorkspaceStore:
             for row in quote_summaries
         )
         bucket_totals = _sum_bucket_totals(quote_summaries)
+        missing_prices = [
+            missing_price
+            for quote_summary in quote_summaries
+            for missing_price in quote_summary.get("missing_prices", []) or []
+        ]
         is_complete = bool(active_price_list_id) and all(bool(row["is_complete"]) for row in quote_summaries)
 
         return {
@@ -800,6 +1086,7 @@ class WorkspaceStore:
             "markup_bps": int(project_pricing_settings["default_markup_bps"]),
             "pricing_settings": project_pricing_settings,
             "is_complete": is_complete,
+            "missing_prices": missing_prices,
             "subtotal_cents": subtotal_cents,
             "cost_total_cents": cost_total_cents,
             "sell_before_vat_cents": sell_before_vat_cents,
@@ -809,6 +1096,75 @@ class WorkspaceStore:
             "bucket_totals": bucket_totals,
             "quotes": quote_summaries,
         }
+
+    def _next_quote_number(self, conn, company_id: str, project_id: str) -> str:
+        row = conn.execute(
+            """
+            SELECT COALESCE(
+                MAX(
+                    CASE
+                        WHEN quote_number ~ '^Q-[0-9]+$'
+                        THEN substring(quote_number FROM 3)::int
+                        ELSE 0
+                    END
+                ),
+                0
+            ) + 1 AS next_number
+            FROM quotes
+            WHERE company_id = %s
+              AND project_id = %s
+            """,
+            (company_id, project_id),
+        ).fetchone()
+        return f"Q-{int(row['next_number']):03d}"
+
+    def _next_quote_revision(self, conn, company_id: str, project_id: str, quote_number: str) -> int:
+        row = conn.execute(
+            """
+            SELECT COALESCE(MAX(revision), 0) + 1 AS next_revision
+            FROM quotes
+            WHERE company_id = %s
+              AND project_id = %s
+              AND quote_number = %s
+            """,
+            (company_id, project_id, quote_number),
+        ).fetchone()
+        return int(row["next_revision"])
+
+    def _get_quote_revision_source(self, conn, company_id: str, quote_id: str) -> dict:
+        row = conn.execute(
+            """
+            SELECT
+                id::text,
+                company_id::text,
+                project_id::text,
+                name,
+                notes,
+                status,
+                quote_number,
+                revision,
+                default_carcass_board_type_id::text,
+                default_door_board_type_id::text,
+                default_panel_board_type_id::text,
+                default_slide_id::text,
+                default_hinge_id::text,
+                default_base_handle_id::text,
+                default_wall_handle_id::text,
+                default_tall_handle_id::text,
+                default_drawer_handle_id::text,
+                unit_defaults,
+                custom_panels,
+                created_at,
+                updated_at
+            FROM quotes
+            WHERE company_id = %s
+              AND id = %s
+            """,
+            (company_id, quote_id),
+        ).fetchone()
+        if not row:
+            raise WorkspaceNotFound("Quote not found")
+        return row
 
     def _get_company_currency_code(self, conn, company_id: str) -> str:
         row = conn.execute(
@@ -1117,6 +1473,29 @@ class WorkspaceStore:
             "Unit door board",
         )
 
+    def _resolve_unit_thickness(self, conn, company_id: str, quote: dict[str, Any], data: dict[str, Any]) -> int:
+        board_id = data["carcass_board_type_id"] or quote.get("default_carcass_board_type_id")
+        thickness = self._board_thickness_for_id(conn, company_id, board_id)
+        if thickness is None:
+            raise WorkspaceValidationError("Unit carcass board is required to determine thickness")
+        return thickness
+
+    def _board_thickness_for_id(self, conn, company_id: str, board_id: str | None) -> int | None:
+        if not board_id:
+            return None
+        row = conn.execute(
+            """
+            SELECT thickness
+            FROM board_types
+            WHERE company_id = %s
+              AND id = %s
+            """,
+            (company_id, board_id),
+        ).fetchone()
+        if not row:
+            raise WorkspaceValidationError("Unit carcass board is not visible for this company")
+        return int(row["thickness"])
+
     def _validate_quote_extras(self, conn, company_id: str, items: list[dict[str, Any]]) -> None:
         if not items:
             return
@@ -1185,7 +1564,12 @@ class WorkspaceStore:
     def _ensure_quote_visible(self, conn, company_id: str, quote_id: str) -> dict:
         row = conn.execute(
             """
-            SELECT id::text, project_id::text, created_at, updated_at
+            SELECT
+                id::text,
+                project_id::text,
+                default_carcass_board_type_id::text,
+                created_at,
+                updated_at
             FROM quotes
             WHERE company_id = %s
               AND id = %s

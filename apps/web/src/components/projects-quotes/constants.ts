@@ -1,7 +1,20 @@
-import type { PanelPresetKey, ProjectDraft, QuoteDraft, UnitDefaults, UnitDraft, UnitPresetKey } from './types'
+import type { PanelPresetKey, ProjectDraft, QuoteDraft, QuoteStatus, UnitDefaults, UnitDraft, UnitPresetKey } from './types'
 
 export const unitPresets: UnitPresetKey[] = ['Base Draw', 'Base Door', 'Wall Door', 'Tall Door']
 export const customUnitTypeValue = '__custom_unit_type__'
+export const quoteStatusOptions: Array<{ value: QuoteStatus; label: string }> = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'ready', label: 'Ready' },
+  { value: 'sent', label: 'Sent' },
+  { value: 'accepted', label: 'Accepted' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'revised', label: 'Revised' },
+  { value: 'expired', label: 'Expired' },
+]
+export const quoteStatusLabels: Record<QuoteStatus, string> = quoteStatusOptions.reduce(
+  (accumulator, option) => ({ ...accumulator, [option.value]: option.label }),
+  {} as Record<QuoteStatus, string>,
+)
 export const panelPresetKeys: PanelPresetKey[] = [
   'base_side_panel',
   'base_side_filler',
@@ -69,7 +82,6 @@ export const defaultUnitDraft: UnitDraft = {
   height: String(fallbackUnitDefaults['Base Draw'].height),
   width: '600',
   depth: String(fallbackUnitDefaults['Base Draw'].depth),
-  thickness: '16',
   carcass_board_type_id: '',
   door_board_type_id: '',
   num_drawers: '3',

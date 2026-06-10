@@ -99,13 +99,55 @@ Resource: `suppliers`
   "contact_name": "Sales",
   "email": "sales@example.com",
   "phone": "",
-  "notes": ""
+  "notes": "",
+  "default_discount_bps": 3000
 }
 ```
 
 Suppliers represent the company/distributor an item is bought from. They are
 separate from product brands. For example, a Grass Dynapro slide has product
 brand `Grass` and supplier `Grass ZA`.
+
+`default_discount_bps` stores the supplier's default discount in basis points.
+`3000` means `30.00%`. The frontend uses this value as the default discount
+when adding new supplier item costs.
+
+To set a supplier discount and optionally apply it to every active cost row for
+that supplier:
+
+```http
+POST /api/v1/libraries/suppliers/{supplier_id}/discount
+```
+
+Request:
+
+```json
+{
+  "discount_bps": 3000,
+  "apply_to_active_costs": true,
+  "source": "supplier-discount",
+  "source_ref": "libraries-ui",
+  "effective_from": null
+}
+```
+
+Response:
+
+```json
+{
+  "supplier_id": "supplier-uuid",
+  "discount_bps": 3000,
+  "matched_item_supplier_count": 12,
+  "updated_cost_count": 10,
+  "unchanged_cost_count": 2,
+  "skipped_without_active_cost_count": 0
+}
+```
+
+When `apply_to_active_costs` is `true`, existing active supplier costs are
+versioned. The old active cost receives `effective_to`, and the replacement cost
+keeps the same list price and currency while recalculating `unit_cost_cents`
+from the new discount.
 
 ### Handles
 

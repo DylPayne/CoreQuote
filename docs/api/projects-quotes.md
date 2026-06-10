@@ -22,6 +22,7 @@ All rows are scoped to `current_user.company_id`.
 - Project create/update/delete: `projects:write`
 - Quote and unit read: `quotes:read`
 - Quote and unit create/update/delete: `quotes:write`
+- Quote readiness read: `quotes:read`
 - Project pricing summary read: `pricing:read`
 - Project and quote pricing settings read: `pricing:read`
 - Project and quote pricing settings update: `pricing:update`
@@ -78,6 +79,8 @@ GET   /api/v1/projects/{project_id}/quotes
 POST  /api/v1/projects/{project_id}/quotes
 GET   /api/v1/quotes/{quote_id}
 PATCH /api/v1/quotes/{quote_id}
+PATCH /api/v1/quotes/{quote_id}/status
+POST  /api/v1/quotes/{quote_id}/revisions
 DELETE /api/v1/quotes/{quote_id}
 ```
 
@@ -105,7 +108,56 @@ Request payload (`POST` / `PATCH`):
 }
 ```
 
-Quote responses include `unit_count` so UIs can render quote cards without extra unit queries.
+Quote responses include `unit_count`, status, quote number, and revision fields so UIs can render quote cards without extra unit queries:
+
+```json
+{
+  "id": "quote-uuid",
+  "company_id": "company-uuid",
+  "project_id": "project-uuid",
+  "name": "Kitchen Quote v1",
+  "notes": "Client wants matte white doors",
+  "status": "sent",
+  "quote_number": "Q-001",
+  "revision": 1,
+  "previous_revision_id": null,
+  "previous_revision_quote_number": null,
+  "previous_revision_revision": null,
+  "unit_count": 5,
+  "created_at": "2026-06-01T10:30:00Z",
+  "updated_at": "2026-06-01T10:30:00Z"
+}
+```
+
+Status values:
+
+- `draft`: The quote is still being prepared and is safe to edit.
+- `ready`: The quote is ready for review or sending.
+- `sent`: The quote has been sent to the client.
+- `accepted`: The client has accepted this quote.
+- `rejected`: The client has rejected this quote.
+- `revised`: The quote has been superseded by later client changes.
+- `expired`: The quote is no longer valid.
+
+`POST /api/v1/projects/{project_id}/quotes` creates quotes as `draft`, with the next project quote number and revision `1`.
+
+Status update payload:
+
+```json
+{
+  "status": "ready"
+}
+```
+
+Status changes are permissive in this version so cabinetmakers can reflect the real job conversation without workflow lock-in.
+
+Creating a revision:
+
+```http
+POST /api/v1/quotes/{quote_id}/revisions
+```
+
+The API copies the source quote header, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
 
 ## Quote Units
 
@@ -124,7 +176,6 @@ Request payload (`POST` / `PATCH`):
   "height": 780,
   "width": 900,
   "depth": 580,
-  "thickness": 16,
   "carcass_board_type_id": "board-uuid",
   "door_board_type_id": "board-uuid",
   "extra_params": {
@@ -132,6 +183,8 @@ Request payload (`POST` / `PATCH`):
   }
 }
 ```
+
+`thickness` is not accepted in unit create/update requests. The API resolves it from the unit `carcass_board_type_id`, falling back to the quote `default_carcass_board_type_id` when the unit does not override the carcass board. An effective carcass board is required.
 
 Response shape:
 
@@ -214,6 +267,80 @@ Response shape:
 ```
 
 Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, and on rows that cannot be tied to a usable board/material choice. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
+
+## Quote Readiness
+
+```http
+GET /api/v1/quotes/{quote_id}/readiness
+```
+
+Permission: `quotes:read`
+
+This endpoint runs a live readiness checklist from the current quote, project,
+units, board selections, cutting-list output, price list, and quote totals. It
+returns business-facing check messages and stable check IDs/actions that can be
+reused by future export or send buttons.
+
+Response shape:
+
+```json
+{
+  "quote_id": "quote-uuid",
+  "status": "needs_attention",
+  "is_ready": false,
+  "summary_title": "Needs attention before review",
+  "summary_message": "2 readiness checks need attention before this quote is ready for review.",
+  "warning_count": 2,
+  "error_count": 0,
+  "checks": [
+    {
+      "id": "unit_boards",
+      "severity": "warning",
+      "title": "Choose boards for the quote",
+      "message": "1 cabinet without a carcass board cannot be trusted for pricing or cutting yet.",
+      "action_label": "Review board choices",
+      "action_target": "units"
+    },
+    {
+      "id": "missing_prices",
+      "severity": "warning",
+      "title": "Add missing prices",
+      "message": "1 required price missing, so totals are not ready for review.",
+      "action_label": "Review pricing",
+      "action_target": "pricing"
+    }
+  ]
+}
+```
+
+Readiness checks currently use these stable IDs:
+
+- `project_details`
+- `unit_count`
+- `default_boards`
+- `unit_boards`
+- `cutlist_rows`
+- `missing_prices`
+- `quote_totals`
+- `required_outputs`
+
+`action_target` maps to frontend workspace actions: `project`, `quote`,
+`units`, `panels`, `cutting-lists`, `pricing`, or `outputs`. The current UI
+uses `outputs` to review the cutting list and pricing areas together.
+
+Errors:
+
+- `401` for missing/invalid bearer sessions.
+- `403` for roles without `quotes:read`.
+- `404` when the quote is not visible to the current company.
+
+Frontend integration notes:
+
+- Load this endpoint when a quote is selected and after edits to project
+  details, quote setup, units, panels, extras, or pricing settings.
+- Treat `is_ready` as the reusable status for future export/send workflows.
+- Use `checks[].action_target` for direct workspace navigation; do not parse
+  message text.
 
 ## Quote Extras Selection
 
@@ -430,6 +557,7 @@ Response shape:
     "updated_at": "2026-06-01T10:30:00Z"
   },
   "is_complete": true,
+  "missing_prices": [],
   "subtotal_cents": 346783,
   "cost_total_cents": 346783,
   "sell_before_vat_cents": 433479,
@@ -448,6 +576,12 @@ Response shape:
     {
       "quote_id": "quote-uuid",
       "quote_name": "Kitchen Quote v1",
+      "quote_status": "sent",
+      "quote_number": "Q-001",
+      "revision": 1,
+      "previous_revision_id": null,
+      "previous_revision_quote_number": null,
+      "previous_revision_revision": null,
       "vat_rate_bps": 1500,
       "markup_bps": 2500,
       "pricing_settings": {
@@ -461,6 +595,27 @@ Response shape:
       "is_complete": true,
       "missing_items": [],
       "cutlist_warnings": [],
+      "missing_prices": [
+        {
+          "item_type": "handle",
+          "item_type_label": "Handle",
+          "item_key": "handle::handle-uuid",
+          "item_ref_id": "handle-uuid",
+          "price_component": "unit",
+          "component": "Unit price",
+          "bucket": "handle",
+          "item_name": "Bar pull",
+          "uom": "pcs",
+          "quantity": 3,
+          "used_in": ["Handle"],
+          "usage_label": "Handle",
+          "affected_quote_id": "quote-uuid",
+          "affected_quote_name": "Kitchen Quote v1",
+          "library_area": "pricing",
+          "action_label": "Add a price for Bar pull",
+          "message": "Add a price for Bar pull using Unit price in the pricing library."
+        }
+      ],
       "subtotal_cents": 346783,
       "cost_total_cents": 346783,
       "sell_before_vat_cents": 433479,
@@ -496,8 +651,14 @@ Response shape:
 subtotal. `sell_before_vat_cents` is the sell subtotal before VAT.
 
 When a required item has no active price entry, it is returned in
-`missing_items`, cost/sell totals are omitted for that line, and `is_complete`
-is `false`. `is_complete` is also `false` when `cutlist_warnings` is not empty.
+`missing_items` for backward compatibility and in `missing_prices` as
+estimator-facing guidance. Each `missing_prices` row identifies the library
+item type, stable item reference, price component, unit of measure, quantity,
+where it is used, and the affected quote. Cost/sell totals are omitted for the
+matching line, and `is_complete` is `false`. Project pricing responses also
+include a top-level `missing_prices` array containing the missing price guidance
+for all included quotes. `is_complete` is also `false` when `cutlist_warnings`
+is not empty.
 
 Line `bucket` values group the spreadsheet-derived pricing categories:
 `material`, `component`, `handle`, `labour`, `consumable`, `extra`,
@@ -508,8 +669,11 @@ Line `bucket` values group the spreadsheet-derived pricing categories:
 - Project list can be loaded once via `GET /projects` and filtered with `search`.
 - Opening a project should call `GET /projects/{project_id}/quotes`.
 - Opening a quote should call `GET /quotes/{quote_id}/units`.
+- Quote cards and workspace headers should show `status`, `quote_number`, and `revision`; use `PATCH /quotes/{quote_id}/status` for status controls.
+- Use `POST /quotes/{quote_id}/revisions` when client changes require a new editable revision of a sent or accepted quote.
 - Panels tab can load and save quote panel config via `GET/PUT /quotes/{quote_id}/custom-panels`.
 - Cutting list tab can call `GET /quotes/{quote_id}/cutting-list`.
 - Extras tab can load and save quote-selected extras via `GET/PUT /quotes/{quote_id}/extras`.
 - Pricing tab can load project totals via `GET /projects/{project_id}/pricing` and format all cent values with the returned `currency_code`.
+- Pricing UI should show `missing_prices` before detailed line items and use `action_label` / `message` copy such as "Add a price for..." instead of exposing raw item keys.
 - Quote defaults are designed for fast unit creation UX: set defaults once on quote, then apply during add-unit flows.
