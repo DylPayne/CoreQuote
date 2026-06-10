@@ -227,6 +227,26 @@ export type PricingBucketTotal = {
   profit_cents: number
 }
 
+export type MissingPrice = {
+  item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra' | 'labour' | 'consumable' | 'installation' | 'delivery' | 'adjustment'
+  item_type_label: string
+  item_key: string
+  item_ref_id: string
+  price_component: string
+  component: string
+  bucket: string
+  item_name: string
+  uom: string
+  quantity: number
+  used_in: string[]
+  usage_label: string
+  affected_quote_id: string
+  affected_quote_name: string
+  library_area: string
+  action_label: string
+  message: string
+}
+
 export type QuotePricingSummary = {
   quote_id: string
   quote_name: string
@@ -241,6 +261,7 @@ export type QuotePricingSummary = {
   pricing_settings: QuotePricingSettingsRow
   is_complete: boolean
   missing_items: string[]
+  missing_prices: MissingPrice[]
   subtotal_cents: number
   cost_total_cents: number
   sell_before_vat_cents: number
@@ -260,6 +281,7 @@ export type ProjectPricingSummary = {
   markup_bps: number
   pricing_settings: ProjectPricingSettingsRow
   is_complete: boolean
+  missing_prices: MissingPrice[]
   subtotal_cents: number
   cost_total_cents: number
   sell_before_vat_cents: number

@@ -1070,6 +1070,11 @@ class WorkspaceStore:
             for row in quote_summaries
         )
         bucket_totals = _sum_bucket_totals(quote_summaries)
+        missing_prices = [
+            missing_price
+            for quote_summary in quote_summaries
+            for missing_price in quote_summary.get("missing_prices", []) or []
+        ]
         is_complete = bool(active_price_list_id) and all(bool(row["is_complete"]) for row in quote_summaries)
 
         return {
@@ -1081,6 +1086,7 @@ class WorkspaceStore:
             "markup_bps": int(project_pricing_settings["default_markup_bps"]),
             "pricing_settings": project_pricing_settings,
             "is_complete": is_complete,
+            "missing_prices": missing_prices,
             "subtotal_cents": subtotal_cents,
             "cost_total_cents": cost_total_cents,
             "sell_before_vat_cents": sell_before_vat_cents,

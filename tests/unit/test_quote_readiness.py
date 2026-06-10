@@ -48,7 +48,15 @@ def test_readiness_warns_for_missing_prices():
         project=project(),
         units=[unit()],
         cutting_list=cutting_list(),
-        pricing_summary=pricing_summary(missing_items=["board::board-carcass::sheet"]),
+        pricing_summary=pricing_summary(
+            missing_prices=[
+                {
+                    "item_type": "board",
+                    "item_name": "PG White (16mm)",
+                    "price_component": "sheet",
+                }
+            ]
+        ),
         active_price_list_id="price-list-1",
     )
 
@@ -58,6 +66,22 @@ def test_readiness_warns_for_missing_prices():
     assert check["title"] == "Add missing prices"
     assert "1 required price missing" in check["message"]
     assert check["action_target"] == "pricing"
+
+
+def test_readiness_counts_legacy_missing_items_when_structured_rows_are_empty():
+    readiness = evaluate_quote_readiness(
+        quote=quote(),
+        project=project(),
+        units=[unit()],
+        cutting_list=cutting_list(),
+        pricing_summary=pricing_summary(missing_items=["board::board-carcass::sheet"], missing_prices=[]),
+        active_price_list_id="price-list-1",
+    )
+
+    check = check_by_id(readiness, "missing_prices")
+
+    assert check["severity"] == "warning"
+    assert "1 required price missing" in check["message"]
 
 
 def test_readiness_warns_for_invalid_cutlist_rows():
@@ -171,6 +195,7 @@ def pricing_summary(**overrides) -> dict:
         "quote_name": "Kitchen Quote",
         "is_complete": True,
         "missing_items": [],
+        "missing_prices": [],
         "grand_total_cents": 498000,
         "lines": [{"description": "Carcass board", "missing": False}],
     }

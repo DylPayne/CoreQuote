@@ -449,6 +449,37 @@ class PricingBucketTotalResponse(BaseModel):
     profit_cents: int = 0
 
 
+class MissingPriceResponse(BaseModel):
+    item_type: Literal[
+        "board",
+        "slide",
+        "hinge",
+        "handle",
+        "extra",
+        "labour",
+        "consumable",
+        "installation",
+        "delivery",
+        "adjustment",
+    ]
+    item_type_label: str
+    item_key: str
+    item_ref_id: str
+    price_component: str
+    component: str
+    bucket: str = "other"
+    item_name: str
+    uom: str
+    quantity: float
+    used_in: list[str] = Field(default_factory=list)
+    usage_label: str
+    affected_quote_id: str
+    affected_quote_name: str
+    library_area: str = "pricing"
+    action_label: str
+    message: str
+
+
 class PricingSettingsFields(BaseModel):
     vat_rate_bps: int = Field(default=1500, ge=0)
     default_markup_bps: int = Field(default=2500, ge=0)
@@ -503,6 +534,7 @@ class QuotePricingSummaryResponse(BaseModel):
     pricing_settings: QuotePricingSettingsResponse
     is_complete: bool
     missing_items: list[str] = Field(default_factory=list)
+    missing_prices: list[MissingPriceResponse] = Field(default_factory=list)
     subtotal_cents: int = 0
     cost_total_cents: int = 0
     sell_before_vat_cents: int = 0
@@ -522,6 +554,7 @@ class ProjectPricingResponse(BaseModel):
     markup_bps: int = Field(ge=0)
     pricing_settings: ProjectPricingSettingsResponse
     is_complete: bool
+    missing_prices: list[MissingPriceResponse] = Field(default_factory=list)
     subtotal_cents: int = 0
     cost_total_cents: int = 0
     sell_before_vat_cents: int = 0

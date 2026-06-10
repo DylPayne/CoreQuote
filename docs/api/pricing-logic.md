@@ -74,6 +74,12 @@ Each quote calculation produces grouped pricing lines with:
 - `qty`, `uom`, and optional active price information.
 - `missing`: true when a required base price is absent.
 
+Each quote calculation also produces `missing_prices`, a grouped guidance list
+derived from missing pricing lines. Rows include the item type, item name, price
+component, unit of measure, affected quote, usage labels, and copy beginning
+with "Add a price for..." so estimators can navigate to the pricing library
+without reading raw item keys.
+
 The calculation keeps legacy response totals for existing callers:
 
 - `subtotal_cents`: cost subtotal before markup.
@@ -112,6 +118,7 @@ The pricing tab should show:
 
 - total cost, sell before VAT, VAT, grand total, and profit;
 - complete or missing-price status;
+- grouped missing price guidance before detailed line items;
 - quote totals with cost/sell/profit columns;
 - grouped line details by bucket;
 - clear missing price rows that tell the estimator which price-list item is
