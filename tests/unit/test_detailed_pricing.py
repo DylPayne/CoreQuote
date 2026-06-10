@@ -1,3 +1,5 @@
+import pytest
+
 from corequote_core.detailed_pricing import DetailedPricingSettings, price_quote_detailed
 
 
@@ -199,3 +201,153 @@ def test_detailed_pricing_reports_grouped_missing_hardware_price():
     assert result["missing_prices"][0]["quantity"] == 5.0
     assert result["missing_prices"][0]["used_in"] == ["Handle"]
     assert result["missing_prices"][0]["action_label"] == "Add a price for Bar · Core"
+
+
+def test_detailed_pricing_material_summary_groups_board_roles_and_sheet_estimates():
+    result = price_quote_detailed(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen",
+            "default_carcass_board_type_id": "white-board",
+            "default_door_board_type_id": "oak-board",
+            "default_panel_board_type_id": "oak-board",
+        },
+        units=[
+            {
+                "unit_number": 1,
+                "unit_type_key": "Base Door",
+                "height": 780,
+                "carcass_board_type_id": None,
+                "door_board_type_id": None,
+                "extra_params": {"num_doors": 0},
+            }
+        ],
+        quote_extras=[],
+        cutting_rows=[
+            {"section": "carcass", "unit_number": 1, "desc": "Side", "length": 1000, "width": 500, "qty": 2},
+            {"section": "panel", "unit_number": 1, "desc": "Door", "length": 700, "width": 300, "qty": 2},
+            {"section": "extra_panel", "unit_number": 0, "desc": "Feature end", "length": 2000, "width": 600, "qty": 1},
+        ],
+        settings=DetailedPricingSettings(carcass_markup_bps=1000, door_panel_markup_bps=2000),
+        price_lookup={
+            ("board", "board::white-board", "sheet"): {"unit_price_cents": 50000},
+            ("board", "board::oak-board", "sheet"): {"unit_price_cents": 120000},
+        },
+        board_lookup={
+            "white-board": {
+                "id": "white-board",
+                "brand": "PG",
+                "material": "White melamine",
+                "thickness": 16,
+                "length_mm": 2440,
+                "width_mm": 1220,
+                "costing_mode": "sheet",
+            },
+            "oak-board": {
+                "id": "oak-board",
+                "brand": "Egger",
+                "material": "Oak look",
+                "thickness": 18,
+                "length_mm": 2800,
+                "width_mm": 2070,
+                "costing_mode": "sheet",
+            },
+        },
+        slide_lookup={},
+        hinge_lookup={},
+        handle_lookup={},
+        extra_lookup={},
+        active_price_list_id="price-list-1",
+    )
+
+    summary = result["material_summary"]
+    assert summary["total_area_m2"] == pytest.approx(2.62)
+    assert summary["total_estimated_sheets"] == 3
+    assert summary["warnings"] == []
+
+    groups = {(row["board_type_id"], row["material_role"]): row for row in summary["groups"]}
+    assert set(groups) == {
+        ("white-board", "carcass"),
+        ("oak-board", "door_panel"),
+        ("oak-board", "visible_panel"),
+    }
+
+    carcass = groups[("white-board", "carcass")]
+    assert carcass["role_label"] == "Carcass material"
+    assert carcass["board_name"] == "PG White melamine (16mm)"
+    assert carcass["thickness"] == 16
+    assert carcass["piece_count"] == 2
+    assert carcass["area_m2"] == pytest.approx(1.0)
+    assert carcass["estimated_sheets"] == 1
+    assert carcass["pricing_qty"] == 1.0
+    assert carcass["cost_total_cents"] == 50000
+    assert carcass["sell_total_cents"] == 55000
+
+    door_panel = groups[("oak-board", "door_panel")]
+    assert door_panel["role_label"] == "Door and drawer material"
+    assert door_panel["area_m2"] == pytest.approx(0.42)
+    assert door_panel["estimated_sheets"] == 1
+
+    visible_panel = groups[("oak-board", "visible_panel")]
+    assert visible_panel["role_label"] == "Visible panel material"
+    assert visible_panel["area_m2"] == pytest.approx(1.2)
+    assert visible_panel["estimated_sheets"] == 1
+
+
+def test_detailed_pricing_material_summary_warns_for_missing_board_data():
+    result = price_quote_detailed(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen",
+            "default_carcass_board_type_id": None,
+            "default_door_board_type_id": "door-board",
+        },
+        units=[
+            {
+                "unit_number": 1,
+                "unit_type_key": "Base Door",
+                "height": 780,
+                "carcass_board_type_id": None,
+                "door_board_type_id": None,
+                "extra_params": {"num_doors": 0},
+            }
+        ],
+        quote_extras=[],
+        cutting_rows=[
+            {"section": "carcass", "unit_number": 1, "desc": "Side", "length": 1000, "width": 500, "qty": 1},
+            {"section": "panel", "unit_number": 1, "desc": "Door", "length": 700, "width": 300, "qty": 1},
+        ],
+        settings=DetailedPricingSettings(),
+        price_lookup={
+            ("board", "board::door-board", "sheet"): {"unit_price_cents": 120000},
+        },
+        board_lookup={
+            "door-board": {
+                "id": "door-board",
+                "brand": "Egger",
+                "material": "Oak look",
+                "thickness": 18,
+                "length_mm": 0,
+                "width_mm": 0,
+                "costing_mode": "sheet",
+            },
+        },
+        slide_lookup={},
+        hinge_lookup={},
+        handle_lookup={},
+        extra_lookup={},
+        active_price_list_id="price-list-1",
+    )
+
+    summary = result["material_summary"]
+    assert result["is_complete"] is False
+    assert len(summary["groups"]) == 1
+    assert summary["groups"][0]["board_type_id"] == "door-board"
+    assert summary["groups"][0]["estimated_sheets"] is None
+    assert summary["total_estimated_sheets"] is None
+    assert [warning["code"] for warning in summary["warnings"]] == [
+        "missing_board_selection",
+        "missing_board_dimensions",
+    ]
+    assert summary["warnings"][0]["message"] == "Choose a carcass board for Unit 1 Side."
+    assert summary["warnings"][1]["message"] == "Add sheet length and width for Egger Oak look (18mm) to estimate sheets."

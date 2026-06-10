@@ -616,6 +616,38 @@ Response shape:
           "message": "Add a price for Bar pull using Unit price in the pricing library."
         }
       ],
+      "material_summary": {
+        "groups": [
+          {
+            "board_type_id": "board-uuid",
+            "material_role": "carcass",
+            "role_label": "Carcass material",
+            "board_name": "PG White (16mm)",
+            "brand": "PG",
+            "material": "White",
+            "thickness": 16,
+            "length_mm": 2750,
+            "width_mm": 1830,
+            "costing_mode": "sqm",
+            "piece_count": 8,
+            "area_m2": 3.42,
+            "edge_m": 7.5,
+            "sheet_area_m2": 5.0325,
+            "estimated_sheets": 1,
+            "price_component": "sqm",
+            "pricing_qty": 3.42,
+            "pricing_uom": "m2",
+            "cost_total_cents": 34200,
+            "sell_total_cents": 42750,
+            "missing_price": false
+          }
+        ],
+        "warnings": [],
+        "total_area_m2": 3.42,
+        "total_piece_count": 8,
+        "total_edge_m": 7.5,
+        "total_estimated_sheets": 1
+      },
       "subtotal_cents": 346783,
       "cost_total_cents": 346783,
       "sell_before_vat_cents": 433479,
@@ -660,6 +692,13 @@ include a top-level `missing_prices` array containing the missing price guidance
 for all included quotes. `is_complete` is also `false` when `cutlist_warnings`
 is not empty.
 
+Each quote also includes `material_summary` for internal review/workshop
+handoff. It is aggregated from the same runtime cutlist rows used for pricing,
+grouped by board type, role, and thickness. Sheet counts are estimates, not
+nested or optimized board counts. Missing board selections, unavailable board
+records, or missing sheet dimensions appear in `material_summary.warnings`.
+Customer-facing quote PDFs do not include internal material cost or sell data.
+
 Line `bucket` values group the spreadsheet-derived pricing categories:
 `material`, `component`, `handle`, `labour`, `consumable`, `extra`,
 `installation`, `delivery`, and `commission`.
@@ -676,4 +715,5 @@ Line `bucket` values group the spreadsheet-derived pricing categories:
 - Extras tab can load and save quote-selected extras via `GET/PUT /quotes/{quote_id}/extras`.
 - Pricing tab can load project totals via `GET /projects/{project_id}/pricing` and format all cent values with the returned `currency_code`.
 - Pricing UI should show `missing_prices` before detailed line items and use `action_label` / `message` copy such as "Add a price for..." instead of exposing raw item keys.
+- Quote pricing review should show `material_summary` groups and warnings before detailed line items. Treat `estimated_sheets` as an estimate; `null` means sheet dimensions are missing.
 - Quote defaults are designed for fast unit creation UX: set defaults once on quote, then apply during add-unit flows.

@@ -31,7 +31,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -43,6 +43,20 @@ function formatBucketLabel(bucket: string) {
 
 function formatPricingQty(qty: number) {
   return Number.isInteger(qty) ? String(qty) : qty.toFixed(2)
+}
+
+function formatMaterialArea(value: number) {
+  return `${formatPricingQty(value)} m2`
+}
+
+function formatEstimatedSheets(value: number | null) {
+  if (value === null) return 'Needs dimensions'
+  return `${formatPricingQty(value)} est. ${value === 1 ? 'sheet' : 'sheets'}`
+}
+
+function formatSheetSize(group: MaterialSummaryGroup) {
+  if (!group.length_mm || !group.width_mm) return 'No sheet size'
+  return `${group.length_mm} x ${group.width_mm} mm`
 }
 
 function formatCutlistWarningSource(warning: CutlistValidationWarning) {
@@ -89,6 +103,78 @@ function missingPriceGroups(rows: MissingPrice[]) {
 
 function formatMissingPriceCount(count: number) {
   return `${count} missing ${count === 1 ? 'price' : 'prices'}`
+}
+
+function MaterialSummaryReview({ currencyCode, summary }: { currencyCode: string; summary?: MaterialSummary }) {
+  if (!summary) return null
+  if (summary.groups.length === 0 && summary.warnings.length === 0) return null
+
+  return (
+    <div className="grid gap-3 border-y border-border py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Material summary</p>
+          <Badge variant="outline">{formatMaterialArea(summary.total_area_m2)}</Badge>
+          <Badge variant={summary.total_estimated_sheets === null ? 'warning' : 'outline'}>
+            {formatEstimatedSheets(summary.total_estimated_sheets)}
+          </Badge>
+        </div>
+        <Badge variant="outline">{`${summary.total_piece_count} ${summary.total_piece_count === 1 ? 'piece' : 'pieces'}`}</Badge>
+      </div>
+
+      {summary.warnings.length > 0 ? (
+        <div className="grid gap-2">
+          {summary.warnings.map((warning) => (
+            <Alert className="flex items-start gap-2 text-xs" key={`${warning.code}:${warning.material_role}:${warning.unit_number}:${warning.row_desc}`} variant="warning">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{warning.message}</span>
+            </Alert>
+          ))}
+        </div>
+      ) : null}
+
+      {summary.groups.length > 0 ? (
+        <TableContainer>
+          <Table className="min-w-[900px] text-xs">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Role</TableHead>
+                <TableHead>Board</TableHead>
+                <TableHead>Sheet</TableHead>
+                <TableHead className="text-right">Pieces</TableHead>
+                <TableHead className="text-right">Area</TableHead>
+                <TableHead className="text-right">Est. sheets</TableHead>
+                <TableHead className="text-right">Cost</TableHead>
+                <TableHead className="text-right">Sell</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {summary.groups.map((group) => (
+                <TableRow key={`${group.board_type_id}:${group.material_role}`}>
+                  <TableCell>{group.role_label}</TableCell>
+                  <TableCell>
+                    <div className="grid gap-1">
+                      <span>{group.board_name}</span>
+                      <span className="text-muted-foreground">{group.costing_mode === 'sqm' ? 'Priced by area' : 'Priced by sheet'}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>{formatSheetSize(group)}</TableCell>
+                  <TableCell className="text-right">{group.piece_count}</TableCell>
+                  <TableCell className="text-right">{formatMaterialArea(group.area_m2)}</TableCell>
+                  <TableCell className="text-right">{formatEstimatedSheets(group.estimated_sheets)}</TableCell>
+                  <TableCell className="text-right">{formatCents(group.cost_total_cents, currencyCode)}</TableCell>
+                  <TableCell className="text-right">
+                    <span>{formatCents(group.sell_total_cents, currencyCode)}</span>
+                    {group.missing_price ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      ) : null}
+    </div>
+  )
 }
 
 function MissingPriceGuidance({
@@ -1874,6 +1960,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                             includeQuote={false}
                             missingPrices={selectedQuotePricing.missing_prices}
                             onOpenLibraries={onOpenLibraries}
+                          />
+                          <MaterialSummaryReview
+                            currencyCode={pricingCurrencyCode}
+                            summary={selectedQuotePricing.material_summary}
                           />
                           {selectedQuotePricing.lines.length === 0 ? (
                             <Alert className="text-xs">

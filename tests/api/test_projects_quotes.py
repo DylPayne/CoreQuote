@@ -671,6 +671,26 @@ def test_get_project_pricing_returns_missing_price_guidance():
     assert body["quotes"][0]["missing_prices"][0]["item_ref_id"] == "handle-1"
 
 
+def test_get_project_pricing_returns_quote_material_summary():
+    payload = project_pricing("project-1", material_summary=material_summary())
+    store = FakeWorkspaceStore(project_pricing_payload=payload)
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/projects/project-1/pricing", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    summary = response.json()["quotes"][0]["material_summary"]
+    assert summary["total_area_m2"] == 1.42
+    assert summary["total_estimated_sheets"] is None
+    assert summary["groups"][0]["role_label"] == "Carcass material"
+    assert summary["groups"][0]["estimated_sheets"] == 1
+    assert summary["warnings"][0]["code"] == "missing_board_dimensions"
+    assert summary["warnings"][0]["message"] == "Add sheet length and width for Egger Oak look (18mm) to estimate sheets."
+
+
 def test_project_pricing_settings_read_and_update():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
@@ -1005,6 +1025,7 @@ def project_pricing(
     is_complete: bool = True,
     missing_prices: list[dict] | None = None,
     quote_missing_prices: list[dict] | None = None,
+    material_summary: dict | None = None,
 ) -> dict:
     return {
         "project_id": project_id,
@@ -1038,6 +1059,7 @@ def project_pricing(
                 "pricing_settings": pricing_settings(quote_id="quote-1"),
                 "is_complete": is_complete,
                 "missing_items": [],
+                "material_summary": material_summary or {"groups": [], "warnings": [], "total_area_m2": 0, "total_piece_count": 0, "total_edge_m": 0, "total_estimated_sheets": None},
                 "missing_prices": quote_missing_prices or [],
                 "subtotal_cents": 346783,
                 "cost_total_cents": 346783,
@@ -1049,6 +1071,75 @@ def project_pricing(
                 "lines": [],
             }
         ],
+    }
+
+
+def material_summary() -> dict:
+    return {
+        "groups": [
+            {
+                "board_type_id": "board-1",
+                "material_role": "carcass",
+                "role_label": "Carcass material",
+                "board_name": "PG White melamine (16mm)",
+                "brand": "PG",
+                "material": "White melamine",
+                "thickness": 16,
+                "length_mm": 2440,
+                "width_mm": 1220,
+                "costing_mode": "sheet",
+                "piece_count": 2,
+                "area_m2": 1.0,
+                "edge_m": 3.0,
+                "sheet_area_m2": 2.9768,
+                "estimated_sheets": 1,
+                "price_component": "sheet",
+                "pricing_qty": 1,
+                "pricing_uom": "sheet",
+                "cost_total_cents": 50000,
+                "sell_total_cents": 62500,
+                "missing_price": False,
+            },
+            {
+                "board_type_id": "board-2",
+                "material_role": "door_panel",
+                "role_label": "Door and drawer material",
+                "board_name": "Egger Oak look (18mm)",
+                "brand": "Egger",
+                "material": "Oak look",
+                "thickness": 18,
+                "length_mm": None,
+                "width_mm": None,
+                "costing_mode": "sheet",
+                "piece_count": 2,
+                "area_m2": 0.42,
+                "edge_m": 0,
+                "sheet_area_m2": None,
+                "estimated_sheets": None,
+                "price_component": "sheet",
+                "pricing_qty": 0,
+                "pricing_uom": "sheet",
+                "cost_total_cents": 0,
+                "sell_total_cents": 0,
+                "missing_price": False,
+            },
+        ],
+        "warnings": [
+            {
+                "severity": "warning",
+                "code": "missing_board_dimensions",
+                "material_role": "door_panel",
+                "role_label": "Door and drawer material",
+                "unit_number": 0,
+                "row_desc": "Egger Oak look (18mm)",
+                "board_type_id": "board-2",
+                "message": "Add sheet length and width for Egger Oak look (18mm) to estimate sheets.",
+            }
+        ],
+        "total_area_m2": 1.42,
+        "total_piece_count": 4,
+        "total_edge_m": 3.0,
+        "total_estimated_sheets": None,
     }
 
 

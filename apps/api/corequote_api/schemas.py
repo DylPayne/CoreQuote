@@ -14,6 +14,8 @@ QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
 QuoteReadinessActionTarget = Literal["project", "quote", "units", "panels", "cutting-lists", "pricing", "outputs"]
+MaterialRole = Literal["carcass", "door_panel", "visible_panel"]
+MaterialSummaryWarningCode = Literal["missing_board_selection", "missing_board_record", "missing_board_dimensions"]
 
 
 class HealthResponse(BaseModel):
@@ -465,6 +467,50 @@ class PricingBucketTotalResponse(BaseModel):
     profit_cents: int = 0
 
 
+class MaterialSummaryWarningResponse(BaseModel):
+    severity: Literal["warning"] = "warning"
+    code: MaterialSummaryWarningCode
+    material_role: MaterialRole
+    role_label: str
+    unit_number: int = Field(ge=0)
+    row_desc: str
+    board_type_id: str | None = None
+    message: str
+
+
+class MaterialSummaryGroupResponse(BaseModel):
+    board_type_id: str
+    material_role: MaterialRole
+    role_label: str
+    board_name: str
+    brand: str
+    material: str
+    thickness: int | None = Field(default=None, ge=0)
+    length_mm: int | None = Field(default=None, ge=0)
+    width_mm: int | None = Field(default=None, ge=0)
+    costing_mode: str = "sheet"
+    piece_count: int = Field(default=0, ge=0)
+    area_m2: float = Field(default=0, ge=0)
+    edge_m: float = Field(default=0, ge=0)
+    sheet_area_m2: float | None = Field(default=None, ge=0)
+    estimated_sheets: int | None = Field(default=None, ge=0)
+    price_component: str | None = None
+    pricing_qty: float | None = Field(default=None, ge=0)
+    pricing_uom: str | None = None
+    cost_total_cents: int | None = Field(default=None, ge=0)
+    sell_total_cents: int | None = Field(default=None, ge=0)
+    missing_price: bool = False
+
+
+class MaterialSummaryResponse(BaseModel):
+    groups: list[MaterialSummaryGroupResponse] = Field(default_factory=list)
+    warnings: list[MaterialSummaryWarningResponse] = Field(default_factory=list)
+    total_area_m2: float = Field(default=0, ge=0)
+    total_piece_count: int = Field(default=0, ge=0)
+    total_edge_m: float = Field(default=0, ge=0)
+    total_estimated_sheets: int | None = Field(default=None, ge=0)
+
+
 class MissingPriceResponse(BaseModel):
     item_type: Literal[
         "board",
@@ -552,6 +598,7 @@ class QuotePricingSummaryResponse(BaseModel):
     missing_items: list[str] = Field(default_factory=list)
     cutlist_warnings: list[CutlistValidationWarningResponse] = Field(default_factory=list)
     missing_prices: list[MissingPriceResponse] = Field(default_factory=list)
+    material_summary: MaterialSummaryResponse = Field(default_factory=MaterialSummaryResponse)
     subtotal_cents: int = 0
     cost_total_cents: int = 0
     sell_before_vat_cents: int = 0
