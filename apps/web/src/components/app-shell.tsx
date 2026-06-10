@@ -36,8 +36,8 @@ export function AppShell({
   const navItems = [
     { label: 'Projects', icon: ClipboardList, page: 'projects' as const },
     { label: 'Libraries', icon: Building2, page: 'libraries' as const },
-    { label: 'Cutlist', icon: Calculator, page: 'cutlist' as const },
-    { label: 'Tester', icon: CopyPlus, page: 'cutlist-tester' as const },
+    { label: 'Cutlist Rules', icon: Calculator, page: 'cutlist' as const },
+    { label: 'Rule Tester', icon: CopyPlus, page: 'cutlist-tester' as const },
   ]
   const pageTitle =
     currentPage === 'settings'
@@ -47,9 +47,9 @@ export function AppShell({
       : currentPage === 'libraries'
         ? 'Libraries'
       : currentPage === 'cutlist'
-        ? 'Cutlist'
+        ? 'Advanced Cutlist Rules'
         : currentPage === 'cutlist-tester'
-          ? 'Cutlist Tester'
+          ? 'Advanced Rule Tester'
           : 'Projects'
   const pageDescription =
     currentPage === 'settings'
@@ -59,9 +59,9 @@ export function AppShell({
       : currentPage === 'libraries'
         ? 'Manage catalog libraries and pricing'
       : currentPage === 'cutlist'
-        ? 'Manage cutting rulesets and row formulas'
+        ? 'Power-user setup for how units become cutting rows'
         : currentPage === 'cutlist-tester'
-          ? 'Run runtime cutlist generation with custom unit inputs'
+          ? 'Test cutting-rule changes before using them on quotes'
           : user.company_name
 
   return (

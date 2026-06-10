@@ -57,7 +57,11 @@ export function SettingsPage({
   const hasCurrencyChange = currencyCode !== savedCurrencyCode
 
   useEffect(() => {
-    setCurrencyCode(savedCurrencyCode)
+    const handle = window.setTimeout(() => {
+      setCurrencyCode(savedCurrencyCode)
+    }, 0)
+
+    return () => window.clearTimeout(handle)
   }, [savedCurrencyCode])
 
   async function handleCurrencySubmit(event: FormEvent<HTMLFormElement>) {
@@ -93,11 +97,11 @@ export function SettingsPage({
       <section className="grid gap-4 lg:grid-cols-4">
         <StatusCard
           icon={ShieldCheck}
-          label="Session"
-          title="Authenticated"
-          value="Bearer token restored through /me"
+          label="Access"
+          title="Signed in"
+          value="Workspace ready"
         />
-        <StatusCard icon={Building2} label="Company" title={user.company_name} value={user.company_id} />
+        <StatusCard icon={Building2} label="Company" title={user.company_name} value="Company profile" />
         <StatusCard icon={CircleDollarSign} label="Currency" title={savedCurrencyCode} value={currencyLabel(savedCurrencyCode)} />
         <StatusCard icon={UserRound} label="User" title={user.name} value={user.email} />
       </section>
@@ -105,16 +109,14 @@ export function SettingsPage({
       <Card>
         <CardHeader>
           <CardTitle>Workspace details</CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">Company, role, and session details for this account.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Company profile and account details used across quotes.</p>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <SummaryLine label="Company" value={user.company_name} />
-          <SummaryLine label="Company ID" value={user.company_id} />
           <SummaryLine label="Currency" value={currencyLabel(savedCurrencyCode)} />
           <SummaryLine label="User" value={user.name} />
           <SummaryLine label="Email" value={user.email} />
           <SummaryLine label="Role" value={user.role} />
-          <SummaryLine label="User ID" value={user.id} />
         </CardContent>
       </Card>
 
@@ -192,9 +194,9 @@ function AppearancePage({
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <CardTitle>Theme studio</CardTitle>
+            <CardTitle>Appearance</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              These controls update global variables for the entire app shell.
+              Adjust how the workspace looks on this device.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -231,7 +233,7 @@ function AppearancePage({
           <CardHeader>
             <CardTitle>Style</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Styles are global shape, density, radius, and elevation presets.
+              Choose the spacing, corners, and shadows that make repeated quoting work comfortable.
             </p>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -280,7 +282,7 @@ function AppearancePage({
                 </div>
                 <div>
                   <p className="text-sm font-semibold">Global preview</p>
-                  <p className="text-sm text-muted-foreground">One token set, every component follows.</p>
+                  <p className="text-sm text-muted-foreground">Controls, cards, and tables use this look together.</p>
                 </div>
               </div>
             </div>

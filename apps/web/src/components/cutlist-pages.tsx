@@ -556,7 +556,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
           setDraft(null)
         }
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : 'Could not load cutting rulesets.')
+        setError(loadError instanceof Error ? loadError.message : 'Could not load cutting rule sets.')
         setRulesets([])
         setSelectedRulesetId(null)
         setDraft(null)
@@ -577,7 +577,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
         const defaultUnitType = preferredUnitTypeKey || configs[0]?.unit_type_key || ''
         setSelectedUnitTypeKey((current) => current || defaultUnitType)
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : 'Could not load unit configurations.')
+        setError(loadError instanceof Error ? loadError.message : 'Could not load unit setups.')
       } finally {
         setIsLoadingConfigs(false)
       }
@@ -623,7 +623,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
       } catch (loadError) {
         if (!isCurrent) return
         setDraft(null)
-        setError(loadError instanceof Error ? loadError.message : 'Could not load the selected ruleset.')
+        setError(loadError instanceof Error ? loadError.message : 'Could not load the selected rule set.')
       } finally {
         if (isCurrent) {
           setIsLoadingRuleset(false)
@@ -651,7 +651,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
       setDraft(mapRulesetToDraft(updated))
       setRulesets((current) => current.map((ruleset) => (ruleset.id === updated.id ? toRulesetSummary(updated) : ruleset)))
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not save this cutting ruleset.')
+      setError(saveError instanceof Error ? saveError.message : 'Could not save these cutting rules.')
     } finally {
       setIsSaving(false)
     }
@@ -664,7 +664,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
       (config) => config.unit_type_key === draft.unit_type_key && (config.company_id === companyId || config.company_id === null),
     )
     if (!draft.unit_config_id && !fallbackUnitConfig?.id) {
-      setError('No visible unit config is available for this ruleset.')
+      setError('No unit setup is available for this rule set.')
       return
     }
 
@@ -698,7 +698,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
 
     const unitConfigForType = selectedUnitConfig
     if (!unitConfigForType) {
-      setError('No visible unit config is available for this unit type.')
+      setError('No unit setup is available for this unit type.')
       return
     }
 
@@ -712,7 +712,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
       })
       await loadRulesets(created.unit_type_key, created.id)
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Could not create a ruleset draft.')
+      setError(createError instanceof Error ? createError.message : 'Could not create a rule draft.')
     } finally {
       setIsCreatingRuleset(false)
     }
@@ -830,9 +830,12 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
       <Card className="min-w-0 overflow-x-hidden">
       <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <CardTitle>Cutting rulesets</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>Advanced cutlist rules</CardTitle>
+            <Badge variant="warning">Advanced setup</Badge>
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Edit formula rows, side edging toggles, and save complete ruleset drafts through the new API.
+            For power users: adjust how unit dimensions become board rows, edging, and quantities. Most shops can leave the built-in rules alone.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -846,15 +849,15 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
           </Button>
           <Button disabled={!canCreateRuleset || isCreatingRuleset} onClick={handleCreateRulesetDraft} type="button" variant="outline">
             {isCreatingRuleset ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
-            Create ruleset draft
+            Create rule draft
           </Button>
           <Button disabled={!canCreateCopy || isCreatingCopy} onClick={handleCreateCompanyCopy} type="button" variant="outline">
             {isCreatingCopy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CopyPlus className="h-4 w-4" aria-hidden="true" />}
-            Duplicate to company
+            Duplicate for company
           </Button>
           <Button disabled={saveDisabled} onClick={handleSaveRuleset} type="button">
             {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-            Save ruleset
+            Save rules
           </Button>
         </div>
       </CardHeader>
@@ -869,7 +872,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                 onChange={(event) => setSelectedUnitTypeKey(event.target.value)}
                 value={selectedUnitTypeKey}
               >
-                {unitTypeKeys.length === 0 ? <option value="">No unit configs</option> : null}
+                {unitTypeKeys.length === 0 ? <option value="">No unit types</option> : null}
                 {unitTypeKeys.map((unitTypeKey) => (
                   <option key={unitTypeKey} value={unitTypeKey}>
                     {unitTypeKey}
@@ -879,12 +882,12 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
             </Label>
 
             <div className="space-y-2">
-              <p className="text-xs font-medium uppercase text-muted-foreground">Rulesets</p>
+              <p className="text-xs font-medium uppercase text-muted-foreground">Cutting rules</p>
               <div className="grid max-h-96 gap-2 overflow-y-auto pr-1">
                 {isLoadingRulesets ? (
                   <div className="flex items-center gap-2 rounded-[var(--control-radius)] border border-border bg-card p-3 text-sm text-muted-foreground">
                     <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                    Loading rulesets
+                    Loading rule sets
                   </div>
                 ) : rulesets.length > 0 ? (
                   rulesets.map((ruleset) => (
@@ -907,7 +910,9 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                     </Button>
                   ))
                 ) : (
-                  <Alert className="text-xs text-muted-foreground">No rulesets found for this unit type.</Alert>
+                  <Alert className="text-xs text-muted-foreground">
+                    No rule set is available for this unit type. Create a rule draft if this unit needs custom cutting logic.
+                  </Alert>
                 )}
               </div>
             </div>
@@ -917,13 +922,13 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
           {isLoadingRuleset ? (
             <Alert className="flex min-h-64 items-center justify-center gap-2 text-muted-foreground">
               <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Loading ruleset
+              Loading rule set
             </Alert>
           ) : draft ? (
             <div className="grid min-w-0 gap-4">
                 <div className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-card p-[var(--card-padding)] md:grid-cols-3">
                   <Label className="grid min-w-0 gap-1.5">
-                    Ruleset name
+                    Rule set name
                     <Input
                       disabled={!selectedRulesetIsCompanyOwned}
                       onChange={(event) => updateDraftMeta('name', event.target.value)}
@@ -968,12 +973,12 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                       disabled={!selectedRulesetIsCompanyOwned}
                       onChange={(event) => updateDraftMeta('is_default', event.target.checked)}
                     />
-                    Default ruleset
+                    Default rule set
                   </Label>
                 </div>
 
                 {!selectedRulesetIsCompanyOwned ? (
-                  <Alert>This is a global ruleset. Create a company copy to customize and save changes.</Alert>
+                  <Alert>This is a built-in rule set. Duplicate it for your company before making custom changes.</Alert>
                 ) : null}
 
                 <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
@@ -1180,7 +1185,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
             </div>
           ) : (
             <Alert className="flex min-h-64 items-center justify-center border-dashed text-muted-foreground">
-              Select a ruleset to begin editing.
+              Select a rule set to begin editing.
             </Alert>
           )}
           </div>
@@ -1194,9 +1199,9 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
           <Card className="w-full max-w-3xl">
             <CardHeader className="flex flex-row items-start justify-between gap-3">
               <div>
-                <CardTitle>Create Unit Type</CardTitle>
+                <CardTitle>Create Advanced Unit Type</CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Add a new company unit type and starter ruleset.
+                  Add a company-only unit type and starter cutting rules for specialised work.
                 </p>
               </div>
               <Button onClick={() => setIsCreateUnitModalOpen(false)} type="button" variant="ghost">
@@ -1206,7 +1211,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
             <CardContent className="grid gap-3">
               <div className="grid gap-3 md:grid-cols-2">
                 <Label className="grid gap-1.5">
-                  Unit type key
+                  Unit type name
                   <Input
                     onChange={(event) => setNewUnitTypeDraft((current) => ({ ...current, unit_type_key: event.target.value }))}
                     placeholder="e.g. Corner Display Unit"
@@ -1214,7 +1219,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                   />
                 </Label>
                 <Label className="grid gap-1.5">
-                  Label
+                  Display label
                   <Input
                     onChange={(event) => setNewUnitTypeDraft((current) => ({ ...current, label: event.target.value }))}
                     placeholder="Display label"
@@ -1372,7 +1377,7 @@ export function CutlistTesterPage({ authToken }: { authToken: string }) {
         setSelectedUnitTypeKey((current) => current || configs[0]?.unit_type_key || 'Base Door')
       } catch (loadError) {
         if (!isCurrent) return
-        setError(loadError instanceof Error ? loadError.message : 'Could not load unit configurations.')
+        setError(loadError instanceof Error ? loadError.message : 'Could not load unit setups.')
       } finally {
         if (isCurrent) setIsLoadingConfigs(false)
       }
@@ -1387,8 +1392,11 @@ export function CutlistTesterPage({ authToken }: { authToken: string }) {
     <div className="grid gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>Cutlist generator tester</CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">Select a unit type and run runtime generation previews.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>Advanced cutlist test bench</CardTitle>
+            <Badge variant="warning">Advanced setup</Badge>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">Test cutting-rule changes before using them on quotes.</p>
         </CardHeader>
         <CardContent className="grid gap-3">
           <Label className="grid gap-1.5 md:max-w-sm">
@@ -1398,7 +1406,7 @@ export function CutlistTesterPage({ authToken }: { authToken: string }) {
               onChange={(event) => setSelectedUnitTypeKey(event.target.value)}
               value={selectedUnitTypeKey}
             >
-              {unitTypeKeys.length === 0 ? <option value="">No unit configs</option> : null}
+              {unitTypeKeys.length === 0 ? <option value="">No unit types</option> : null}
               {unitTypeKeys.map((unitTypeKey) => (
                 <option key={unitTypeKey} value={unitTypeKey}>
                   {unitTypeKey}
@@ -1599,10 +1607,12 @@ function CutlistGeneratorTester({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cutlist generator tester</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle>Advanced cutlist test bench</CardTitle>
+          <Badge variant="warning">Advanced setup</Badge>
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Run the runtime cutlist generator with custom unit inputs and inspect source resolution, runtime mode, and
-          generated rows.
+          Test how a unit turns into cutting rows before using custom rule changes on a real quote.
         </p>
       </CardHeader>
       <CardContent className="grid gap-4">
@@ -1836,7 +1846,7 @@ function CutlistGeneratorTester({
 
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={resetWithUnitDefaults} type="button" variant="outline">
-              Load defaults from unit config
+              Load saved unit defaults
             </Button>
             <Button disabled={isGenerating} type="submit">
               {isGenerating ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
@@ -1852,13 +1862,13 @@ function CutlistGeneratorTester({
         {preview ? (
           <div className="grid gap-4">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={runtimeModeBadgeVariant(preview.runtime_mode)}>Runtime: {preview.runtime_mode}</Badge>
+              <Badge variant={runtimeModeBadgeVariant(preview.runtime_mode)}>Mode: {formatRuntimeMode(preview.runtime_mode)}</Badge>
               <Badge variant="outline">Units: {preview.unit_sources.length}</Badge>
               <Badge variant={preview.readiness.cutlist_valid ? 'outline' : 'warning'}>
                 {preview.readiness.cutlist_valid ? 'Cutlist ready' : `${preview.readiness.warning_count} cutlist warnings`}
               </Badge>
               <Badge variant="outline">
-                Sources: {Array.from(new Set(preview.unit_sources.map((row) => row.source))).join(', ') || 'n/a'}
+                Sources: {Array.from(new Set(preview.unit_sources.map((row) => formatRuntimeSource(row.source)))).join(', ') || 'n/a'}
               </Badge>
             </div>
 
@@ -1881,8 +1891,8 @@ function CutlistGeneratorTester({
                     <TableHead>Unit #</TableHead>
                     <TableHead>Type key</TableHead>
                     <TableHead>Source</TableHead>
-                    <TableHead>Ruleset</TableHead>
-                    <TableHead>Unit config</TableHead>
+                    <TableHead>Rule source</TableHead>
+                    <TableHead>Unit setup</TableHead>
                     <TableHead>Note</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1891,9 +1901,9 @@ function CutlistGeneratorTester({
                     <TableRow key={`${row.unit_number}-${row.unit_type_key}-${row.source}`}>
                       <TableCell>{row.unit_number}</TableCell>
                       <TableCell>{row.unit_type_key}</TableCell>
-                      <TableCell>{row.source}</TableCell>
-                      <TableCell>{row.ruleset_id ?? '-'}</TableCell>
-                      <TableCell>{row.unit_config_id ?? '-'}</TableCell>
+                      <TableCell>{formatRuntimeSource(row.source)}</TableCell>
+                      <TableCell>{formatRulesetSource(row)}</TableCell>
+                      <TableCell>{formatUnitConfigSource(row)}</TableCell>
                       <TableCell>{row.note ?? '-'}</TableCell>
                     </TableRow>
                   ))}
@@ -1922,7 +1932,7 @@ function CutlistGeneratorTester({
                   {preview.runtime_rows.length === 0 ? (
                     <TableRow>
                       <TableCell className="text-muted-foreground" colSpan={6}>
-                        No runtime rows generated.
+                        No rows were produced for these inputs.
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -1966,7 +1976,7 @@ function CutlistPreviewRowsTable({ rows, title }: { rows: CutlistPreviewRow[]; t
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell className="text-muted-foreground" colSpan={5}>
-                  No rows generated.
+                  No rows were produced for this section.
                 </TableCell>
               </TableRow>
             ) : (
@@ -2423,6 +2433,25 @@ function runtimeModeBadgeVariant(runtimeMode: CutlistPreviewResponse['runtime_mo
   if (runtimeMode === 'ruleset') return 'default'
   if (runtimeMode === 'mixed') return 'warning'
   return 'outline'
+}
+
+function formatRuntimeMode(runtimeMode: CutlistPreviewResponse['runtime_mode']) {
+  if (runtimeMode === 'ruleset') return 'Custom rules'
+  if (runtimeMode === 'mixed') return 'Mixed rules'
+  return 'Built-in rules'
+}
+
+function formatRuntimeSource(source: CutlistUnitSource['source']) {
+  return source === 'ruleset' ? 'Custom rule set' : 'Built-in rule'
+}
+
+function formatRulesetSource(row: CutlistUnitSource) {
+  if (row.ruleset_id) return 'Custom rule set'
+  return row.source === 'legacy' ? 'Built-in rule' : 'Not selected'
+}
+
+function formatUnitConfigSource(row: CutlistUnitSource) {
+  return row.unit_config_id ? 'Saved unit setup' : 'Built-in setup'
 }
 
 function formatCutlistWarningSource(warning: CutlistValidationWarning) {

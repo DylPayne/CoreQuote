@@ -1190,6 +1190,11 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                     <span>{selectedPriceList.name}</span>
                   </div>
                 ) : null}
+                {priceLists.length === 0 ? (
+                  <Alert className="text-xs">
+                    Create a price list before adding prices. Most shops keep one active trade list and update it as supplier costs change.
+                  </Alert>
+                ) : null}
                 <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3" onSubmit={handleCreatePriceList}>
                   <p className="text-sm font-medium">Create a new price list</p>
                   <Label className="grid gap-1.5">
@@ -1326,6 +1331,12 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                     </Label>
                   ) : null}
 
+                  {pricingItemOptions.length === 0 ? (
+                    <Alert className="text-xs">
+                      Add at least one {pricingItemType} in the library before saving prices for this item type.
+                    </Alert>
+                  ) : null}
+
                   <Button disabled={isSaving || isLoadingPriceItems} type="submit">
                     <Save className="h-4 w-4" aria-hidden="true" />
                     Save Price
@@ -1355,8 +1366,13 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                   <TableBody>
                     {activePriceRows.length === 0 ? (
                       <TableRow>
-                        <TableCell className="text-muted-foreground" colSpan={6}>
-                          No active prices found for this price list.
+                        <TableCell colSpan={6}>
+                          <div className="grid gap-1 py-3">
+                            <p className="font-medium">Build prices for the active list.</p>
+                            <p className="text-sm leading-5 text-muted-foreground">
+                              Add board, hardware, handle, and extra prices here so quote totals can be trusted.
+                            </p>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -1599,7 +1615,9 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
               </CardHeader>
               <CardContent>
                 {suppliers.length === 0 ? (
-                  <Alert variant="destructive">Add at least one supplier before applying supplier discounts.</Alert>
+                  <Alert className="text-xs">
+                    Add a supplier first, then save their default discount so supplier costs can be updated quickly.
+                  </Alert>
                 ) : (
                   <form className="grid gap-3 md:grid-cols-2" onSubmit={applySupplierDiscount}>
                     <Label className="grid gap-1.5">
@@ -1644,7 +1662,9 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
               </CardHeader>
               <CardContent>
                 {suppliers.length === 0 ? (
-                  <Alert variant="destructive">Add at least one supplier before assigning supplier costs.</Alert>
+                  <Alert className="text-xs">
+                    Add suppliers before linking supplier costs. Supplier costs can later generate a price list for quote selling prices.
+                  </Alert>
                 ) : (
                   <form className="grid gap-3 md:grid-cols-2" onSubmit={saveItemSupplierCost}>
                     <Label className="grid gap-1.5">
@@ -1760,8 +1780,13 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                   <TableBody>
                     {suppliers.length === 0 ? (
                       <TableRow>
-                        <TableCell className="text-muted-foreground" colSpan={5}>
-                          No suppliers in the library yet.
+                        <TableCell colSpan={5}>
+                          <div className="grid gap-1 py-3">
+                            <p className="font-medium">Add your main board or hardware supplier.</p>
+                            <p className="text-sm leading-5 text-muted-foreground">
+                              Supplier records keep contact details, default discounts, and cost sources together.
+                            </p>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -1855,8 +1880,13 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
                   <TableBody>
                     {itemSuppliers.length === 0 ? (
                       <TableRow>
-                        <TableCell className="text-muted-foreground" colSpan={7}>
-                          No supplier sources linked yet.
+                        <TableCell colSpan={7}>
+                          <div className="grid gap-1 py-3">
+                            <p className="font-medium">Link supplier costs when you are ready to automate pricing.</p>
+                            <p className="text-sm leading-5 text-muted-foreground">
+                              Connect a board, hardware item, handle, or extra to a supplier price so CoreQuote can generate selling prices.
+                            </p>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : (

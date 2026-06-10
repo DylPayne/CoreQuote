@@ -1115,7 +1115,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                 </div>
               ))
             ) : (
-              <Alert className="text-xs">No projects yet. Create one to start quoting.</Alert>
+              <Alert className="text-xs">
+                Create your first project for the customer or room you are quoting. Projects keep quotes, units, cutting lists, and pricing together.
+              </Alert>
             )}
           </CardContent>
         </Card>
@@ -1303,7 +1305,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                         )
                       })
                     ) : (
-                      <Alert className="text-xs">No quotes in this project yet.</Alert>
+                      <Alert className="text-xs">
+                        Create the first quote for this project, then choose the default boards and hardware you want new units to use.
+                      </Alert>
                     )}
                   </CardContent>
                 </>
@@ -1458,7 +1462,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
               </CardHeader>
             <CardContent>
               {activeProjectTab === 'quotes' && !selectedQuote ? (
-                <Alert className="text-xs">No quote selected.</Alert>
+                <Alert className="text-xs">Choose a quote from the left pane or create a new quote for this project.</Alert>
               ) : activeQuoteTab === 'readiness' ? (
                 isLoadingQuoteReadiness ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1466,7 +1470,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                     Checking readiness
                   </div>
                 ) : !quoteReadiness ? (
-                  <Alert className="text-xs">No readiness check is available for this quote yet.</Alert>
+                  <Alert className="text-xs">
+                    Readiness will check quote details, board defaults, units, cutlists, and pricing once this quote has been saved.
+                  </Alert>
                 ) : (
                   <div className="grid gap-4">
                     <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-4">
@@ -1562,8 +1568,13 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                       <TableBody>
                         {units.length === 0 ? (
                           <TableRow>
-                            <TableCell className="text-muted-foreground" colSpan={6}>
-                              No units yet.
+                            <TableCell colSpan={6}>
+                              <div className="grid gap-1 py-3">
+                                <p className="font-medium">Add the cabinets or built-ins for this quote.</p>
+                                <p className="text-sm leading-5 text-muted-foreground">
+                                  Units use the quote defaults for carcass and door boards. If the board list is empty, add board materials in Libraries first.
+                                </p>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ) : (
@@ -1602,7 +1613,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                     Loading panel configuration
                   </div>
                 ) : !quoteCustomPanels ? (
-                  <Alert className="text-xs">No panel configuration loaded for this quote yet.</Alert>
+                  <Alert className="text-xs">
+                    Panel setup will appear after the quote is selected. Use it for visible panels, fillers, and quote-level board work.
+                  </Alert>
                 ) : (
                   <QuotePanelsEditor
                     boardLabel={boardLabel}
@@ -1628,7 +1641,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                     Building cutting list
                   </div>
                 ) : cutlistRowCount === 0 ? (
-                  <Alert className="text-xs">No cutting-list rows yet. Add units to generate results.</Alert>
+                  <Alert className="text-xs">
+                    Add at least one unit with a carcass board to generate cutting-list rows.
+                  </Alert>
                 ) : (
                   <div className="grid gap-4">
                     <div className="flex flex-wrap items-center gap-2">
@@ -1738,7 +1753,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                       Loading selected extras
                     </div>
                   ) : extras.length === 0 ? (
-                    <Alert className="text-xs">No extras in your library yet. Add extras in Libraries first.</Alert>
+                    <Alert className="text-xs">
+                      Add extras in Libraries when you want to include delivery, installation, accessories, or other add-ons on a quote.
+                    </Alert>
                   ) : (
                     <TableContainer>
                       <Table>
@@ -1809,7 +1826,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                       Loading quote pricing
                     </div>
                   ) : !projectPricing ? (
-                    <Alert className="text-xs">No pricing summary available yet.</Alert>
+                    <Alert className="text-xs">
+                      Pricing appears after the quote has units and the library has prices for the boards, hardware, and extras being used.
+                    </Alert>
                   ) : (
                     <div className="grid gap-5">
                       <div className="grid gap-3">
@@ -1857,7 +1876,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                             onOpenLibraries={onOpenLibraries}
                           />
                           {selectedQuotePricing.lines.length === 0 ? (
-                            <Alert className="text-xs">No priced lines yet.</Alert>
+                            <Alert className="text-xs">
+                              Add units and library prices to produce the quote line breakdown.
+                            </Alert>
                           ) : (
                             selectedQuotePricingGroups.map((group) => {
                               const bucketTotal = selectedQuotePricing.bucket_totals.find((bucket) => bucket.bucket === group.bucket)
@@ -1908,7 +1929,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                           )}
                         </div>
                       ) : (
-                        <Alert className="text-xs">No priced lines yet.</Alert>
+                        <Alert className="text-xs">Select a quote with units to review its priced line breakdown.</Alert>
                       )}
                     </div>
                   )
@@ -1918,7 +1939,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                   Loading pricing summary
                 </div>
               ) : !projectPricing ? (
-                <Alert className="text-xs">No pricing summary available yet.</Alert>
+                <Alert className="text-xs">
+                  Project pricing appears once quotes have units and matching prices in the library.
+                </Alert>
               ) : (
                   <div className="grid gap-5">
                     {activePricingTab === 'overview' ? (
@@ -2166,6 +2189,12 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
               />
             </Label>
 
+            {boards.length === 0 ? (
+              <Alert className="text-xs">
+                Add board materials in Libraries before choosing quote defaults. Boards are required before units can be saved.
+              </Alert>
+            ) : null}
+
             <div className="grid gap-3 md:grid-cols-3">
               <LibrarySelect
                 label="Carcass board"
@@ -2328,6 +2357,12 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                 />
               </Label>
             </div>
+
+            {boards.length === 0 ? (
+              <Alert className="text-xs">
+                Add board materials in Libraries before saving units. Every unit needs at least a carcass board for cutlists and pricing.
+              </Alert>
+            ) : null}
 
             <div className="grid gap-3 md:grid-cols-2">
               <LibrarySelect
