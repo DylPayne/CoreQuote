@@ -195,9 +195,25 @@ Response shape:
     }
   ],
   "runtime_mode": "legacy",
-  "unit_sources": []
+  "unit_sources": [],
+  "validation_warnings": [
+    {
+      "severity": "warning",
+      "source": "quote_panel",
+      "unit_number": 0,
+      "section": "extra_panel",
+      "row_desc": "Kicker",
+      "reason": "Choose a board for this quote-level panel."
+    }
+  ],
+  "readiness": {
+    "cutlist_valid": false,
+    "warning_count": 1
+  }
 }
 ```
+
+Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, and on rows that cannot be tied to a usable board/material choice. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
 
 ## Quote Extras Selection
 
@@ -444,6 +460,7 @@ Response shape:
       },
       "is_complete": true,
       "missing_items": [],
+      "cutlist_warnings": [],
       "subtotal_cents": 346783,
       "cost_total_cents": 346783,
       "sell_before_vat_cents": 433479,
@@ -480,7 +497,7 @@ subtotal. `sell_before_vat_cents` is the sell subtotal before VAT.
 
 When a required item has no active price entry, it is returned in
 `missing_items`, cost/sell totals are omitted for that line, and `is_complete`
-is `false`.
+is `false`. `is_complete` is also `false` when `cutlist_warnings` is not empty.
 
 Line `bucket` values group the spreadsheet-derived pricing categories:
 `material`, `component`, `handle`, `labour`, `consumable`, `extra`,

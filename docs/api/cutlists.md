@@ -102,7 +102,25 @@ Response:
       "unit_config_id": "unit-config-uuid",
       "note": null
     }
-  ]
+  ],
+  "validation_warnings": [],
+  "readiness": {
+    "cutlist_valid": true,
+    "warning_count": 0
+  }
+}
+```
+
+If generated rows are not usable, `validation_warnings` identifies the affected unit or quote-level row while leaving the row in the schedule:
+
+```json
+{
+  "severity": "warning",
+  "source": "unit",
+  "unit_number": 4,
+  "section": "carcass",
+  "row_desc": "Drawer Side",
+  "reason": "Width must be greater than 0 mm."
 }
 ```
 

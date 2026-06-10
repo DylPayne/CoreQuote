@@ -354,6 +354,20 @@ class CutlistRuntimeRowResponse(CutlistRowResponse):
     board_type_id: str | None = None
 
 
+class CutlistValidationWarningResponse(BaseModel):
+    severity: Literal["warning"] = "warning"
+    source: Literal["unit", "quote_panel"]
+    unit_number: int = Field(ge=0)
+    section: Literal["carcass", "panel", "hardware", "extra_panel"]
+    row_desc: str
+    reason: str
+
+
+class CutlistReadinessResponse(BaseModel):
+    cutlist_valid: bool = True
+    warning_count: int = Field(default=0, ge=0)
+
+
 class CutlistUnitSourceResponse(BaseModel):
     unit_number: int
     unit_type_key: str
@@ -371,6 +385,8 @@ class CutlistPreviewResponse(BaseModel):
     runtime_rows: list[CutlistRuntimeRowResponse] = Field(default_factory=list)
     runtime_mode: Literal["legacy", "ruleset", "mixed"] = "legacy"
     unit_sources: list[CutlistUnitSourceResponse] = Field(default_factory=list)
+    validation_warnings: list[CutlistValidationWarningResponse] = Field(default_factory=list)
+    readiness: CutlistReadinessResponse = Field(default_factory=CutlistReadinessResponse)
 
 
 class QuoteCuttingListResponse(CutlistPreviewResponse):
@@ -461,6 +477,7 @@ class QuotePricingSummaryResponse(BaseModel):
     pricing_settings: QuotePricingSettingsResponse
     is_complete: bool
     missing_items: list[str] = Field(default_factory=list)
+    cutlist_warnings: list[CutlistValidationWarningResponse] = Field(default_factory=list)
     subtotal_cents: int = 0
     cost_total_cents: int = 0
     sell_before_vat_cents: int = 0

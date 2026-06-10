@@ -11,6 +11,8 @@ const alertVariants = cva('rounded-[var(--control-radius)] border px-3 py-2 text
     variant: {
       default: 'border-border bg-muted text-foreground',
       destructive: 'border-destructive bg-destructive/10 text-destructive',
+      warning:
+        'border-[var(--status-warning-border)] bg-[var(--status-warning)] text-[var(--status-warning-foreground)]',
     },
   },
 })

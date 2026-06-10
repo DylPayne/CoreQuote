@@ -10,6 +10,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from corequote_api.cutlist_validation import preview_with_validation
 from corequote_core.cutlist import build_cutlist
 
 
@@ -437,7 +438,7 @@ class CutlistRuntimeService:
 
         runtime_mode = _runtime_mode(unit_sources)
 
-        return {
+        preview = {
             "carcass": carcass_rows,
             "panels": panel_rows,
             "hardware": hardware_rows,
@@ -446,6 +447,7 @@ class CutlistRuntimeService:
             "runtime_mode": runtime_mode,
             "unit_sources": unit_sources,
         }
+        return preview_with_validation(preview)
 
     def _resolve_unit_config(self, company_id: str, unit_type_key: str) -> dict | None:
         for candidate in unit_type_candidates(unit_type_key):
@@ -619,15 +621,9 @@ class CutlistRuntimeService:
                 context,
                 field_name="qty_formula",
             )
-            qty = max(0, int(qty_raw))
-            if qty == 0:
-                continue
-
+            qty = int(qty_raw)
             length_mm = int(length)
             width_mm = int(width)
-            if length_mm <= 0 or width_mm <= 0:
-                raise CuttingRuntimeError("length_formula and width_formula must evaluate to values greater than zero.")
-
             generated_rows.append(
                 {
                     "unit_number": unit_number,

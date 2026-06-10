@@ -25,7 +25,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, quotePayloadFromDraft, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -37,6 +37,10 @@ function formatBucketLabel(bucket: string) {
 
 function formatPricingQty(qty: number) {
   return Number.isInteger(qty) ? String(qty) : qty.toFixed(2)
+}
+
+function formatCutlistWarningSource(warning: CutlistValidationWarning) {
+  return warning.source === 'quote_panel' ? 'Quote panel' : `Unit ${warning.unit_number}`
 }
 
 export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: string; currencyCode: string }) {
@@ -142,6 +146,11 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       quoteCuttingList.hardware.length +
       quoteCuttingList.extras.length
     : 0
+  const cutlistWarnings = quoteCuttingList?.validation_warnings ?? []
+  const projectCutlistWarningCount = projectPricing?.quotes.reduce(
+    (total, quotePricing) => total + quotePricing.cutlist_warnings.length,
+    0,
+  ) ?? 0
   const panelFamilyCounts = useMemo(() => countPanelFamilies(units), [units])
 
   const loadLibraries = useCallback(async () => {
@@ -1218,6 +1227,28 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                   <Alert className="text-xs">No cutting-list rows yet. Add units to generate results.</Alert>
                 ) : (
                   <div className="grid gap-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {quoteCuttingList ? (
+                        <Badge variant={quoteCuttingList.readiness.cutlist_valid ? 'outline' : 'warning'}>
+                          {quoteCuttingList.readiness.cutlist_valid
+                            ? 'Cutlist ready'
+                            : `${quoteCuttingList.readiness.warning_count} cutlist warnings`}
+                        </Badge>
+                      ) : null}
+                    </div>
+
+                    {cutlistWarnings.length > 0 ? (
+                      <Alert className="text-xs" variant="warning">
+                        <div className="grid gap-1">
+                          {cutlistWarnings.map((warning, index) => (
+                            <p key={`${warning.section}-${warning.unit_number}-${warning.row_desc}-${index}`}>
+                              {`${formatCutlistWarningSource(warning)} / ${warning.row_desc}: ${warning.reason}`}
+                            </p>
+                          ))}
+                        </div>
+                      </Alert>
+                    ) : null}
+
                     <div className="flex items-center gap-1">
                       <Button
                         className="h-7 px-2 text-xs"
@@ -1250,19 +1281,34 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
 
                     {activeCuttingListViewTab === 'carcass' ? (
                       quoteCuttingList && quoteCuttingList.carcass.length > 0 ? (
-                        <CutlistSection rows={quoteCuttingList.carcass} title="Carcass" />
+                        <CutlistSection
+                          rows={quoteCuttingList.carcass}
+                          section="carcass"
+                          title="Carcass"
+                          warnings={cutlistWarnings}
+                        />
                       ) : (
                         <Alert className="text-xs">No carcass rows for this quote.</Alert>
                       )
                     ) : (
                       activeCuttingListViewTab === 'panels' ? (
                         quoteCuttingList && quoteCuttingList.panels.length > 0 ? (
-                          <CutlistSection rows={quoteCuttingList.panels} title="Panels" />
+                          <CutlistSection
+                            rows={quoteCuttingList.panels}
+                            section="panel"
+                            title="Panels"
+                            warnings={cutlistWarnings}
+                          />
                         ) : (
                           <Alert className="text-xs">No panel rows for this quote.</Alert>
                         )
                       ) : quoteCuttingList && quoteCuttingList.extras.length > 0 ? (
-                        <CutlistSection rows={quoteCuttingList.extras} title="Quote Panels & Extras" />
+                        <CutlistSection
+                          rows={quoteCuttingList.extras}
+                          section="extra_panel"
+                          title="Quote Panels & Extras"
+                          warnings={cutlistWarnings}
+                        />
                       ) : (
                         <Alert className="text-xs">No quote-level panel rows for this quote.</Alert>
                       )
@@ -1492,8 +1538,15 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
 	                  </div>
 	                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant={projectPricing.is_complete ? 'outline' : 'warning'}>
-                      {projectPricing.is_complete ? 'Complete pricing' : 'Missing prices'}
+                      {projectPricing.is_complete
+                        ? 'Complete pricing'
+                        : projectCutlistWarningCount > 0
+                          ? 'Cutlist review'
+                          : 'Missing prices'}
                     </Badge>
+                    {projectCutlistWarningCount > 0 ? (
+                      <Badge variant="warning">{`${projectCutlistWarningCount} cutlist warnings`}</Badge>
+                    ) : null}
                     <Badge variant="outline">{pricingCurrencyCode}</Badge>
                     <span>{`Default markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
 	                  </div>
@@ -1546,20 +1599,32 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {projectPricing.quotes.map((quotePricing) => (
-                          <TableRow key={quotePricing.quote_id}>
-                            <TableCell>{quotePricing.quote_name}</TableCell>
-                            <TableCell>
-                              <Badge variant={quotePricing.is_complete ? 'outline' : 'warning'}>
-                                {quotePricing.is_complete ? 'Complete' : 'Missing prices'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.cost_total_cents, pricingCurrencyCode)}</TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.sell_before_vat_cents, pricingCurrencyCode)}</TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.profit_cents, pricingCurrencyCode)}</TableCell>
-                            <TableCell className="text-right">{formatCents(quotePricing.grand_total_cents, pricingCurrencyCode)}</TableCell>
-                          </TableRow>
-                        ))}
+                        {projectPricing.quotes.map((quotePricing) => {
+                          const quoteWarningCount = quotePricing.cutlist_warnings.length
+                          return (
+                            <TableRow key={quotePricing.quote_id}>
+                              <TableCell>{quotePricing.quote_name}</TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-2">
+                                  <Badge variant={quotePricing.is_complete ? 'outline' : 'warning'}>
+                                    {quotePricing.is_complete
+                                      ? 'Complete'
+                                      : quoteWarningCount > 0
+                                        ? 'Cutlist review'
+                                        : 'Missing prices'}
+                                  </Badge>
+                                  {quoteWarningCount > 0 ? (
+                                    <Badge variant="warning">{`${quoteWarningCount} warnings`}</Badge>
+                                  ) : null}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">{formatCents(quotePricing.cost_total_cents, pricingCurrencyCode)}</TableCell>
+                              <TableCell className="text-right">{formatCents(quotePricing.sell_before_vat_cents, pricingCurrencyCode)}</TableCell>
+                              <TableCell className="text-right">{formatCents(quotePricing.profit_cents, pricingCurrencyCode)}</TableCell>
+                              <TableCell className="text-right">{formatCents(quotePricing.grand_total_cents, pricingCurrencyCode)}</TableCell>
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
 	                  </TableContainer>

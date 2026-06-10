@@ -102,12 +102,28 @@ export type CutlistRow = {
   qty: number
 }
 
+export type CutlistValidationWarning = {
+  severity: 'warning'
+  source: 'unit' | 'quote_panel'
+  unit_number: number
+  section: 'carcass' | 'panel' | 'hardware' | 'extra_panel'
+  row_desc: string
+  reason: string
+}
+
+export type CutlistReadiness = {
+  cutlist_valid: boolean
+  warning_count: number
+}
+
 export type QuoteCuttingList = {
   quote_id: string
   carcass: CutlistRow[]
   panels: CutlistRow[]
   hardware: CutlistRow[]
   extras: CutlistRow[]
+  validation_warnings: CutlistValidationWarning[]
+  readiness: CutlistReadiness
 }
 
 export type QuoteExtrasResponse = {
@@ -204,6 +220,7 @@ export type QuotePricingSummary = {
   pricing_settings: QuotePricingSettingsRow
   is_complete: boolean
   missing_items: string[]
+  cutlist_warnings: CutlistValidationWarning[]
   subtotal_cents: number
   cost_total_cents: number
   sell_before_vat_cents: number

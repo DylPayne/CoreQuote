@@ -116,6 +116,86 @@ def test_runtime_service_prefers_company_ruleset_over_global_default():
     assert result["unit_sources"][0]["source"] == "ruleset"
     assert result["unit_sources"][0]["ruleset_id"] == "company-ruleset"
     assert result["carcass"] == [{"unit_number": 1, "desc": "Company Side", "length": 748, "width": 544, "qty": 2}]
+    assert result["validation_warnings"] == []
+    assert result["readiness"] == {"cutlist_valid": True, "warning_count": 0}
+
+
+def test_runtime_service_warns_when_drawer_side_dimension_collapses_to_zero():
+    store = FakeRuntimeStore(
+        unit_configs={
+            (None, "Base Draw"): {
+                "id": "global-config",
+                "unit_type_key": "Base Draw",
+                "variant_config": {"num_drawers": 3, "panel_gap_mm": 3},
+            }
+        },
+        rulesets={
+            (None, "Base Draw"): {
+                "id": "global-ruleset",
+                "unit_type_key": "Base Draw",
+                "unit_config_id": "global-config",
+                "rows": [
+                    {
+                        "sort_order": 10,
+                        "section": "carcass",
+                        "description": "Drawer Side",
+                        "length_formula": "drawer_depth",
+                        "width_formula": "drawer_side_height",
+                        "qty_formula": "num_drawers * 2",
+                        "condition_formula": "num_drawers > 0",
+                        "edge_long_1": False,
+                        "edge_long_2": False,
+                        "edge_short_1": False,
+                        "edge_short_2": False,
+                    },
+                    {
+                        "sort_order": 20,
+                        "section": "panel",
+                        "description": "Drawer Front",
+                        "length_formula": "drawer_front_height",
+                        "width_formula": "w - panel_gap_mm",
+                        "qty_formula": "num_drawers",
+                        "condition_formula": "num_drawers > 0",
+                        "edge_long_1": False,
+                        "edge_long_2": False,
+                        "edge_short_1": False,
+                        "edge_short_2": False,
+                    },
+                ],
+            }
+        },
+    )
+    service = CutlistRuntimeService(store=store)
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[
+            {
+                "unit_number": 4,
+                "unit_type": "Base Draw",
+                "height": 300,
+                "width": 600,
+                "depth": 560,
+                "thickness": 16,
+                "extra_params": {"slide_side_length": 500},
+            }
+        ],
+        use_db_rulesets=True,
+    )
+
+    assert {"unit_number": 4, "desc": "Drawer Side", "length": 500, "width": 0, "qty": 6} in result["carcass"]
+    assert {"unit_number": 4, "desc": "Drawer Front", "length": 97, "width": 597, "qty": 3} in result["panels"]
+    assert result["validation_warnings"] == [
+        {
+            "severity": "warning",
+            "source": "unit",
+            "unit_number": 4,
+            "section": "carcass",
+            "row_desc": "Drawer Side",
+            "reason": "Width must be greater than 0 mm.",
+        }
+    ]
+    assert result["readiness"] == {"cutlist_valid": False, "warning_count": 1}
 
 
 def test_runtime_service_falls_back_to_legacy_when_ruleset_missing():

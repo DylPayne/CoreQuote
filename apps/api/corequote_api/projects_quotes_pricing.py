@@ -4,6 +4,7 @@ from typing import Any
 
 from corequote_core.detailed_pricing import price_quote_detailed, settings_from_mapping
 from corequote_core.panels import PANEL_PRESET_KEYS, PANEL_PRESET_LABELS, compute_panel_rows
+from corequote_api.cutlist_validation import preview_with_validation
 from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes_payloads import (
     _clean_custom_panels_payload,
@@ -113,7 +114,13 @@ def _build_cutting_list_preview(
             }
         )
 
-    return preview
+    return preview_with_validation(
+        preview,
+        quote=quote,
+        units=units,
+        board_lookup=board_lookup,
+        require_materials=True,
+    )
 
 
 def _to_runtime_unit(unit: dict[str, Any], *, default_slide: dict[str, Any] | None) -> dict[str, Any]:
@@ -164,7 +171,8 @@ def _price_quote(
         slide_lookup=slide_lookup,
     )
 
-    return price_quote_detailed(
+    cutlist_warnings = list(cutting_list.get("validation_warnings", []))
+    summary = price_quote_detailed(
         quote=quote,
         units=units,
         quote_extras=quote_extras,
@@ -178,3 +186,7 @@ def _price_quote(
         extra_lookup=extra_lookup,
         active_price_list_id=active_price_list_id,
     )
+    summary["cutlist_warnings"] = cutlist_warnings
+    if cutlist_warnings:
+        summary["is_complete"] = False
+    return summary
