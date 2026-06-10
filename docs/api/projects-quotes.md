@@ -541,6 +541,7 @@ Response shape:
     "updated_at": "2026-06-01T10:30:00Z"
   },
   "is_complete": true,
+  "missing_prices": [],
   "subtotal_cents": 346783,
   "cost_total_cents": 346783,
   "sell_before_vat_cents": 433479,
@@ -577,6 +578,27 @@ Response shape:
       },
       "is_complete": true,
       "missing_items": [],
+      "missing_prices": [
+        {
+          "item_type": "handle",
+          "item_type_label": "Handle",
+          "item_key": "handle::handle-uuid",
+          "item_ref_id": "handle-uuid",
+          "price_component": "unit",
+          "component": "Unit price",
+          "bucket": "handle",
+          "item_name": "Bar pull",
+          "uom": "pcs",
+          "quantity": 3,
+          "used_in": ["Handle"],
+          "usage_label": "Handle",
+          "affected_quote_id": "quote-uuid",
+          "affected_quote_name": "Kitchen Quote v1",
+          "library_area": "pricing",
+          "action_label": "Add a price for Bar pull",
+          "message": "Add a price for Bar pull using Unit price in the pricing library."
+        }
+      ],
       "subtotal_cents": 346783,
       "cost_total_cents": 346783,
       "sell_before_vat_cents": 433479,
@@ -612,8 +634,13 @@ Response shape:
 subtotal. `sell_before_vat_cents` is the sell subtotal before VAT.
 
 When a required item has no active price entry, it is returned in
-`missing_items`, cost/sell totals are omitted for that line, and `is_complete`
-is `false`.
+`missing_items` for backward compatibility and in `missing_prices` as
+estimator-facing guidance. Each `missing_prices` row identifies the library
+item type, stable item reference, price component, unit of measure, quantity,
+where it is used, and the affected quote. Cost/sell totals are omitted for the
+matching line, and `is_complete` is `false`. Project pricing responses also
+include a top-level `missing_prices` array containing the missing price guidance
+for all included quotes.
 
 Line `bucket` values group the spreadsheet-derived pricing categories:
 `material`, `component`, `handle`, `labour`, `consumable`, `extra`,
@@ -630,4 +657,5 @@ Line `bucket` values group the spreadsheet-derived pricing categories:
 - Cutting list tab can call `GET /quotes/{quote_id}/cutting-list`.
 - Extras tab can load and save quote-selected extras via `GET/PUT /quotes/{quote_id}/extras`.
 - Pricing tab can load project totals via `GET /projects/{project_id}/pricing` and format all cent values with the returned `currency_code`.
+- Pricing UI should show `missing_prices` before detailed line items and use `action_label` / `message` copy such as "Add a price for..." instead of exposing raw item keys.
 - Quote defaults are designed for fast unit creation UX: set defaults once on quote, then apply during add-unit flows.

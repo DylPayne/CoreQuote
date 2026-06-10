@@ -32,7 +32,8 @@ class FakeAuthStore:
 
 
 class FakeWorkspaceStore:
-    def __init__(self):
+    def __init__(self, *, project_pricing_payload: dict | None = None):
+        self.project_pricing_payload = project_pricing_payload
         self.created_project_payload: tuple[str, dict] | None = None
         self.updated_project_payload: tuple[str, str, dict] | None = None
         self.deleted_project: tuple[str, str] | None = None
@@ -218,7 +219,7 @@ class FakeWorkspaceStore:
         if project_id == "missing":
             raise WorkspaceNotFound("Project not found")
         self.requested_project_pricing = (company_id, project_id)
-        return project_pricing(project_id)
+        return self.project_pricing_payload or project_pricing(project_id)
 
     def get_project_pricing_settings(self, company_id: str, project_id: str) -> dict:
         if project_id == "missing":
@@ -609,6 +610,67 @@ def test_get_project_pricing_returns_project_totals():
     assert store.requested_project_pricing == ("company-1", "project-1")
 
 
+def test_get_project_pricing_returns_missing_price_guidance():
+    payload = project_pricing(
+        "project-1",
+        is_complete=False,
+        missing_prices=[
+            missing_price(
+                item_type="handle",
+                item_type_label="Handle",
+                item_key="handle::handle-1",
+                item_ref_id="handle-1",
+                price_component="unit",
+                component="Unit price",
+                bucket="handle",
+                item_name="Bar pull",
+                affected_quote_id="quote-1",
+                affected_quote_name="Kitchen Quote",
+                quantity=3,
+                uom="pcs",
+                used_in=["Handle"],
+                usage_label="Handle",
+                action_label="Add a price for Bar pull",
+                message="Add a price for Bar pull using Unit price in the pricing library.",
+            )
+        ],
+        quote_missing_prices=[
+            missing_price(
+                item_type="handle",
+                item_type_label="Handle",
+                item_key="handle::handle-1",
+                item_ref_id="handle-1",
+                price_component="unit",
+                component="Unit price",
+                bucket="handle",
+                item_name="Bar pull",
+                affected_quote_id="quote-1",
+                affected_quote_name="Kitchen Quote",
+                quantity=3,
+                uom="pcs",
+                used_in=["Handle"],
+                usage_label="Handle",
+                action_label="Add a price for Bar pull",
+                message="Add a price for Bar pull using Unit price in the pricing library.",
+            )
+        ],
+    )
+    store = FakeWorkspaceStore(project_pricing_payload=payload)
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/projects/project-1/pricing", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_complete"] is False
+    assert body["missing_prices"][0]["action_label"] == "Add a price for Bar pull"
+    assert body["missing_prices"][0]["affected_quote_name"] == "Kitchen Quote"
+    assert body["quotes"][0]["missing_prices"][0]["item_ref_id"] == "handle-1"
+
+
 def test_project_pricing_settings_read_and_update():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
@@ -937,7 +999,13 @@ def quote_readiness(quote_id: str) -> dict:
     }
 
 
-def project_pricing(project_id: str) -> dict:
+def project_pricing(
+    project_id: str,
+    *,
+    is_complete: bool = True,
+    missing_prices: list[dict] | None = None,
+    quote_missing_prices: list[dict] | None = None,
+) -> dict:
     return {
         "project_id": project_id,
         "project_name": "Main Kitchen",
@@ -946,11 +1014,15 @@ def project_pricing(project_id: str) -> dict:
         "vat_rate_bps": 1500,
         "markup_bps": 2500,
         "pricing_settings": pricing_settings(project_id=project_id),
-        "is_complete": True,
+        "is_complete": is_complete,
+        "missing_prices": missing_prices or [],
         "subtotal_cents": 346783,
+        "cost_total_cents": 346783,
         "sell_before_vat_cents": 433479,
         "vat_cents": 65021,
         "grand_total_cents": 498000,
+        "profit_cents": 86696,
+        "bucket_totals": [],
         "quotes": [
             {
                 "quote_id": "quote-1",
@@ -964,16 +1036,44 @@ def project_pricing(project_id: str) -> dict:
                 "vat_rate_bps": 1500,
                 "markup_bps": 2500,
                 "pricing_settings": pricing_settings(quote_id="quote-1"),
-                "is_complete": True,
+                "is_complete": is_complete,
                 "missing_items": [],
+                "missing_prices": quote_missing_prices or [],
                 "subtotal_cents": 346783,
+                "cost_total_cents": 346783,
                 "sell_before_vat_cents": 433479,
                 "vat_cents": 65021,
                 "grand_total_cents": 498000,
+                "profit_cents": 86696,
+                "bucket_totals": [],
                 "lines": [],
             }
         ],
     }
+
+
+def missing_price(**overrides) -> dict:
+    payload = {
+        "item_type": "board",
+        "item_type_label": "Board",
+        "item_key": "board::board-1",
+        "item_ref_id": "board-1",
+        "price_component": "sqm",
+        "component": "Square metre price",
+        "bucket": "material",
+        "item_name": "PG White (16mm)",
+        "uom": "m2",
+        "quantity": 1,
+        "used_in": ["Carcass material"],
+        "usage_label": "Carcass material",
+        "affected_quote_id": "quote-1",
+        "affected_quote_name": "Kitchen Quote",
+        "library_area": "pricing",
+        "action_label": "Add a price for PG White (16mm)",
+        "message": "Add a price for PG White (16mm) using Square metre price in the pricing library.",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def pricing_settings(

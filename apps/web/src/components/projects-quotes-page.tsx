@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  CircleDollarSign,
   Copy,
   GitBranch,
   LoaderCircle,
@@ -30,7 +31,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -70,7 +71,88 @@ function ReadinessIcon({ severity }: { severity: QuoteReadinessSeverity }) {
   return <XCircle className="h-4 w-4 text-destructive" aria-hidden="true" />
 }
 
-export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: string; currencyCode: string }) {
+function missingPriceRowKey(row: MissingPrice) {
+  return `${row.affected_quote_id}:${row.item_type}:${row.item_key}:${row.price_component}`
+}
+
+function missingPriceGroups(rows: MissingPrice[]) {
+  const groups = new Map<string, MissingPrice[]>()
+  rows.forEach((row) => {
+    groups.set(row.item_type_label, [...(groups.get(row.item_type_label) ?? []), row])
+  })
+  return Array.from(groups.entries()).map(([label, items]) => ({ label, items }))
+}
+
+function formatMissingPriceCount(count: number) {
+  return `${count} missing ${count === 1 ? 'price' : 'prices'}`
+}
+
+function MissingPriceGuidance({
+  includeQuote,
+  missingPrices,
+  onOpenLibraries,
+}: {
+  includeQuote: boolean
+  missingPrices: MissingPrice[]
+  onOpenLibraries: () => void
+}) {
+  if (missingPrices.length === 0) return null
+
+  return (
+    <div className="grid gap-3 border-y border-border py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Missing prices</p>
+          <Badge variant="warning">{formatMissingPriceCount(missingPrices.length)}</Badge>
+        </div>
+        <Button onClick={onOpenLibraries} size="sm" type="button" variant="outline">
+          <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
+          Pricing library
+        </Button>
+      </div>
+
+      {missingPriceGroups(missingPrices).map((group) => (
+        <div className="grid gap-2" key={group.label}>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant="outline">{group.label}</Badge>
+            <span className="text-muted-foreground">{formatMissingPriceCount(group.items.length)}</span>
+          </div>
+          <TableContainer>
+            <Table className="min-w-[780px] text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Component</TableHead>
+                  <TableHead>Used in</TableHead>
+                  {includeQuote ? <TableHead>Quote</TableHead> : null}
+                  <TableHead className="text-right">Qty</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {group.items.map((row) => (
+                  <TableRow key={missingPriceRowKey(row)}>
+                    <TableCell>
+                      <div className="grid gap-1">
+                        <span>{row.action_label}</span>
+                        <span className="text-muted-foreground">{row.message}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>{row.component}</TableCell>
+                    <TableCell>{row.usage_label}</TableCell>
+                    {includeQuote ? <TableCell>{row.affected_quote_name}</TableCell> : null}
+                    <TableCell className="text-right">{`${formatPricingQty(row.quantity)} ${row.uom}`}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }: { authToken: string; currencyCode: string; onOpenLibraries: () => void }) {
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [quotes, setQuotes] = useState<QuoteRow[]>([])
   const [units, setUnits] = useState<UnitRow[]>([])
@@ -1723,6 +1805,11 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
 	                            <Badge variant="outline">{`Profit ${formatCents(selectedQuotePricing.profit_cents, pricingCurrencyCode)}`}</Badge>
 	                          </div>
 	                        </div>
+	                        <MissingPriceGuidance
+	                          includeQuote={false}
+	                          missingPrices={selectedQuotePricing.missing_prices}
+	                          onOpenLibraries={onOpenLibraries}
+	                        />
 	                        {selectedQuotePricing.lines.length === 0 ? (
 	                          <Alert className="text-xs">No priced lines yet.</Alert>
 	                        ) : (
@@ -1753,7 +1840,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
 	                                    </TableHeader>
 	                                    <TableBody>
 	                                      {group.lines.map((line) => (
-	                                        <TableRow key={`${line.item_key}:${line.price_component}:${line.bucket}`}>
+	                                        <TableRow key={`${line.item_key}:${line.price_component}:${line.bucket}:${line.description}`}>
 	                                          <TableCell>
 	                                            {line.description}
 	                                            {line.missing ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
@@ -1819,6 +1906,11 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                     <Badge variant="outline">{pricingCurrencyCode}</Badge>
                     <span>{`Default markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
 	                  </div>
+	                  <MissingPriceGuidance
+	                    includeQuote
+	                    missingPrices={projectPricing.missing_prices}
+	                    onOpenLibraries={onOpenLibraries}
+	                  />
 	                    </>
 	                  ) : null}
 

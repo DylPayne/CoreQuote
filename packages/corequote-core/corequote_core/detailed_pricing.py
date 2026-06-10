@@ -24,6 +24,29 @@ PRICEABLE_ITEM_TYPES = {
     "adjustment",
 }
 
+ITEM_TYPE_LABELS = {
+    "board": "Board",
+    "slide": "Slide",
+    "hinge": "Hinge",
+    "handle": "Handle",
+    "extra": "Extra",
+    "labour": "Labour",
+    "consumable": "Consumable",
+    "installation": "Installation",
+    "delivery": "Delivery",
+    "adjustment": "Adjustment",
+}
+
+PRICE_COMPONENT_LABELS = {
+    "sqm": "Square metre price",
+    "m2": "Square metre rate",
+    "sheet": "Sheet price",
+    "unit": "Unit price",
+    "day": "Day rate",
+    "trip": "Trip rate",
+    "commission": "Commission allowance",
+}
+
 
 SIMPLIFIED_UNIT_TYPE_CANDIDATES: dict[str, tuple[str, ...]] = {
     "Base Draw": ("Base Draw", "Base Drawer", "Base 1 Draw", "Base 2 Draw", "Base 3 Draw", "Base 4 Draw"),
@@ -261,6 +284,7 @@ def price_quote_detailed(
     vat_cents = int(round(sell_before_vat_cents * (settings.vat_rate_bps / 10_000.0)))
     grand_total_cents = int(sell_before_vat_cents + vat_cents)
     missing_items = sorted(set(missing_items))
+    missing_prices = _missing_price_summaries(lines=lines, quote=quote)
 
     bucket_totals = _bucket_totals(lines)
     response_lines = [_public_line(line) for line in sorted(lines, key=_line_sort_key)]
@@ -268,8 +292,9 @@ def price_quote_detailed(
     return {
         "quote_id": quote["id"],
         "quote_name": quote["name"],
-        "is_complete": bool(active_price_list_id) and not missing_items,
+        "is_complete": bool(active_price_list_id) and not missing_prices,
         "missing_items": missing_items,
+        "missing_prices": missing_prices,
         "subtotal_cents": cost_total_cents,
         "cost_total_cents": cost_total_cents,
         "sell_before_vat_cents": sell_before_vat_cents,
@@ -704,6 +729,103 @@ def _bucket_totals(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         for bucket, values in sorted(totals.items(), key=lambda item: _bucket_sort(item[0]))
     ]
+
+
+def _missing_price_summaries(*, lines: list[dict[str, Any]], quote: dict[str, Any]) -> list[dict[str, Any]]:
+    summaries: dict[tuple[str, str, str], dict[str, Any]] = {}
+    quote_id = str(quote.get("id") or "")
+    quote_name = str(quote.get("name") or "Quote")
+
+    for line in lines:
+        if not line.get("missing"):
+            continue
+
+        item_type = str(line.get("item_type") or "adjustment")
+        item_key = str(line.get("item_key") or "")
+        price_component = str(line.get("price_component") or "unit")
+        key = (item_type, item_key, price_component)
+        item_name = _missing_item_name(line)
+        component = _price_component_label(price_component)
+        usage = _missing_usage_label(line)
+
+        summary = summaries.get(key)
+        if summary is None:
+            summary = {
+                "item_type": item_type,
+                "item_type_label": _item_type_label(item_type),
+                "item_key": item_key,
+                "item_ref_id": _item_ref_id(item_key),
+                "price_component": price_component,
+                "component": component,
+                "bucket": str(line.get("bucket") or "other"),
+                "item_name": item_name,
+                "uom": str(line.get("uom") or ""),
+                "quantity": 0.0,
+                "used_in": [],
+                "usage_label": "",
+                "affected_quote_id": quote_id,
+                "affected_quote_name": quote_name,
+                "library_area": "pricing",
+                "action_label": f"Add a price for {item_name}",
+                "message": f"Add a price for {item_name} using {component} in the pricing library.",
+            }
+            summaries[key] = summary
+
+        summary["quantity"] = float(round(float(summary["quantity"]) + float(line.get("qty") or 0.0), 4))
+        if usage and usage not in summary["used_in"]:
+            summary["used_in"].append(usage)
+
+    for summary in summaries.values():
+        if not summary["used_in"]:
+            summary["used_in"].append(summary["item_type_label"])
+        summary["usage_label"] = _join_labels(summary["used_in"])
+
+    return sorted(
+        summaries.values(),
+        key=lambda row: (_bucket_sort(str(row.get("bucket") or "")), str(row.get("item_name") or "")),
+    )
+
+
+def _missing_item_name(line: dict[str, Any]) -> str:
+    description = str(line.get("description") or "").strip()
+    if ": " in description:
+        return description.split(": ", 1)[1].strip() or description
+    return description or _item_type_label(str(line.get("item_type") or ""))
+
+
+def _missing_usage_label(line: dict[str, Any]) -> str:
+    description = str(line.get("description") or "").strip()
+    if ": " in description:
+        return description.split(": ", 1)[0].strip()
+    return _item_type_label(str(line.get("item_type") or ""))
+
+
+def _item_type_label(item_type: str) -> str:
+    return ITEM_TYPE_LABELS.get(str(item_type), _title_words(str(item_type)))
+
+
+def _price_component_label(price_component: str) -> str:
+    return PRICE_COMPONENT_LABELS.get(str(price_component), f"{_title_words(str(price_component))} price")
+
+
+def _item_ref_id(item_key: str) -> str:
+    if "::" not in item_key:
+        return item_key
+    return item_key.split("::", 1)[1]
+
+
+def _join_labels(labels: list[str]) -> str:
+    if not labels:
+        return ""
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) == 2:
+        return f"{labels[0]} and {labels[1]}"
+    return f"{', '.join(labels[:-1])}, and {labels[-1]}"
+
+
+def _title_words(value: str) -> str:
+    return " ".join(part.capitalize() for part in value.replace("_", " ").replace("-", " ").split() if part)
 
 
 def _edge_length_mm(row: dict[str, Any], length: int, width: int) -> int:

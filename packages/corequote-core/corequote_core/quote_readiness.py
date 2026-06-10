@@ -459,6 +459,9 @@ def _invalid_cutting_row(row: dict[str, Any]) -> bool:
 def _missing_price_count(pricing_summary: dict[str, Any] | None) -> int:
     if not pricing_summary:
         return 0
+    missing_prices = pricing_summary.get("missing_prices")
+    if isinstance(missing_prices, list) and missing_prices:
+        return len(missing_prices)
     missing_items = pricing_summary.get("missing_items")
     if isinstance(missing_items, list):
         return len(missing_items)
