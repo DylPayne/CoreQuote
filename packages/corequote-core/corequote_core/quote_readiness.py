@@ -38,7 +38,9 @@ def evaluate_quote_readiness(
     """Return structured quote readiness checks from current quote data."""
 
     cutting_rows = _cutting_rows(cutting_list)
-    invalid_cutting_rows = [row for row in cutting_rows if _invalid_cutting_row(row)]
+    validation_warnings = _cutlist_validation_warnings(cutting_list)
+    invalid_cutting_rows = [] if validation_warnings else [row for row in cutting_rows if _invalid_cutting_row(row)]
+    cutlist_warning_count = len(validation_warnings) if validation_warnings else len(invalid_cutting_rows)
     custom_panel_rows = [row for row in cutting_rows if str(row.get("section") or "") == "extra_panel"]
     panel_rows = [row for row in cutting_rows if str(row.get("section") or "") == "panel"]
     missing_default_boards = _missing_default_boards(quote, custom_panel_rows)
@@ -58,7 +60,7 @@ def evaluate_quote_readiness(
         ),
         _cutlist_rows_check(
             row_count=len(cutting_rows),
-            invalid_count=len(invalid_cutting_rows),
+            invalid_count=cutlist_warning_count,
             cutting_error=cutting_error,
             has_units=bool(units),
         ),
@@ -74,7 +76,7 @@ def evaluate_quote_readiness(
             missing_price_count=missing_price_count,
         ),
         _required_outputs_check(
-            has_valid_cutting_rows=bool(cutting_rows) and not invalid_cutting_rows and not cutting_error,
+            has_valid_cutting_rows=bool(cutting_rows) and cutlist_warning_count == 0 and not cutting_error,
             has_priced_total=_has_priced_total(pricing_summary, missing_price_count=missing_price_count),
             has_units=bool(units),
         ),
@@ -223,7 +225,7 @@ def _cutlist_rows_check(
             id="cutlist_rows",
             severity="warning",
             title="Fix cutlist rows",
-            message=f"{invalid_count} cutting-list {_plural(invalid_count, 'row')} has missing or zero sizes, so workshop output is not ready.",
+            message=f"{invalid_count} cutting-list {_plural(invalid_count, 'row')} has missing material choices or unusable sizes, so workshop output is not ready.",
             action_label="Review cutting list",
             action_target="cutting-lists",
         )
@@ -445,6 +447,15 @@ def _cutting_rows(cutting_list: dict[str, Any] | None) -> list[dict[str, Any]]:
         section = "panel" if section_name == "panels" else "extra_panel" if section_name == "extras" else section_name
         rows.extend({**row, "section": section} for row in section_rows if isinstance(row, dict))
     return rows
+
+
+def _cutlist_validation_warnings(cutting_list: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not cutting_list:
+        return []
+    warnings = cutting_list.get("validation_warnings")
+    if isinstance(warnings, list):
+        return [warning for warning in warnings if isinstance(warning, dict)]
+    return []
 
 
 def _invalid_cutting_row(row: dict[str, Any]) -> bool:

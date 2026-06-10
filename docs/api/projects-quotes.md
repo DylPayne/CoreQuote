@@ -248,9 +248,25 @@ Response shape:
     }
   ],
   "runtime_mode": "legacy",
-  "unit_sources": []
+  "unit_sources": [],
+  "validation_warnings": [
+    {
+      "severity": "warning",
+      "source": "quote_panel",
+      "unit_number": 0,
+      "section": "extra_panel",
+      "row_desc": "Kicker",
+      "reason": "Choose a board for this quote-level panel."
+    }
+  ],
+  "readiness": {
+    "cutlist_valid": false,
+    "warning_count": 1
+  }
 }
 ```
+
+Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, and on rows that cannot be tied to a usable board/material choice. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
 
 ## Quote Readiness
 
@@ -578,6 +594,7 @@ Response shape:
       },
       "is_complete": true,
       "missing_items": [],
+      "cutlist_warnings": [],
       "missing_prices": [
         {
           "item_type": "handle",
@@ -640,7 +657,8 @@ item type, stable item reference, price component, unit of measure, quantity,
 where it is used, and the affected quote. Cost/sell totals are omitted for the
 matching line, and `is_complete` is `false`. Project pricing responses also
 include a top-level `missing_prices` array containing the missing price guidance
-for all included quotes.
+for all included quotes. `is_complete` is also `false` when `cutlist_warnings`
+is not empty.
 
 Line `bucket` values group the spreadsheet-derived pricing categories:
 `material`, `component`, `handle`, `labour`, `consumable`, `extra`,

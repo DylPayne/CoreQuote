@@ -98,8 +98,38 @@ def test_readiness_warns_for_invalid_cutlist_rows():
 
     assert check["severity"] == "warning"
     assert check["title"] == "Fix cutlist rows"
-    assert "missing or zero sizes" in check["message"]
+    assert "unusable sizes" in check["message"]
     assert check["action_target"] == "cutting-lists"
+
+
+def test_readiness_uses_structured_cutlist_validation_warnings():
+    readiness = evaluate_quote_readiness(
+        quote=quote(),
+        project=project(),
+        units=[unit()],
+        cutting_list=cutting_list(
+            validation_warnings=[
+                {
+                    "severity": "warning",
+                    "source": "unit",
+                    "unit_number": 1,
+                    "section": "carcass",
+                    "row_desc": "Side",
+                    "reason": "Choose a carcass board for this unit or quote default.",
+                }
+            ]
+        ),
+        pricing_summary=pricing_summary(),
+        active_price_list_id="price-list-1",
+    )
+
+    cutlist_check = check_by_id(readiness, "cutlist_rows")
+    outputs_check = check_by_id(readiness, "required_outputs")
+
+    assert readiness["is_ready"] is False
+    assert cutlist_check["severity"] == "warning"
+    assert "missing material choices" in cutlist_check["message"]
+    assert outputs_check["severity"] == "warning"
 
 
 def test_readiness_is_ready_when_required_checks_pass():
@@ -158,7 +188,7 @@ def unit(**overrides) -> dict:
     return payload
 
 
-def cutting_list(rows: list[dict] | None = None) -> dict:
+def cutting_list(rows: list[dict] | None = None, validation_warnings: list[dict] | None = None) -> dict:
     return {
         "carcass": [],
         "panels": [],
@@ -172,6 +202,7 @@ def cutting_list(rows: list[dict] | None = None) -> dict:
         ],
         "runtime_mode": "legacy",
         "unit_sources": [],
+        "validation_warnings": validation_warnings or [],
     }
 
 

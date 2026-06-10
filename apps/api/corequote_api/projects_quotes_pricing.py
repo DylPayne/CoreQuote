@@ -4,6 +4,7 @@ from typing import Any
 
 from corequote_core.detailed_pricing import price_quote_detailed, settings_from_mapping
 from corequote_core.panels import PANEL_PRESET_KEYS, PANEL_PRESET_LABELS, compute_panel_rows
+from corequote_api.cutlist_validation import preview_with_validation
 from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes_errors import WorkspaceValidationError
 from corequote_api.projects_quotes_payloads import (
@@ -74,6 +75,7 @@ def _build_cutting_list_preview(
             quote=quote,
             board_lookup=board_lookup,
             default_slide=default_slide,
+            allow_missing_board_fallback=True,
         )
         for unit in units
     ]
@@ -122,7 +124,13 @@ def _build_cutting_list_preview(
             }
         )
 
-    return preview
+    return preview_with_validation(
+        preview,
+        quote=quote,
+        units=units,
+        board_lookup=board_lookup,
+        require_materials=True,
+    )
 
 
 def _to_runtime_unit(
@@ -131,6 +139,7 @@ def _to_runtime_unit(
     quote: dict[str, Any],
     board_lookup: dict[str, dict[str, Any]],
     default_slide: dict[str, Any] | None,
+    allow_missing_board_fallback: bool = False,
 ) -> dict[str, Any]:
     extra_params = dict(unit.get("extra_params") or {})
     if default_slide:
@@ -141,7 +150,12 @@ def _to_runtime_unit(
         extra_params.setdefault("slide_side_length", int(default_slide.get("side_length", 0) or 0))
         extra_params.setdefault("slide_side_clearance_total", int(default_slide.get("side_clearance_total", 0) or 0))
         extra_params.setdefault("slide_side_height_uplift", int(default_slide.get("side_height_uplift", 0) or 0))
-    thickness = _resolved_unit_thickness(unit, quote=quote, board_lookup=board_lookup)
+    try:
+        thickness = _resolved_unit_thickness(unit, quote=quote, board_lookup=board_lookup)
+    except WorkspaceValidationError as exc:
+        if not allow_missing_board_fallback or "must be a positive integer" in str(exc):
+            raise
+        thickness = _fallback_unit_thickness(unit)
     return {
         "unit_number": int(unit["unit_number"]),
         "unit_type": str(unit["unit_type_key"]),
@@ -171,6 +185,14 @@ def _resolved_unit_thickness(
     return thickness
 
 
+def _fallback_unit_thickness(unit: dict[str, Any]) -> int:
+    try:
+        thickness = int(unit.get("thickness", 16) or 16)
+    except (TypeError, ValueError):
+        return 16
+    return thickness if thickness > 0 else 16
+
+
 def _price_quote(
     *,
     quote: dict[str, Any],
@@ -198,7 +220,8 @@ def _price_quote(
         slide_lookup=slide_lookup,
     )
 
-    return price_quote_detailed(
+    cutlist_warnings = list(cutting_list.get("validation_warnings", []))
+    summary = price_quote_detailed(
         quote=quote,
         units=units,
         quote_extras=quote_extras,
@@ -212,3 +235,7 @@ def _price_quote(
         extra_lookup=extra_lookup,
         active_price_list_id=active_price_list_id,
     )
+    summary["cutlist_warnings"] = cutlist_warnings
+    if cutlist_warnings:
+        summary["is_complete"] = False
+    return summary

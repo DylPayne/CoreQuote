@@ -176,6 +176,20 @@ type CutlistUnitSource = {
   note: string | null
 }
 
+type CutlistValidationWarning = {
+  severity: 'warning'
+  source: 'unit' | 'quote_panel'
+  unit_number: number
+  section: CuttingRuleSection
+  row_desc: string
+  reason: string
+}
+
+type CutlistReadiness = {
+  cutlist_valid: boolean
+  warning_count: number
+}
+
 type CutlistPreviewResponse = {
   carcass: CutlistPreviewRow[]
   panels: CutlistPreviewRow[]
@@ -184,6 +198,8 @@ type CutlistPreviewResponse = {
   runtime_rows: CutlistRuntimeRow[]
   runtime_mode: 'legacy' | 'ruleset' | 'mixed'
   unit_sources: CutlistUnitSource[]
+  validation_warnings: CutlistValidationWarning[]
+  readiness: CutlistReadiness
 }
 
 type CutlistTesterDraft = {
@@ -1838,10 +1854,25 @@ function CutlistGeneratorTester({
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={runtimeModeBadgeVariant(preview.runtime_mode)}>Runtime: {preview.runtime_mode}</Badge>
               <Badge variant="outline">Units: {preview.unit_sources.length}</Badge>
+              <Badge variant={preview.readiness.cutlist_valid ? 'outline' : 'warning'}>
+                {preview.readiness.cutlist_valid ? 'Cutlist ready' : `${preview.readiness.warning_count} cutlist warnings`}
+              </Badge>
               <Badge variant="outline">
                 Sources: {Array.from(new Set(preview.unit_sources.map((row) => row.source))).join(', ') || 'n/a'}
               </Badge>
             </div>
+
+            {preview.validation_warnings.length > 0 ? (
+              <Alert className="text-xs" variant="warning">
+                <div className="grid gap-1">
+                  {preview.validation_warnings.map((warning, index) => (
+                    <p key={`${warning.section}-${warning.unit_number}-${warning.row_desc}-${index}`}>
+                      {`${formatCutlistWarningSource(warning)} / ${warning.row_desc}: ${warning.reason}`}
+                    </p>
+                  ))}
+                </div>
+              </Alert>
+            ) : null}
 
             <TableContainer>
               <Table>
@@ -2392,6 +2423,10 @@ function runtimeModeBadgeVariant(runtimeMode: CutlistPreviewResponse['runtime_mo
   if (runtimeMode === 'ruleset') return 'default'
   if (runtimeMode === 'mixed') return 'warning'
   return 'outline'
+}
+
+function formatCutlistWarningSource(warning: CutlistValidationWarning) {
+  return warning.source === 'quote_panel' ? 'Quote panel' : `Unit ${warning.unit_number}`
 }
 
 function formatRuntimeEdges(row: CutlistRuntimeRow) {

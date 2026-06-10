@@ -1,5 +1,6 @@
 import { Fragment, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -7,9 +8,19 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
-import type { CutlistRow, QuoteDraft } from './types'
+import type { CutlistRow, CutlistValidationWarning, QuoteDraft } from './types'
 
-export function CutlistSection({ title, rows }: { title: string; rows: CutlistRow[] }) {
+export function CutlistSection({
+  title,
+  rows,
+  section,
+  warnings = [],
+}: {
+  title: string
+  rows: CutlistRow[]
+  section: CutlistValidationWarning['section']
+  warnings?: CutlistValidationWarning[]
+}) {
   if (rows.length === 0) return null
   const groupedRows = rows.reduce<Array<{ row: CutlistRow; showDivider: boolean }>>((accumulator, row, index) => {
     const previous = rows[index - 1]
@@ -46,7 +57,14 @@ export function CutlistSection({ title, rows }: { title: string; rows: CutlistRo
                 ) : null}
                 <TableRow className="h-8">
                   <TableCell className="px-2 py-1 text-xs">{row.unit_number}</TableCell>
-                  <TableCell className="px-2 py-1 text-xs">{row.desc}</TableCell>
+                  <TableCell className="px-2 py-1 text-xs">
+                    {row.desc}
+                    {hasCutlistWarning(row, section, warnings) ? (
+                      <Badge className="ml-2 h-5 align-middle" variant="warning">
+                        Review
+                      </Badge>
+                    ) : null}
+                  </TableCell>
                   <TableCell className="px-2 py-1 text-xs">{row.length}</TableCell>
                   <TableCell className="px-2 py-1 text-xs">{row.width}</TableCell>
                   <TableCell className="px-2 py-1 text-xs">{row.qty}</TableCell>
@@ -57,6 +75,19 @@ export function CutlistSection({ title, rows }: { title: string; rows: CutlistRo
         </Table>
       </TableContainer>
     </div>
+  )
+}
+
+function hasCutlistWarning(
+  row: CutlistRow,
+  section: CutlistValidationWarning['section'],
+  warnings: CutlistValidationWarning[],
+) {
+  return warnings.some(
+    (warning) =>
+      warning.section === section &&
+      warning.unit_number === row.unit_number &&
+      warning.row_desc === row.desc,
   )
 }
 

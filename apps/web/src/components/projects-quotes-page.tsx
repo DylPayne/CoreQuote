@@ -31,7 +31,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -43,6 +43,10 @@ function formatBucketLabel(bucket: string) {
 
 function formatPricingQty(qty: number) {
   return Number.isInteger(qty) ? String(qty) : qty.toFixed(2)
+}
+
+function formatCutlistWarningSource(warning: CutlistValidationWarning) {
+  return warning.source === 'quote_panel' ? 'Quote panel' : `Unit ${warning.unit_number}`
 }
 
 function readinessBadgeVariant(severity: QuoteReadinessSeverity): 'outline' | 'success' | 'warning' {
@@ -259,6 +263,11 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       quoteCuttingList.hardware.length +
       quoteCuttingList.extras.length
     : 0
+  const cutlistWarnings = quoteCuttingList?.validation_warnings ?? []
+  const projectCutlistWarningCount = projectPricing?.quotes.reduce(
+    (total, quotePricing) => total + quotePricing.cutlist_warnings.length,
+    0,
+  ) ?? 0
   const panelFamilyCounts = useMemo(() => countPanelFamilies(units), [units])
 
   const loadLibraries = useCallback(async () => {
@@ -1622,6 +1631,28 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                   <Alert className="text-xs">No cutting-list rows yet. Add units to generate results.</Alert>
                 ) : (
                   <div className="grid gap-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {quoteCuttingList ? (
+                        <Badge variant={quoteCuttingList.readiness.cutlist_valid ? 'outline' : 'warning'}>
+                          {quoteCuttingList.readiness.cutlist_valid
+                            ? 'Cutlist ready'
+                            : `${quoteCuttingList.readiness.warning_count} cutlist warnings`}
+                        </Badge>
+                      ) : null}
+                    </div>
+
+                    {cutlistWarnings.length > 0 ? (
+                      <Alert className="text-xs" variant="warning">
+                        <div className="grid gap-1">
+                          {cutlistWarnings.map((warning, index) => (
+                            <p key={`${warning.section}-${warning.unit_number}-${warning.row_desc}-${index}`}>
+                              {`${formatCutlistWarningSource(warning)} / ${warning.row_desc}: ${warning.reason}`}
+                            </p>
+                          ))}
+                        </div>
+                      </Alert>
+                    ) : null}
+
                     <div className="flex items-center gap-1">
                       <Button
                         className="h-7 px-2 text-xs"
@@ -1654,19 +1685,34 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
 
                     {activeCuttingListViewTab === 'carcass' ? (
                       quoteCuttingList && quoteCuttingList.carcass.length > 0 ? (
-                        <CutlistSection rows={quoteCuttingList.carcass} title="Carcass" />
+                        <CutlistSection
+                          rows={quoteCuttingList.carcass}
+                          section="carcass"
+                          title="Carcass"
+                          warnings={cutlistWarnings}
+                        />
                       ) : (
                         <Alert className="text-xs">No carcass rows for this quote.</Alert>
                       )
                     ) : (
                       activeCuttingListViewTab === 'panels' ? (
                         quoteCuttingList && quoteCuttingList.panels.length > 0 ? (
-                          <CutlistSection rows={quoteCuttingList.panels} title="Panels" />
+                          <CutlistSection
+                            rows={quoteCuttingList.panels}
+                            section="panel"
+                            title="Panels"
+                            warnings={cutlistWarnings}
+                          />
                         ) : (
                           <Alert className="text-xs">No panel rows for this quote.</Alert>
                         )
                       ) : quoteCuttingList && quoteCuttingList.extras.length > 0 ? (
-                        <CutlistSection rows={quoteCuttingList.extras} title="Quote Panels & Extras" />
+                        <CutlistSection
+                          rows={quoteCuttingList.extras}
+                          section="extra_panel"
+                          title="Quote Panels & Extras"
+                          warnings={cutlistWarnings}
+                        />
                       ) : (
                         <Alert className="text-xs">No quote-level panel rows for this quote.</Alert>
                       )
@@ -1754,118 +1800,118 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                         </TableBody>
                       </Table>
                     </TableContainer>
-	                  )}
-	                </div>
-	              ) : activeProjectTab === 'quotes' && activeQuoteTab === 'pricing' ? (
-	                isLoadingProjectPricing ? (
-	                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-	                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-	                    Loading quote pricing
-	                  </div>
-	                ) : !projectPricing ? (
-	                  <Alert className="text-xs">No pricing summary available yet.</Alert>
-	                ) : (
-	                  <div className="grid gap-5">
-	                    <div className="grid gap-3">
-	                      <details className="grid gap-3">
-	                        <summary className="cursor-pointer text-sm font-semibold">
-	                          <span className="inline-flex flex-wrap items-center gap-2">
-	                            Quote pricing
-	                            {quotePricingSettings ? (
-	                              <Badge variant="outline">{`Markup ${formatPercentFromBps(quotePricingSettings.default_markup_bps)}`}</Badge>
-	                            ) : null}
-	                          </span>
-	                        </summary>
-	                        <div className="pt-3">
-	                          {isLoadingQuotePricingSettings ? (
-	                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-	                              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-	                              Loading quote pricing
-	                            </div>
-	                          ) : (
-	                            <PricingSettingsEditor
-	                              currencyCode={pricingCurrencyCode}
-	                              draft={quotePricingSettingsDraft}
-	                              isSaving={isSavingQuotePricingSettings}
-	                              onDraftChange={setQuotePricingSettingsDraft}
-	                              onSubmit={handleSaveQuotePricingSettings}
-	                            />
-	                          )}
-	                        </div>
-	                      </details>
-	                    </div>
+                    )}
+                  </div>
+                ) : activeProjectTab === 'quotes' && activeQuoteTab === 'pricing' ? (
+                  isLoadingProjectPricing ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                      Loading quote pricing
+                    </div>
+                  ) : !projectPricing ? (
+                    <Alert className="text-xs">No pricing summary available yet.</Alert>
+                  ) : (
+                    <div className="grid gap-5">
+                      <div className="grid gap-3">
+                        <details className="grid gap-3">
+                          <summary className="cursor-pointer text-sm font-semibold">
+                            <span className="inline-flex flex-wrap items-center gap-2">
+                              Quote pricing
+                              {quotePricingSettings ? (
+                                <Badge variant="outline">{`Markup ${formatPercentFromBps(quotePricingSettings.default_markup_bps)}`}</Badge>
+                              ) : null}
+                            </span>
+                          </summary>
+                          <div className="pt-3">
+                            {isLoadingQuotePricingSettings ? (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                Loading quote pricing
+                              </div>
+                            ) : (
+                              <PricingSettingsEditor
+                                currencyCode={pricingCurrencyCode}
+                                draft={quotePricingSettingsDraft}
+                                isSaving={isSavingQuotePricingSettings}
+                                onDraftChange={setQuotePricingSettingsDraft}
+                                onSubmit={handleSaveQuotePricingSettings}
+                              />
+                            )}
+                          </div>
+                        </details>
+                      </div>
 
-	                    {selectedQuotePricing ? (
-	                      <div className="grid gap-3 border-t border-border pt-4">
-	                        <div className="flex flex-wrap items-center justify-between gap-2">
-	                          <p className="text-xs font-semibold uppercase text-muted-foreground">{`${selectedQuotePricing.quote_name} line items`}</p>
-	                          <div className="flex flex-wrap gap-2">
-	                            <Badge variant="outline">{`Cost ${formatCents(selectedQuotePricing.cost_total_cents, pricingCurrencyCode)}`}</Badge>
-	                            <Badge variant="outline">{`Sell ${formatCents(selectedQuotePricing.sell_before_vat_cents, pricingCurrencyCode)}`}</Badge>
-	                            <Badge variant="outline">{`Profit ${formatCents(selectedQuotePricing.profit_cents, pricingCurrencyCode)}`}</Badge>
-	                          </div>
-	                        </div>
-	                        <MissingPriceGuidance
-	                          includeQuote={false}
-	                          missingPrices={selectedQuotePricing.missing_prices}
-	                          onOpenLibraries={onOpenLibraries}
-	                        />
-	                        {selectedQuotePricing.lines.length === 0 ? (
-	                          <Alert className="text-xs">No priced lines yet.</Alert>
-	                        ) : (
-	                          selectedQuotePricingGroups.map((group) => {
-	                            const bucketTotal = selectedQuotePricing.bucket_totals.find((bucket) => bucket.bucket === group.bucket)
-	                            return (
-	                              <div className="grid gap-2" key={group.bucket}>
-	                                <div className="flex flex-wrap items-center gap-2 text-xs">
-	                                  <Badge variant="outline">{formatBucketLabel(group.bucket)}</Badge>
-	                                  {bucketTotal ? (
-	                                    <span className="text-muted-foreground">
-	                                      {`${formatCents(bucketTotal.cost_total_cents, pricingCurrencyCode)} cost · ${formatCents(bucketTotal.sell_total_cents, pricingCurrencyCode)} sell`}
-	                                    </span>
-	                                  ) : null}
-	                                </div>
-	                                <TableContainer>
-	                                  <Table className="min-w-[760px] text-xs">
-	                                    <TableHeader>
-	                                      <TableRow>
-	                                        <TableHead>Item</TableHead>
-	                                        <TableHead>Component</TableHead>
-	                                        <TableHead className="text-right">Qty</TableHead>
-	                                        <TableHead className="text-right">Cost</TableHead>
-	                                        <TableHead className="text-right">Markup</TableHead>
-	                                        <TableHead className="text-right">Sell</TableHead>
-	                                        <TableHead className="text-right">Profit</TableHead>
-	                                      </TableRow>
-	                                    </TableHeader>
-	                                    <TableBody>
-	                                      {group.lines.map((line) => (
-	                                        <TableRow key={`${line.item_key}:${line.price_component}:${line.bucket}:${line.description}`}>
-	                                          <TableCell>
-	                                            {line.description}
-	                                            {line.missing ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
-	                                          </TableCell>
-	                                          <TableCell>{line.price_component}</TableCell>
-	                                          <TableCell className="text-right">{`${formatPricingQty(line.qty)} ${line.uom}`}</TableCell>
-	                                          <TableCell className="text-right">{formatCents(line.cost_total_cents, pricingCurrencyCode)}</TableCell>
-	                                          <TableCell className="text-right">{formatPercentFromBps(line.markup_bps)}</TableCell>
-	                                          <TableCell className="text-right">{formatCents(line.sell_total_cents, pricingCurrencyCode)}</TableCell>
-	                                          <TableCell className="text-right">{formatCents(line.profit_cents, pricingCurrencyCode)}</TableCell>
-	                                        </TableRow>
-	                                      ))}
-	                                    </TableBody>
-	                                  </Table>
-	                                </TableContainer>
-	                              </div>
-	                            )
-	                          })
-	                        )}
-	                      </div>
-	                    ) : (
-	                      <Alert className="text-xs">No priced lines yet.</Alert>
-	                    )}
-	                  </div>
-	                )
+                      {selectedQuotePricing ? (
+                        <div className="grid gap-3 border-t border-border pt-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-semibold uppercase text-muted-foreground">{`${selectedQuotePricing.quote_name} line items`}</p>
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="outline">{`Cost ${formatCents(selectedQuotePricing.cost_total_cents, pricingCurrencyCode)}`}</Badge>
+                              <Badge variant="outline">{`Sell ${formatCents(selectedQuotePricing.sell_before_vat_cents, pricingCurrencyCode)}`}</Badge>
+                              <Badge variant="outline">{`Profit ${formatCents(selectedQuotePricing.profit_cents, pricingCurrencyCode)}`}</Badge>
+                            </div>
+                          </div>
+                          <MissingPriceGuidance
+                            includeQuote={false}
+                            missingPrices={selectedQuotePricing.missing_prices}
+                            onOpenLibraries={onOpenLibraries}
+                          />
+                          {selectedQuotePricing.lines.length === 0 ? (
+                            <Alert className="text-xs">No priced lines yet.</Alert>
+                          ) : (
+                            selectedQuotePricingGroups.map((group) => {
+                              const bucketTotal = selectedQuotePricing.bucket_totals.find((bucket) => bucket.bucket === group.bucket)
+                              return (
+                                <div className="grid gap-2" key={group.bucket}>
+                                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                                    <Badge variant="outline">{formatBucketLabel(group.bucket)}</Badge>
+                                    {bucketTotal ? (
+                                      <span className="text-muted-foreground">
+                                        {`${formatCents(bucketTotal.cost_total_cents, pricingCurrencyCode)} cost · ${formatCents(bucketTotal.sell_total_cents, pricingCurrencyCode)} sell`}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <TableContainer>
+                                    <Table className="min-w-[760px] text-xs">
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>Item</TableHead>
+                                          <TableHead>Component</TableHead>
+                                          <TableHead className="text-right">Qty</TableHead>
+                                          <TableHead className="text-right">Cost</TableHead>
+                                          <TableHead className="text-right">Markup</TableHead>
+                                          <TableHead className="text-right">Sell</TableHead>
+                                          <TableHead className="text-right">Profit</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {group.lines.map((line) => (
+                                          <TableRow key={`${line.item_key}:${line.price_component}:${line.bucket}:${line.description}`}>
+                                            <TableCell>
+                                              {line.description}
+                                              {line.missing ? <Badge className="ml-2" variant="warning">Missing</Badge> : null}
+                                            </TableCell>
+                                            <TableCell>{line.price_component}</TableCell>
+                                            <TableCell className="text-right">{`${formatPricingQty(line.qty)} ${line.uom}`}</TableCell>
+                                            <TableCell className="text-right">{formatCents(line.cost_total_cents, pricingCurrencyCode)}</TableCell>
+                                            <TableCell className="text-right">{formatPercentFromBps(line.markup_bps)}</TableCell>
+                                            <TableCell className="text-right">{formatCents(line.sell_total_cents, pricingCurrencyCode)}</TableCell>
+                                            <TableCell className="text-right">{formatCents(line.profit_cents, pricingCurrencyCode)}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
+                      ) : (
+                        <Alert className="text-xs">No priced lines yet.</Alert>
+                      )}
+                    </div>
+                  )
               ) : isLoadingProjectPricing ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -1874,10 +1920,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
               ) : !projectPricing ? (
                 <Alert className="text-xs">No pricing summary available yet.</Alert>
               ) : (
-	                <div className="grid gap-5">
-	                  {activePricingTab === 'overview' ? (
-	                    <>
-	                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                  <div className="grid gap-5">
+                    {activePricingTab === 'overview' ? (
+                      <>
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
                     <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
                       <p className="text-xs text-muted-foreground">Base cost</p>
                       <p className="text-base font-semibold">{formatCents(projectPricing.cost_total_cents, pricingCurrencyCode)}</p>
@@ -1898,24 +1944,31 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                       <p className="text-xs text-muted-foreground">Grand total</p>
                       <p className="text-base font-semibold">{formatCents(projectPricing.grand_total_cents, pricingCurrencyCode)}</p>
                     </div>
-	                  </div>
-	                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant={projectPricing.is_complete ? 'outline' : 'warning'}>
-                      {projectPricing.is_complete ? 'Complete pricing' : 'Missing prices'}
+                      {projectPricing.is_complete
+                        ? 'Complete pricing'
+                        : projectCutlistWarningCount > 0
+                          ? 'Cutlist review'
+                          : 'Missing prices'}
                     </Badge>
+                    {projectCutlistWarningCount > 0 ? (
+                      <Badge variant="warning">{`${projectCutlistWarningCount} cutlist warnings`}</Badge>
+                    ) : null}
                     <Badge variant="outline">{pricingCurrencyCode}</Badge>
                     <span>{`Default markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
-	                  </div>
-	                  <MissingPriceGuidance
-	                    includeQuote
-	                    missingPrices={projectPricing.missing_prices}
-	                    onOpenLibraries={onOpenLibraries}
-	                  />
-	                    </>
-	                  ) : null}
+                    </div>
+                    <MissingPriceGuidance
+                      includeQuote
+                      missingPrices={projectPricing.missing_prices}
+                      onOpenLibraries={onOpenLibraries}
+                    />
+                      </>
+                    ) : null}
 
-	                  {activePricingTab === 'settings' ? (
-	                  <div className="grid gap-3">
+                    {activePricingTab === 'settings' ? (
+                    <div className="grid gap-3">
                     <details className="grid gap-3">
                       <summary className="cursor-pointer text-sm font-semibold">
                         <span className="inline-flex flex-wrap items-center gap-2">
@@ -1943,11 +1996,11 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                       </div>
                     </details>
 
-		                  </div>
-		                  ) : null}
+                      </div>
+                      ) : null}
 
-	                  {activePricingTab === 'quotes' ? (
-	                  <TableContainer>
+                    {activePricingTab === 'quotes' ? (
+                    <TableContainer>
                     <Table className="min-w-[760px]">
                       <TableHeader>
                         <TableRow>
@@ -1962,6 +2015,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                       </TableHeader>
                       <TableBody>
                         {projectPricing.quotes.map((quotePricing) => {
+                          const quoteWarningCount = quotePricing.cutlist_warnings.length
                           const previousRevision = previousQuoteRevisionLabel(quotePricing)
                           return (
                             <TableRow key={quotePricing.quote_id}>
@@ -1978,9 +2032,18 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                                 </Badge>
                               </TableCell>
                               <TableCell>
-                                <Badge variant={quotePricing.is_complete ? 'outline' : 'warning'}>
-                                  {quotePricing.is_complete ? 'Complete' : 'Missing prices'}
-                                </Badge>
+                                <div className="flex flex-wrap gap-2">
+                                  <Badge variant={quotePricing.is_complete ? 'outline' : 'warning'}>
+                                    {quotePricing.is_complete
+                                      ? 'Complete'
+                                      : quoteWarningCount > 0
+                                        ? 'Cutlist review'
+                                        : 'Missing prices'}
+                                  </Badge>
+                                  {quoteWarningCount > 0 ? (
+                                    <Badge variant="warning">{`${quoteWarningCount} warnings`}</Badge>
+                                  ) : null}
+                                </div>
                               </TableCell>
                               <TableCell className="text-right">{formatCents(quotePricing.cost_total_cents, pricingCurrencyCode)}</TableCell>
                               <TableCell className="text-right">{formatCents(quotePricing.sell_before_vat_cents, pricingCurrencyCode)}</TableCell>
@@ -1991,10 +2054,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                         })}
                       </TableBody>
                     </Table>
-	                  </TableContainer>
-	                  ) : null}
+                    </TableContainer>
+                    ) : null}
 
-	                  {activePricingTab === 'overview' && projectPricing.bucket_totals.length > 0 ? (
+                    {activePricingTab === 'overview' && projectPricing.bucket_totals.length > 0 ? (
                     <div className="grid gap-2">
                       <p className="text-xs font-semibold uppercase text-muted-foreground">Project bucket totals</p>
                       <TableContainer>
@@ -2022,13 +2085,13 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                     </div>
                   ) : null}
 
-		                </div>
-	              )}
-	            </CardContent>
-	          </Card>
-	        </div>
-	      </div>
-	      )}
+                    </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+        )}
 
       {error ? <Alert variant="destructive">{error}</Alert> : null}
       {isLoadingLibraries ? (
