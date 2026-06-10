@@ -80,6 +80,15 @@ component, unit of measure, affected quote, usage labels, and copy beginning
 with "Add a price for..." so estimators can navigate to the pricing library
 without reading raw item keys.
 
+Each quote calculation also produces `material_summary` for internal review and
+production handoff. It is aggregated from the same runtime cutlist rows used by
+board pricing, grouped by material role and board type. Rows include area,
+piece count, edge length, sheet dimensions where available, estimated sheet
+count, and the related internal cost/sell totals. Sheet counts are labelled as
+estimates because CoreQuote does not yet perform nesting or waste optimization.
+Warnings call out missing board choices, missing board records, and missing
+sheet dimensions.
+
 The calculation keeps legacy response totals for existing callers:
 
 - `subtotal_cents`: cost subtotal before markup.
@@ -119,6 +128,7 @@ The pricing tab should show:
 - total cost, sell before VAT, VAT, grand total, and profit;
 - complete or missing-price status;
 - grouped missing price guidance before detailed line items;
+- material summary groups and warnings before detailed line items;
 - quote totals with cost/sell/profit columns;
 - grouped line details by bucket;
 - clear missing price rows that tell the estimator which price-list item is

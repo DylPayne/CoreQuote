@@ -126,7 +126,7 @@ def price_quote_detailed(
         if int(unit.get("unit_number", 0) or 0) > 0
     }
 
-    board_groups = _collect_board_usage(
+    board_groups, material_warnings = _collect_material_usage(
         quote=quote,
         units_by_number=units_by_number,
         cutting_rows=cutting_rows,
@@ -285,6 +285,12 @@ def price_quote_detailed(
     grand_total_cents = int(sell_before_vat_cents + vat_cents)
     missing_items = sorted(set(missing_items))
     missing_prices = _missing_price_summaries(lines=lines, quote=quote)
+    material_summary = _material_summary(
+        board_groups=board_groups,
+        board_lookup=board_lookup,
+        lines=lines,
+        warnings=material_warnings,
+    )
 
     bucket_totals = _bucket_totals(lines)
     response_lines = [_public_line(line) for line in sorted(lines, key=_line_sort_key)]
@@ -292,9 +298,10 @@ def price_quote_detailed(
     return {
         "quote_id": quote["id"],
         "quote_name": quote["name"],
-        "is_complete": bool(active_price_list_id) and not missing_prices,
+        "is_complete": bool(active_price_list_id) and not missing_prices and not material_summary["warnings"],
         "missing_items": missing_items,
         "missing_prices": missing_prices,
+        "material_summary": material_summary,
         "subtotal_cents": cost_total_cents,
         "cost_total_cents": cost_total_cents,
         "sell_before_vat_cents": sell_before_vat_cents,
@@ -306,46 +313,58 @@ def price_quote_detailed(
     }
 
 
-def _collect_board_usage(
+def _collect_material_usage(
     *,
     quote: dict[str, Any],
     units_by_number: dict[int, dict[str, Any]],
     cutting_rows: list[dict[str, Any]],
     board_lookup: dict[str, dict[str, Any]],
-) -> dict[tuple[str, str], dict[str, Any]]:
+) -> tuple[dict[tuple[str, str], dict[str, Any]], list[dict[str, Any]]]:
     groups: dict[tuple[str, str], dict[str, Any]] = {}
+    warnings: list[dict[str, Any]] = []
 
     for row in cutting_rows:
         section = str(row.get("section", ""))
-        unit = units_by_number.get(int(row.get("unit_number", 0) or 0))
-        material_role = ""
-        board_id = ""
-        if section == "carcass":
-            material_role = "carcass"
-            board_id = str((unit or {}).get("carcass_board_type_id") or quote.get("default_carcass_board_type_id") or "")
-        elif section == "panel":
-            material_role = "door_panel"
-            board_id = str((unit or {}).get("door_board_type_id") or quote.get("default_door_board_type_id") or "")
-        elif section == "extra_panel":
-            material_role = "visible_panel"
-            board_id = str(
-                row.get("board_type_id")
-                or quote.get("default_panel_board_type_id")
-                or (unit or {}).get("door_board_type_id")
-                or quote.get("default_door_board_type_id")
-                or ""
-            )
-        else:
+        material_role = _material_role_for_section(section)
+        if not material_role:
             continue
 
+        unit_number = _non_negative_int(row.get("unit_number"), 0)
+        unit = units_by_number.get(unit_number)
+        board_id = _material_board_id(row=row, quote=quote, unit=unit, material_role=material_role)
         board_id = board_id.strip()
-        if not board_id or board_id not in board_lookup:
-            continue
 
         length = _non_negative_int(row.get("length"), 0)
         width = _non_negative_int(row.get("width"), 0)
         qty = _non_negative_int(row.get("qty"), 0)
         if length <= 0 or width <= 0 or qty <= 0:
+            continue
+        row_desc = str(row.get("desc") or row.get("description") or _material_role_label(material_role)).strip()
+
+        if not board_id:
+            warnings.append(
+                _material_warning(
+                    code="missing_board_selection",
+                    material_role=material_role,
+                    unit_number=unit_number,
+                    row_desc=row_desc,
+                    board_type_id=None,
+                    message=f"Choose a {_material_choice_label(material_role)} for {_material_row_location(unit_number, row_desc)}.",
+                )
+            )
+            continue
+
+        if board_id not in board_lookup:
+            warnings.append(
+                _material_warning(
+                    code="missing_board_record",
+                    material_role=material_role,
+                    unit_number=unit_number,
+                    row_desc=row_desc,
+                    board_type_id=board_id,
+                    message=f"Board {board_id} is not available for {_material_row_location(unit_number, row_desc)}.",
+                )
+            )
             continue
 
         piece_area = int(length * width)
@@ -353,17 +372,19 @@ def _collect_board_usage(
             (board_id, material_role),
             {
                 "piece_areas": [],
+                "piece_count": 0,
                 "used_area_mm2": 0,
                 "used_area_m2": 0.0,
                 "edge_mm": 0,
             },
         )
         group["piece_areas"].extend([piece_area] * qty)
+        group["piece_count"] += qty
         group["used_area_mm2"] += piece_area * qty
         group["used_area_m2"] = round(float(group["used_area_mm2"]) / 1_000_000.0, 4)
         group["edge_mm"] += int(_edge_length_mm(row, length, width) * qty)
 
-    return groups
+    return groups, warnings
 
 
 def _board_pricing_line(
@@ -380,6 +401,14 @@ def _board_pricing_line(
     sheet_area_mm2 = _non_negative_int(board.get("length_mm"), 0) * _non_negative_int(board.get("width_mm"), 0)
     boards_used = _estimate_boards_used(list(usage.get("piece_areas") or []), sheet_area_mm2)
     used_area_m2 = float(usage.get("used_area_m2", 0.0) or 0.0)
+    meta = {
+        "board_type_id": board_id,
+        "material_role": material_role,
+        "costing_mode": costing_mode,
+        "boards_used": boards_used,
+        "used_area_m2": used_area_m2,
+        "edge_m": round(float(usage.get("edge_mm", 0) or 0) / 1000.0, 3),
+    }
 
     if costing_mode == "sqm":
         price_component = "sqm"
@@ -393,7 +422,7 @@ def _board_pricing_line(
     active_price = price_lookup.get(("board", item_key, price_component))
     description = f"{_material_role_label(material_role)}: {_board_description(board)}"
     if not active_price:
-        return _missing_line(
+        line = _missing_line(
             item_type="board",
             item_key=item_key,
             price_component=price_component,
@@ -404,6 +433,8 @@ def _board_pricing_line(
             markup_bps=markup_bps,
             commissionable=True,
         )
+        line["meta"] = meta
+        return line
 
     unit_cost = int(active_price["unit_price_cents"])
     line = _line_from_cost(
@@ -418,15 +449,179 @@ def _board_pricing_line(
         markup_bps=markup_bps,
         commissionable=True,
     )
-    line["meta"] = {
-        "board_type_id": board_id,
-        "material_role": material_role,
-        "costing_mode": costing_mode,
-        "boards_used": boards_used,
-        "used_area_m2": used_area_m2,
-        "edge_m": round(float(usage.get("edge_mm", 0) or 0) / 1000.0, 3),
-    }
+    line["meta"] = meta
     return line
+
+
+def _material_summary(
+    *,
+    board_groups: dict[tuple[str, str], dict[str, Any]],
+    board_lookup: dict[str, dict[str, Any]],
+    lines: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    price_lines = _material_price_lines(lines)
+    summary_warnings = list(warnings)
+    groups: list[dict[str, Any]] = []
+
+    for (board_id, material_role), usage in sorted(
+        board_groups.items(),
+        key=lambda item: (_material_role_sort(item[0][1]), _board_description(board_lookup.get(item[0][0]))),
+    ):
+        board = board_lookup.get(board_id)
+        if not board:
+            continue
+
+        length_mm = _non_negative_int(board.get("length_mm"), 0)
+        width_mm = _non_negative_int(board.get("width_mm"), 0)
+        sheet_area_mm2 = length_mm * width_mm
+        estimated_sheets: int | None = None
+        sheet_area_m2: float | None = None
+        if sheet_area_mm2 > 0:
+            estimated_sheets = _estimate_boards_used(list(usage.get("piece_areas") or []), sheet_area_mm2)
+            sheet_area_m2 = round(sheet_area_mm2 / 1_000_000.0, 4)
+        else:
+            summary_warnings.append(
+                _material_warning(
+                    code="missing_board_dimensions",
+                    material_role=material_role,
+                    unit_number=0,
+                    row_desc=_board_description(board),
+                    board_type_id=board_id,
+                    message=f"Add sheet length and width for {_board_description(board)} to estimate sheets.",
+                )
+            )
+
+        price_line = price_lines.get((board_id, material_role), {})
+        groups.append(
+            {
+                "board_type_id": board_id,
+                "material_role": material_role,
+                "role_label": _material_role_label(material_role),
+                "board_name": _board_description(board),
+                "brand": str(board.get("brand") or ""),
+                "material": str(board.get("material") or ""),
+                "thickness": _optional_positive_int(board.get("thickness")),
+                "length_mm": length_mm or None,
+                "width_mm": width_mm or None,
+                "costing_mode": str(board.get("costing_mode", "sheet") or "sheet").strip().lower(),
+                "piece_count": _non_negative_int(usage.get("piece_count"), len(usage.get("piece_areas") or [])),
+                "area_m2": round(float(usage.get("used_area_mm2", 0) or 0) / 1_000_000.0, 4),
+                "edge_m": round(float(usage.get("edge_mm", 0) or 0) / 1000.0, 3),
+                "sheet_area_m2": sheet_area_m2,
+                "estimated_sheets": estimated_sheets,
+                "price_component": price_line.get("price_component"),
+                "pricing_qty": price_line.get("qty"),
+                "pricing_uom": price_line.get("uom"),
+                "cost_total_cents": price_line.get("cost_total_cents"),
+                "sell_total_cents": price_line.get("sell_total_cents"),
+                "missing_price": bool(price_line.get("missing")),
+            }
+        )
+
+    total_estimated_sheets: int | None = None
+    if groups and all(group.get("estimated_sheets") is not None for group in groups):
+        total_estimated_sheets = sum(int(group["estimated_sheets"]) for group in groups)
+
+    return {
+        "groups": groups,
+        "warnings": sorted(summary_warnings, key=_material_warning_sort_key),
+        "total_area_m2": round(sum(float(group["area_m2"]) for group in groups), 4),
+        "total_piece_count": sum(int(group["piece_count"]) for group in groups),
+        "total_edge_m": round(sum(float(group["edge_m"]) for group in groups), 3),
+        "total_estimated_sheets": total_estimated_sheets,
+    }
+
+
+def _material_price_lines(lines: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
+    price_lines: dict[tuple[str, str], dict[str, Any]] = {}
+    for line in lines:
+        if line.get("item_type") != "board":
+            continue
+        meta = line.get("meta") or {}
+        board_id = str(meta.get("board_type_id") or "").strip()
+        material_role = str(meta.get("material_role") or "").strip()
+        if board_id and material_role:
+            price_lines[(board_id, material_role)] = line
+    return price_lines
+
+
+def _material_role_for_section(section: str) -> str:
+    if section == "carcass":
+        return "carcass"
+    if section == "panel":
+        return "door_panel"
+    if section == "extra_panel":
+        return "visible_panel"
+    return ""
+
+
+def _material_board_id(
+    *,
+    row: dict[str, Any],
+    quote: dict[str, Any],
+    unit: dict[str, Any] | None,
+    material_role: str,
+) -> str:
+    if material_role == "carcass":
+        return str((unit or {}).get("carcass_board_type_id") or quote.get("default_carcass_board_type_id") or "")
+    if material_role == "door_panel":
+        return str((unit or {}).get("door_board_type_id") or quote.get("default_door_board_type_id") or "")
+    if material_role == "visible_panel":
+        return str(
+            row.get("board_type_id")
+            or quote.get("default_panel_board_type_id")
+            or (unit or {}).get("door_board_type_id")
+            or quote.get("default_door_board_type_id")
+            or ""
+        )
+    return ""
+
+
+def _material_warning(
+    *,
+    code: str,
+    material_role: str,
+    unit_number: int,
+    row_desc: str,
+    board_type_id: str | None,
+    message: str,
+) -> dict[str, Any]:
+    return {
+        "severity": "warning",
+        "code": code,
+        "material_role": material_role,
+        "role_label": _material_role_label(material_role),
+        "unit_number": int(unit_number),
+        "row_desc": row_desc,
+        "board_type_id": board_type_id,
+        "message": message,
+    }
+
+
+def _material_warning_sort_key(warning: dict[str, Any]) -> tuple[int, int, str, str]:
+    return (
+        _material_role_sort(str(warning.get("material_role") or "")),
+        _non_negative_int(warning.get("unit_number"), 0),
+        str(warning.get("code") or ""),
+        str(warning.get("row_desc") or ""),
+    )
+
+
+def _material_row_location(unit_number: int, row_desc: str) -> str:
+    if int(unit_number) > 0:
+        return f"Unit {int(unit_number)} {row_desc}".strip()
+    return row_desc
+
+
+def _material_choice_label(material_role: str) -> str:
+    if material_role == "carcass":
+        return "carcass board"
+    if material_role == "door_panel":
+        return "door or drawer board"
+    if material_role == "visible_panel":
+        return "visible panel board"
+    return "board"
 
 
 def _hardware_lines(
@@ -877,6 +1072,11 @@ def _non_negative_int(value: Any, default: int) -> int:
     return max(0, parsed)
 
 
+def _optional_positive_int(value: Any) -> int | None:
+    parsed = _non_negative_int(value, 0)
+    return parsed if parsed > 0 else None
+
+
 def _bucket_sort(bucket: str) -> tuple[int, str]:
     order = {
         "material": 10,
@@ -890,6 +1090,15 @@ def _bucket_sort(bucket: str) -> tuple[int, str]:
         "commission": 90,
     }
     return order.get(str(bucket), 999), str(bucket)
+
+
+def _material_role_sort(material_role: str) -> int:
+    order = {
+        "carcass": 10,
+        "door_panel": 20,
+        "visible_panel": 30,
+    }
+    return order.get(str(material_role), 999)
 
 
 def _line_sort_key(line: dict[str, Any]) -> tuple[int, str, str]:

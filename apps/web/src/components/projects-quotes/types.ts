@@ -243,6 +243,52 @@ export type PricingBucketTotal = {
   profit_cents: number
 }
 
+export type MaterialRole = 'carcass' | 'door_panel' | 'visible_panel'
+
+export type MaterialSummaryWarning = {
+  severity: 'warning'
+  code: 'missing_board_selection' | 'missing_board_record' | 'missing_board_dimensions'
+  material_role: MaterialRole
+  role_label: string
+  unit_number: number
+  row_desc: string
+  board_type_id: string | null
+  message: string
+}
+
+export type MaterialSummaryGroup = {
+  board_type_id: string
+  material_role: MaterialRole
+  role_label: string
+  board_name: string
+  brand: string
+  material: string
+  thickness: number | null
+  length_mm: number | null
+  width_mm: number | null
+  costing_mode: string
+  piece_count: number
+  area_m2: number
+  edge_m: number
+  sheet_area_m2: number | null
+  estimated_sheets: number | null
+  price_component: string | null
+  pricing_qty: number | null
+  pricing_uom: string | null
+  cost_total_cents: number | null
+  sell_total_cents: number | null
+  missing_price: boolean
+}
+
+export type MaterialSummary = {
+  groups: MaterialSummaryGroup[]
+  warnings: MaterialSummaryWarning[]
+  total_area_m2: number
+  total_piece_count: number
+  total_edge_m: number
+  total_estimated_sheets: number | null
+}
+
 export type MissingPrice = {
   item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra' | 'labour' | 'consumable' | 'installation' | 'delivery' | 'adjustment'
   item_type_label: string
@@ -279,6 +325,7 @@ export type QuotePricingSummary = {
   missing_items: string[]
   cutlist_warnings: CutlistValidationWarning[]
   missing_prices: MissingPrice[]
+  material_summary: MaterialSummary
   subtotal_cents: number
   cost_total_cents: number
   sell_before_vat_cents: number
