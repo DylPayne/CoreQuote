@@ -1,11 +1,15 @@
 import {
+  AlertTriangle,
   ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
   Copy,
   GitBranch,
   LoaderCircle,
   Pencil,
   Plus,
   Trash2,
+  XCircle,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 
@@ -26,7 +30,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -38,6 +42,32 @@ function formatBucketLabel(bucket: string) {
 
 function formatPricingQty(qty: number) {
   return Number.isInteger(qty) ? String(qty) : qty.toFixed(2)
+}
+
+function readinessBadgeVariant(severity: QuoteReadinessSeverity): 'outline' | 'success' | 'warning' {
+  if (severity === 'pass') return 'success'
+  if (severity === 'warning') return 'warning'
+  return 'outline'
+}
+
+function readinessLabel(severity: QuoteReadinessSeverity) {
+  if (severity === 'pass') return 'Pass'
+  if (severity === 'warning') return 'Warning'
+  return 'Error'
+}
+
+function formatReadinessCount(count: number, label: string) {
+  return `${count} ${count === 1 ? label : `${label}s`}`
+}
+
+function ReadinessIcon({ severity }: { severity: QuoteReadinessSeverity }) {
+  if (severity === 'pass') {
+    return <CheckCircle2 className="h-4 w-4 text-[var(--status-success-foreground)]" aria-hidden="true" />
+  }
+  if (severity === 'warning') {
+    return <AlertTriangle className="h-4 w-4 text-[var(--status-warning-foreground)]" aria-hidden="true" />
+  }
+  return <XCircle className="h-4 w-4 text-destructive" aria-hidden="true" />
 }
 
 export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: string; currencyCode: string }) {
@@ -52,6 +82,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [extras, setExtras] = useState<ExtraRow[]>([])
 
   const [quoteCuttingList, setQuoteCuttingList] = useState<QuoteCuttingList | null>(null)
+  const [quoteReadiness, setQuoteReadiness] = useState<QuoteReadiness | null>(null)
   const [quoteExtrasSelection, setQuoteExtrasSelection] = useState<Record<string, number>>({})
   const [quoteCustomPanels, setQuoteCustomPanels] = useState<QuoteCustomPanelsState | null>(null)
   const [quoteCustomPanelRows, setQuoteCustomPanelRows] = useState<QuoteCustomPanelComputedRow[]>([])
@@ -62,7 +93,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [currentView, setCurrentView] = useState<'projects' | 'project-workspace'>('projects')
   const [activeProjectTab, setActiveProjectTab] = useState<ProjectWorkspaceTab>('quotes')
   const [activePricingTab, setActivePricingTab] = useState<PricingWorkspaceTab>('overview')
-  const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteWorkspaceTab>('units')
+  const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteWorkspaceTab>('readiness')
   const [activeCuttingListViewTab, setActiveCuttingListViewTab] = useState<CuttingListViewTab>('carcass')
   const [search, setSearch] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
@@ -86,6 +117,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
   const [isLoadingQuotes, setIsLoadingQuotes] = useState(false)
   const [isLoadingUnits, setIsLoadingUnits] = useState(false)
   const [isLoadingCuttingList, setIsLoadingCuttingList] = useState(false)
+  const [isLoadingQuoteReadiness, setIsLoadingQuoteReadiness] = useState(false)
   const [isLoadingQuoteExtras, setIsLoadingQuoteExtras] = useState(false)
   const [isLoadingQuoteCustomPanels, setIsLoadingQuoteCustomPanels] = useState(false)
   const [isLoadingProjectPricing, setIsLoadingProjectPricing] = useState(false)
@@ -237,6 +269,22 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
     [authToken],
   )
 
+  const loadQuoteReadiness = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingQuoteReadiness(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<QuoteReadiness>(`/api/v1/quotes/${quoteId}/readiness`, { token: authToken })
+        setQuoteReadiness(payload)
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not check quote readiness.')
+      } finally {
+        setIsLoadingQuoteReadiness(false)
+      }
+    },
+    [authToken],
+  )
+
   const loadQuoteExtras = useCallback(
     async (quoteId: string) => {
       setIsLoadingQuoteExtras(true)
@@ -355,6 +403,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       if (!selectedQuoteId) {
         setUnits([])
         setQuoteCuttingList(null)
+        setQuoteReadiness(null)
         setQuoteExtrasSelection({})
         setQuoteCustomPanels(null)
         setQuoteCustomPanelRows([])
@@ -365,10 +414,11 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
         return
       }
       void loadUnits(selectedQuoteId)
+      void loadQuoteReadiness(selectedQuoteId)
       void loadQuotePricingSettings(selectedQuoteId)
     }, 0)
     return () => window.clearTimeout(handle)
-  }, [loadQuotePricingSettings, loadUnits, selectedQuoteId])
+  }, [loadQuotePricingSettings, loadQuoteReadiness, loadUnits, selectedQuoteId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -391,7 +441,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
     setCurrentView('project-workspace')
     setActiveProjectTab('quotes')
     setActivePricingTab('overview')
-    setActiveQuoteTab('units')
+    setActiveQuoteTab('readiness')
   }
 
   function openProjectPricingTab() {
@@ -403,6 +453,66 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
     }
     if (selectedQuoteId) {
       void loadQuotePricingSettings(selectedQuoteId)
+    }
+  }
+
+  function openQuotePricingTab() {
+    setActiveProjectTab('quotes')
+    setActiveQuoteTab('pricing')
+    if (selectedProjectId) {
+      void loadProjectPricing(selectedProjectId)
+    }
+    if (selectedQuoteId) {
+      void loadQuotePricingSettings(selectedQuoteId)
+    }
+  }
+
+  function openQuotePanelsTab() {
+    setActiveProjectTab('quotes')
+    setActiveQuoteTab('panels')
+    if (selectedQuoteId) {
+      void loadQuoteCustomPanels(selectedQuoteId)
+    }
+  }
+
+  function openQuoteCuttingListTab() {
+    setActiveProjectTab('quotes')
+    setActiveQuoteTab('cutting-lists')
+    setActiveCuttingListViewTab('carcass')
+    if (selectedQuoteId) {
+      void loadQuoteCuttingList(selectedQuoteId)
+    }
+  }
+
+  function handleReadinessAction(check: QuoteReadinessCheck) {
+    if (check.action_target === 'project') {
+      if (selectedProject) openEditProjectModal(selectedProject)
+      return
+    }
+    if (check.action_target === 'quote') {
+      if (selectedQuote) openEditQuoteModal(selectedQuote)
+      return
+    }
+    if (check.action_target === 'units') {
+      setActiveProjectTab('quotes')
+      setActiveQuoteTab('units')
+      return
+    }
+    if (check.action_target === 'panels') {
+      openQuotePanelsTab()
+      return
+    }
+    if (check.action_target === 'cutting-lists') {
+      openQuoteCuttingListTab()
+      return
+    }
+    if (check.action_target === 'pricing') {
+      openQuotePricingTab()
+      return
+    }
+    openQuoteCuttingListTab()
+    if (selectedProjectId) {
+      void loadProjectPricing(selectedProjectId)
     }
   }
 
@@ -476,10 +586,11 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       })
       setSelectedQuoteId(revisedQuote.id)
       setActiveProjectTab('quotes')
-      setActiveQuoteTab('units')
+      setActiveQuoteTab('readiness')
       await loadProjects(search)
       await loadQuotes(selectedProjectId)
       await loadUnits(revisedQuote.id)
+      await loadQuoteReadiness(revisedQuote.id)
       if (activeProjectTab === 'pricing' || activeQuoteTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
@@ -539,6 +650,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       setQuoteCustomPanels(normalizeQuoteCustomPanelsState(payload.custom_panels, selectedQuote, units))
       setQuoteCustomPanelRows(payload.computed_rows)
       setIsQuoteCustomPanelsDirty(false)
+      await loadQuoteReadiness(selectedQuoteId)
       if (activeQuoteTab === 'cutting-lists') {
         await loadQuoteCuttingList(selectedQuoteId)
       }
@@ -571,6 +683,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       }, {})
       setQuoteExtrasSelection(nextSelection)
       setIsQuoteExtrasDirty(false)
+      await loadQuoteReadiness(selectedQuoteId)
       if (selectedProjectId && activeProjectTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
@@ -603,6 +716,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       if (activeProjectTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
+      if (selectedQuoteId) {
+        await loadQuoteReadiness(selectedQuoteId)
+      }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Could not save project pricing defaults.')
     } finally {
@@ -629,6 +745,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       })
       setQuotePricingSettings(updated)
       setQuotePricingSettingsDraft(pricingSettingsToDraft(updated))
+      await loadQuoteReadiness(selectedQuoteId)
       if (activeProjectTab === 'pricing' || activeQuoteTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
@@ -672,6 +789,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       setIsProjectModalOpen(false)
       setSearch('')
       await loadProjects('')
+      if (selectedQuoteId) {
+        await loadQuoteReadiness(selectedQuoteId)
+      }
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Could not save project.'
       setError(message)
@@ -706,6 +826,9 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       setIsQuoteModalOpen(false)
       await loadProjects(search)
       await loadQuotes(selectedProjectId)
+      if (quoteEditId) {
+        await loadQuoteReadiness(quoteEditId)
+      }
       if (activeQuoteTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
@@ -747,6 +870,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
       }
       setIsUnitModalOpen(false)
       await loadUnits(selectedQuoteId)
+      await loadQuoteReadiness(selectedQuoteId)
       if (activeQuoteTab === 'cutting-lists') {
         await loadQuoteCuttingList(selectedQuoteId)
       }
@@ -802,6 +926,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
     try {
       await apiRequest(`/api/v1/quotes/${selectedQuoteId}/units/${unitId}`, { method: 'DELETE', token: authToken })
       await loadUnits(selectedQuoteId)
+      await loadQuoteReadiness(selectedQuoteId)
       if (activeQuoteTab === 'cutting-lists') {
         await loadQuoteCuttingList(selectedQuoteId)
       }
@@ -935,7 +1060,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                     onClick={() => {
                       setActiveProjectTab('quotes')
                       if (activeQuoteTab === 'pricing') {
-                        setActiveQuoteTab('units')
+                        setActiveQuoteTab('readiness')
                       }
                     }}
                     type="button"
@@ -1002,13 +1127,13 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                             key={quote.id}
                             onClick={() => {
                               setSelectedQuoteId(quote.id)
-                              setActiveQuoteTab('units')
+                              setActiveQuoteTab('readiness')
                             }}
                             onKeyDown={(event) => {
                               if (event.key === 'Enter' || event.key === ' ') {
                                 event.preventDefault()
                                 setSelectedQuoteId(quote.id)
-                                setActiveQuoteTab('units')
+                                setActiveQuoteTab('readiness')
                               }
                             }}
                             role="button"
@@ -1123,6 +1248,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                         : selectedQuote
                           ? activeQuoteTab === 'pricing'
                             ? 'Review this quote pricing override and priced line breakdown.'
+                            : activeQuoteTab === 'readiness'
+                              ? 'Check whether this quote is complete enough to trust.'
                             : 'Build this quote using units, panels, cutting lists, and extras.'
                           : 'Choose a quote from the left pane to begin.'}
                     </p>
@@ -1177,6 +1304,19 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                   <div className="border-b border-border">
                     <div className="flex flex-wrap items-center gap-1">
                       <button
+                        aria-pressed={activeQuoteTab === 'readiness'}
+                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'readiness' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                        onClick={() => {
+                          setActiveQuoteTab('readiness')
+                          if (selectedQuoteId) {
+                            void loadQuoteReadiness(selectedQuoteId)
+                          }
+                        }}
+                        type="button"
+                      >
+                        Readiness
+                      </button>
+                      <button
                         aria-pressed={activeQuoteTab === 'units'}
                         className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'units' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                         onClick={() => setActiveQuoteTab('units')}
@@ -1187,12 +1327,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                       <button
                         aria-pressed={activeQuoteTab === 'panels'}
                         className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'panels' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={() => {
-                          setActiveQuoteTab('panels')
-                          if (selectedQuoteId) {
-                            void loadQuoteCustomPanels(selectedQuoteId)
-                          }
-                        }}
+                        onClick={openQuotePanelsTab}
                         type="button"
                       >
                         Panels
@@ -1200,13 +1335,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                       <button
                         aria-pressed={activeQuoteTab === 'cutting-lists'}
                         className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'cutting-lists' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={() => {
-                          setActiveQuoteTab('cutting-lists')
-                          setActiveCuttingListViewTab('carcass')
-                          if (selectedQuoteId) {
-                            void loadQuoteCuttingList(selectedQuoteId)
-                          }
-                        }}
+                        onClick={openQuoteCuttingListTab}
                         type="button"
                       >
                         Cutting Lists
@@ -1227,15 +1356,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
                       <button
                         aria-pressed={activeQuoteTab === 'pricing'}
                         className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'pricing' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={() => {
-                          setActiveQuoteTab('pricing')
-                          if (selectedProjectId) {
-                            void loadProjectPricing(selectedProjectId)
-                          }
-                          if (selectedQuoteId) {
-                            void loadQuotePricingSettings(selectedQuoteId)
-                          }
-                        }}
+                        onClick={openQuotePricingTab}
                         type="button"
                       >
                         Pricing
@@ -1247,6 +1368,87 @@ export function ProjectsQuotesPage({ authToken, currencyCode }: { authToken: str
             <CardContent>
               {activeProjectTab === 'quotes' && !selectedQuote ? (
                 <Alert className="text-xs">No quote selected.</Alert>
+              ) : activeQuoteTab === 'readiness' ? (
+                isLoadingQuoteReadiness ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Checking readiness
+                  </div>
+                ) : !quoteReadiness ? (
+                  <Alert className="text-xs">No readiness check is available for this quote yet.</Alert>
+                ) : (
+                  <div className="grid gap-4">
+                    <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="mt-0.5">
+                            <ReadinessIcon severity={quoteReadiness.is_ready ? 'pass' : quoteReadiness.error_count > 0 ? 'error' : 'warning'} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold">{quoteReadiness.summary_title}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{quoteReadiness.summary_message}</p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <Badge variant={quoteReadiness.is_ready ? 'success' : 'warning'}>
+                                {quoteReadiness.is_ready ? 'Ready' : 'Needs attention'}
+                              </Badge>
+                              <Badge variant="outline">{formatReadinessCount(quoteReadiness.warning_count, 'warning')}</Badge>
+                              <Badge variant="outline">{formatReadinessCount(quoteReadiness.error_count, 'error')}</Badge>
+                            </div>
+                          </div>
+                        </div>
+                        {quoteReadiness.is_ready ? (
+                          <Button
+                            disabled={selectedQuote?.status === 'ready' || isSavingQuoteStatus}
+                            onClick={() => void handleQuoteStatusChange('ready')}
+                            type="button"
+                          >
+                            {isSavingQuoteStatus ? (
+                              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                            )}
+                            {selectedQuote?.status === 'ready' ? 'Marked Ready' : 'Mark Ready'}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2">
+                      {quoteReadiness.checks.map((check) => (
+                        <div
+                          className="rounded-[var(--card-radius)] border border-border bg-card p-3"
+                          key={check.id}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-3">
+                              <div className="mt-0.5">
+                                <ReadinessIcon severity={check.severity} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-semibold">{check.title}</p>
+                                  <Badge variant={readinessBadgeVariant(check.severity)}>
+                                    {readinessLabel(check.severity)}
+                                  </Badge>
+                                </div>
+                                <p className="mt-1 text-sm text-muted-foreground">{check.message}</p>
+                              </div>
+                            </div>
+                            <Button
+                              onClick={() => handleReadinessAction(check)}
+                              size="sm"
+                              type="button"
+                              variant={check.severity === 'pass' ? 'outline' : 'default'}
+                            >
+                              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                              {check.action_label}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
               ) : activeQuoteTab === 'units' ? (
                 isLoadingUnits ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">

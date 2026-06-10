@@ -47,6 +47,7 @@ class FakeWorkspaceStore:
         self.replaced_quote_extras_payload: tuple[str, str, list[dict]] | None = None
         self.replaced_quote_custom_panels_payload: tuple[str, str, dict] | None = None
         self.requested_cutting_list: tuple[str, str] | None = None
+        self.requested_quote_readiness: tuple[str, str] | None = None
         self.requested_quote_custom_panels: tuple[str, str] | None = None
         self.requested_project_pricing: tuple[str, str] | None = None
         self.requested_project_pricing_settings: tuple[str, str] | None = None
@@ -176,6 +177,12 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Quote not found")
         self.requested_cutting_list = (company_id, quote_id)
         return quote_cutting_list(quote_id)
+
+    def get_quote_readiness(self, company_id: str, quote_id: str, runtime_service=None) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.requested_quote_readiness = (company_id, quote_id)
+        return quote_readiness(quote_id)
 
     def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
         if quote_id == "missing":
@@ -461,6 +468,38 @@ def test_get_quote_cutting_list_returns_cutlist_payload():
     assert response.json()["quote_id"] == "quote-1"
     assert response.json()["carcass"][0]["desc"] == "Side"
     assert store.requested_cutting_list == ("company-1", "quote-1")
+
+
+def test_get_quote_readiness_returns_structured_checks():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/quote-1/readiness", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quote_id"] == "quote-1"
+    assert body["status"] == "needs_attention"
+    assert body["checks"][0]["id"] == "unit_count"
+    assert body["checks"][0]["action_target"] == "units"
+    assert store.requested_quote_readiness == ("company-1", "quote-1")
+
+
+def test_get_quote_readiness_returns_404_if_quote_not_visible():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/missing/readiness", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Quote not found"}
+    assert store.requested_quote_readiness is None
 
 
 def test_quote_extras_read_and_replace():
@@ -873,6 +912,28 @@ def quote_cutting_list(quote_id: str) -> dict:
         "runtime_rows": [],
         "runtime_mode": "legacy",
         "unit_sources": [{"unit_number": 1, "unit_type_key": "Base Door", "source": "legacy", "ruleset_id": None, "unit_config_id": None, "note": None}],
+    }
+
+
+def quote_readiness(quote_id: str) -> dict:
+    return {
+        "quote_id": quote_id,
+        "status": "needs_attention",
+        "is_ready": False,
+        "summary_title": "Needs attention before review",
+        "summary_message": "1 readiness check needs attention before this quote is ready for review.",
+        "warning_count": 1,
+        "error_count": 0,
+        "checks": [
+            {
+                "id": "unit_count",
+                "severity": "warning",
+                "title": "Add cabinet units",
+                "message": "This quote has no cabinets yet, so there is nothing to price, cut, or review.",
+                "action_label": "Add units",
+                "action_target": "units",
+            }
+        ],
     }
 
 

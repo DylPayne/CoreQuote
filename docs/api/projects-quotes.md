@@ -22,6 +22,7 @@ All rows are scoped to `current_user.company_id`.
 - Project create/update/delete: `projects:write`
 - Quote and unit read: `quotes:read`
 - Quote and unit create/update/delete: `quotes:write`
+- Quote readiness read: `quotes:read`
 - Project pricing summary read: `pricing:read`
 - Project and quote pricing settings read: `pricing:read`
 - Project and quote pricing settings update: `pricing:update`
@@ -250,6 +251,80 @@ Response shape:
   "unit_sources": []
 }
 ```
+
+## Quote Readiness
+
+```http
+GET /api/v1/quotes/{quote_id}/readiness
+```
+
+Permission: `quotes:read`
+
+This endpoint runs a live readiness checklist from the current quote, project,
+units, board selections, cutting-list output, price list, and quote totals. It
+returns business-facing check messages and stable check IDs/actions that can be
+reused by future export or send buttons.
+
+Response shape:
+
+```json
+{
+  "quote_id": "quote-uuid",
+  "status": "needs_attention",
+  "is_ready": false,
+  "summary_title": "Needs attention before review",
+  "summary_message": "2 readiness checks need attention before this quote is ready for review.",
+  "warning_count": 2,
+  "error_count": 0,
+  "checks": [
+    {
+      "id": "unit_boards",
+      "severity": "warning",
+      "title": "Choose boards for the quote",
+      "message": "1 cabinet without a carcass board cannot be trusted for pricing or cutting yet.",
+      "action_label": "Review board choices",
+      "action_target": "units"
+    },
+    {
+      "id": "missing_prices",
+      "severity": "warning",
+      "title": "Add missing prices",
+      "message": "1 required price missing, so totals are not ready for review.",
+      "action_label": "Review pricing",
+      "action_target": "pricing"
+    }
+  ]
+}
+```
+
+Readiness checks currently use these stable IDs:
+
+- `project_details`
+- `unit_count`
+- `default_boards`
+- `unit_boards`
+- `cutlist_rows`
+- `missing_prices`
+- `quote_totals`
+- `required_outputs`
+
+`action_target` maps to frontend workspace actions: `project`, `quote`,
+`units`, `panels`, `cutting-lists`, `pricing`, or `outputs`. The current UI
+uses `outputs` to review the cutting list and pricing areas together.
+
+Errors:
+
+- `401` for missing/invalid bearer sessions.
+- `403` for roles without `quotes:read`.
+- `404` when the quote is not visible to the current company.
+
+Frontend integration notes:
+
+- Load this endpoint when a quote is selected and after edits to project
+  details, quote setup, units, panels, extras, or pricing settings.
+- Treat `is_ready` as the reusable status for future export/send workflows.
+- Use `checks[].action_target` for direct workspace navigation; do not parse
+  message text.
 
 ## Quote Extras Selection
 

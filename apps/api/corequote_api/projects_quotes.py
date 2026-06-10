@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from corequote_core.detailed_pricing import DetailedPricingSettings
+from corequote_core.quote_readiness import evaluate_quote_readiness
 from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes_errors import (
     WorkspaceConflict,
@@ -798,6 +799,88 @@ class WorkspaceStore:
             use_rulesets=use_rulesets,
             board_lookup=lookups["boards"],
             slide_lookup=lookups["slides"],
+        )
+
+    def get_quote_readiness(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict:
+        quote = self.get_quote(company_id, quote_id)
+        project = self.get_project(company_id, quote["project_id"])
+        units = self.list_units(company_id, quote_id)
+        use_rulesets = _is_enabled("CUTLIST_USE_DB_RULESETS")
+
+        with self._connect() as conn:
+            quote_settings = self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
+            active_price_list_id = self._get_active_price_list_id(conn, company_id)
+            price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id)
+            lookups = self._load_company_item_lookups(conn, company_id)
+            try:
+                quote_extras = conn.execute(
+                    """
+                    SELECT quote_id::text, extra_id::text, quantity
+                    FROM quote_extras
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (company_id, quote_id),
+                ).fetchall()
+            except psycopg.errors.UndefinedTable:
+                quote_extras = []
+
+        cutting_list = None
+        cutting_error = None
+        try:
+            cutting_list = _build_cutting_list_preview(
+                company_id=company_id,
+                quote=quote,
+                units=units,
+                runtime_service=runtime_service,
+                use_rulesets=use_rulesets,
+                board_lookup=lookups["boards"],
+                slide_lookup=lookups["slides"],
+            )
+        except WorkspaceValidationError as exc:
+            cutting_error = str(exc)
+
+        pricing_summary = None
+        pricing_error = None
+        if cutting_error is None:
+            try:
+                pricing_summary = _price_quote(
+                    quote=quote,
+                    units=units,
+                    quote_extras=quote_extras,
+                    runtime_service=runtime_service,
+                    company_id=company_id,
+                    use_rulesets=use_rulesets,
+                    price_lookup=price_lookup,
+                    board_lookup=lookups["boards"],
+                    slide_lookup=lookups["slides"],
+                    hinge_lookup=lookups["hinges"],
+                    handle_lookup=lookups["handles"],
+                    extra_lookup=lookups["extras"],
+                    active_price_list_id=active_price_list_id,
+                    pricing_settings=quote_settings,
+                )
+            except WorkspaceValidationError as exc:
+                pricing_error = str(exc)
+        else:
+            pricing_error = cutting_error
+
+        return evaluate_quote_readiness(
+            quote=quote,
+            project=project,
+            units=units,
+            cutting_list=cutting_list,
+            pricing_summary=pricing_summary,
+            active_price_list_id=active_price_list_id,
+            cutting_error=cutting_error,
+            pricing_error=pricing_error,
         )
 
     def get_quote_custom_panels(self, company_id: str, quote_id: str) -> dict:

@@ -11,6 +11,9 @@ from corequote_api.authorization import Role
 
 UnitType = str
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
+QuoteReadinessStatus = Literal["ready", "needs_attention"]
+QuoteReadinessSeverity = Literal["pass", "warning", "error"]
+QuoteReadinessActionTarget = Literal["project", "quote", "units", "panels", "cutting-lists", "pricing", "outputs"]
 
 
 class HealthResponse(BaseModel):
@@ -388,6 +391,26 @@ class CutlistPreviewResponse(BaseModel):
 
 class QuoteCuttingListResponse(CutlistPreviewResponse):
     quote_id: str
+
+
+class QuoteReadinessCheckResponse(BaseModel):
+    id: str
+    severity: QuoteReadinessSeverity
+    title: str
+    message: str
+    action_label: str
+    action_target: QuoteReadinessActionTarget
+
+
+class QuoteReadinessResponse(BaseModel):
+    quote_id: str
+    status: QuoteReadinessStatus
+    is_ready: bool
+    summary_title: str
+    summary_message: str
+    warning_count: int = Field(ge=0)
+    error_count: int = Field(ge=0)
+    checks: list[QuoteReadinessCheckResponse] = Field(default_factory=list)
 
 
 class QuotePricingLineResponse(BaseModel):

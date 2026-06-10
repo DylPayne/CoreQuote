@@ -117,6 +117,30 @@ export type QuoteCuttingList = {
   extras: CutlistRow[]
 }
 
+export type QuoteReadinessSeverity = 'pass' | 'warning' | 'error'
+export type QuoteReadinessStatus = 'ready' | 'needs_attention'
+export type QuoteReadinessActionTarget = 'project' | 'quote' | 'units' | 'panels' | 'cutting-lists' | 'pricing' | 'outputs'
+
+export type QuoteReadinessCheck = {
+  id: string
+  severity: QuoteReadinessSeverity
+  title: string
+  message: string
+  action_label: string
+  action_target: QuoteReadinessActionTarget
+}
+
+export type QuoteReadiness = {
+  quote_id: string
+  status: QuoteReadinessStatus
+  is_ready: boolean
+  summary_title: string
+  summary_message: string
+  warning_count: number
+  error_count: number
+  checks: QuoteReadinessCheck[]
+}
+
 export type QuoteExtrasResponse = {
   quote_id: string
   items: Array<{ extra_id: string; quantity: number }>
@@ -250,7 +274,7 @@ export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
 export type ProjectWorkspaceTab = 'quotes' | 'pricing'
 export type PricingWorkspaceTab = 'overview' | 'settings' | 'quotes'
-export type QuoteWorkspaceTab = 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
+export type QuoteWorkspaceTab = 'readiness' | 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
 export type CuttingListViewTab = 'carcass' | 'panels' | 'extras'
 
 export type ProjectDraft = {
