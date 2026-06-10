@@ -12,6 +12,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { formatHingeLabel, formatSlideLabel } from './helpers'
 import type { BoardTypeRow, ExtraCategoryRow, ExtraRow, HandleRow, HingeRow, SlideRow } from './types'
 
+function EmptyTableMessage({ detail, title }: { detail: string; title: string }) {
+  return (
+    <div className="grid gap-1 py-3">
+      <p className="font-medium text-foreground">{title}</p>
+      <p className="text-sm leading-5 text-muted-foreground">{detail}</p>
+    </div>
+  )
+}
+
 export function LibraryBoardsTable({
   boards,
   editingBoard,
@@ -51,8 +60,11 @@ export function LibraryBoardsTable({
             <TableBody>
               {boards.length === 0 ? (
                 <TableRow>
-                  <TableCell className="text-muted-foreground" colSpan={7}>
-                    No boards in the library yet.
+                  <TableCell colSpan={7}>
+                    <EmptyTableMessage
+                      title="Add the boards you cut most often."
+                      detail="Board sheets drive material takeoffs, quote defaults, and cutlist pricing. Start with your everyday carcass board, then add door and panel boards."
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -164,8 +176,11 @@ export function LibrarySlidesTable({
             <TableBody>
               {slides.length === 0 ? (
                 <TableRow>
-                  <TableCell className="text-muted-foreground" colSpan={6}>
-                    No slides in the library yet.
+                  <TableCell colSpan={6}>
+                    <EmptyTableMessage
+                      title="Add drawer slides before quoting drawer units."
+                      detail="Slides provide drawer clearances and hardware pricing. Start with the slide range you fit most often."
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -275,8 +290,11 @@ export function LibraryHingesTable({
             <TableBody>
               {hinges.length === 0 ? (
                 <TableRow>
-                  <TableCell className="text-muted-foreground" colSpan={4}>
-                    No hinges in the library yet.
+                  <TableCell colSpan={4}>
+                    <EmptyTableMessage
+                      title="Add your standard hinge."
+                      detail="Hinges complete door-unit defaults and hardware costing. Add the everyday hinge before building door quotes."
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -372,8 +390,11 @@ export function LibraryHandlesTable({
             <TableBody>
               {handles.length === 0 ? (
                 <TableRow>
-                  <TableCell className="text-muted-foreground" colSpan={4}>
-                    No handles in the library yet.
+                  <TableCell colSpan={4}>
+                    <EmptyTableMessage
+                      title="Add handles when you want handle defaults."
+                      detail="Handles can be selected on quote defaults and priced with the rest of the job. Add common ranges or leave this blank until handle costing matters."
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -463,8 +484,11 @@ export function LibraryExtraCategoriesTable({
             <TableBody>
               {categories.length === 0 ? (
                 <TableRow>
-                  <TableCell className="text-muted-foreground" colSpan={2}>
-                    No categories yet.
+                  <TableCell colSpan={2}>
+                    <EmptyTableMessage
+                      title="Create an extras category first."
+                      detail="Categories keep chargeable items like installation, delivery, accessories, and finishing grouped for faster quote setup."
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
@@ -546,8 +570,11 @@ export function LibraryExtrasTable({
             <TableBody>
               {extras.length === 0 ? (
                 <TableRow>
-                  <TableCell className="text-muted-foreground" colSpan={5}>
-                    No extras in the library yet.
+                  <TableCell colSpan={5}>
+                    <EmptyTableMessage
+                      title="Add optional charges and accessories."
+                      detail="Extras cover items such as delivery, installation, lighting, bins, and other add-ons that should appear in quote pricing."
+                    />
                   </TableCell>
                 </TableRow>
               ) : (

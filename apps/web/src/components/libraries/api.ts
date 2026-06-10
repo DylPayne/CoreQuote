@@ -1,6 +1,6 @@
 import type { ApiMethod, PriceItemType } from './types'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
+import { API_BASE_URL, getApiErrorMessage, getNetworkErrorMessage } from '@/lib/api'
 
 export async function upsertPriceItem(
   token: string,
@@ -35,14 +35,19 @@ export async function apiRequest<T = unknown>(
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    headers,
-    method: options.method ?? 'GET',
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      headers,
+      method: options.method ?? 'GET',
+    })
+  } catch (error) {
+    throw new Error(getNetworkErrorMessage(error, path), { cause: error })
+  }
 
   if (!response.ok) {
-    throw new Error(await getApiErrorMessage(response))
+    throw new Error(await getApiErrorMessage(response, path))
   }
 
   if (response.status === 204) {
@@ -50,16 +55,4 @@ export async function apiRequest<T = unknown>(
   }
 
   return response.json() as Promise<T>
-}
-
-export async function getApiErrorMessage(response: Response) {
-  try {
-    const body = (await response.json()) as { detail?: unknown }
-    if (typeof body.detail === 'string') return body.detail
-    if (Array.isArray(body.detail)) return body.detail.map((item) => item.msg ?? String(item)).join(', ')
-  } catch {
-    return `Request failed with status ${response.status}`
-  }
-
-  return `Request failed with status ${response.status}`
 }

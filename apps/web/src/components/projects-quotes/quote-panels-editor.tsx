@@ -376,7 +376,9 @@ export function QuotePanelsEditor({
         </div>
 
         {panelState.manual.length === 0 ? (
-          <Alert className="mt-2 text-xs">No manual rows yet.</Alert>
+          <Alert className="mt-2 text-xs">
+            Add manual rows for one-off panels, fillers, or site-specific pieces that are not created from unit presets.
+          </Alert>
         ) : (
           <TableContainer className="mt-2">
             <Table>
@@ -497,7 +499,9 @@ export function QuotePanelsEditor({
       <Card className="p-3">
         <p className="text-xs font-semibold uppercase text-muted-foreground">Computed Rows</p>
         {panelRows.length === 0 ? (
-          <Alert className="mt-2 text-xs">No computed rows yet. Save panel changes to refresh this preview.</Alert>
+          <Alert className="mt-2 text-xs">
+            Save panel changes to refresh the preview of quote-level panel rows.
+          </Alert>
         ) : (
           <TableContainer className="mt-2">
             <Table>

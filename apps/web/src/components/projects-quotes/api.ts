@@ -1,6 +1,6 @@
 import type { ApiMethod } from './types'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '')
+import { API_BASE_URL, getApiErrorMessage, getNetworkErrorMessage } from '@/lib/api'
 
 export async function apiRequest<T = unknown>(
   path: string,
@@ -14,24 +14,22 @@ export async function apiRequest<T = unknown>(
     body?: unknown
   },
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    })
+  } catch (error) {
+    throw new Error(getNetworkErrorMessage(error, path), { cause: error })
+  }
 
   if (!response.ok) {
-    let message = `Request failed (${response.status})`
-    try {
-      const payload = (await response.json()) as { detail?: string }
-      if (payload.detail) message = payload.detail
-    } catch {
-      // no-op
-    }
-    throw new Error(message)
+    throw new Error(await getApiErrorMessage(response, path))
   }
 
   if (response.status === 204) {

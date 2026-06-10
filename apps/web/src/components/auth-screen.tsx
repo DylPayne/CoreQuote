@@ -45,19 +45,18 @@ export function AuthScreen({
         <div className="max-w-xl py-10">
           <Badge className="mb-5" variant="outline">
             <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-            API-backed auth
+            Secure sign-in
           </Badge>
           <h1 className="text-3xl font-semibold tracking-normal md:text-4xl">Sign in to your quoting workspace.</h1>
           <p className="mt-4 max-w-lg text-sm leading-6 text-muted-foreground">
-            Sessions are restored with <span className="font-medium text-foreground">/api/v1/auth/me</span>, and
-            every authenticated request uses the bearer token returned by the API.
+            Keep projects, quote defaults, boards, hardware, and pricing together for the team that builds the work.
           </p>
         </div>
 
         <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3 lg:grid-cols-1">
-          <FeatureLine icon={Building2} label="Company tenant context" />
-          <FeatureLine icon={UserRound} label="Owner registration flow" />
-          <FeatureLine icon={LogOut} label="Revoked logout sessions" />
+          <FeatureLine icon={Building2} label="One company workspace" />
+          <FeatureLine icon={UserRound} label="Owner account setup" />
+          <FeatureLine icon={LogOut} label="Simple sign-out control" />
         </div>
       </section>
 
