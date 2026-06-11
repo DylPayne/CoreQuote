@@ -699,6 +699,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingQuoteStatus, setIsSavingQuoteStatus] = useState(false)
   const [isCreatingQuoteRevision, setIsCreatingQuoteRevision] = useState(false)
+  const [duplicatingQuoteId, setDuplicatingQuoteId] = useState<string | null>(null)
   const [duplicatingUnitId, setDuplicatingUnitId] = useState<string | null>(null)
   const [isReorderingUnits, setIsReorderingUnits] = useState(false)
   const [isSavingBulkUnits, setIsSavingBulkUnits] = useState(false)
@@ -1242,18 +1243,6 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     setIsQuoteModalOpen(true)
   }
 
-  function openCopyQuoteModal(quote: QuoteRow) {
-    setQuoteEditId(null)
-    setModalError(null)
-    const sourceDraft = toQuoteDraft(quote)
-    const hasCopyLabel = /\bcopy\b/i.test(sourceDraft.name)
-    setQuoteDraft({
-      ...sourceDraft,
-      name: hasCopyLabel ? sourceDraft.name : `${sourceDraft.name} (Copy)`,
-    })
-    setIsQuoteModalOpen(true)
-  }
-
   async function handleQuoteStatusChange(nextStatus: QuoteStatus) {
     if (!selectedQuoteId) return
     setIsSavingQuoteStatus(true)
@@ -1272,6 +1261,32 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       setError(saveError instanceof Error ? saveError.message : 'Could not save quote status.')
     } finally {
       setIsSavingQuoteStatus(false)
+    }
+  }
+
+  async function handleDuplicateQuote(quote: QuoteRow) {
+    if (!selectedProjectId) return
+    setDuplicatingQuoteId(quote.id)
+    setError(null)
+    try {
+      const copiedQuote = await apiRequest<QuoteRow>(`/api/v1/quotes/${quote.id}/duplicate`, {
+        method: 'POST',
+        token: authToken,
+      })
+      setSelectedQuoteId(copiedQuote.id)
+      setActiveProjectTab('quotes')
+      setActiveQuoteTab('readiness')
+      await loadProjects(search)
+      await loadQuotes(selectedProjectId)
+      await loadUnits(copiedQuote.id)
+      await loadQuoteReadiness(copiedQuote.id)
+      if (activeProjectTab === 'pricing' || activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not duplicate quote.')
+    } finally {
+      setDuplicatingQuoteId(null)
     }
   }
 
@@ -2165,17 +2180,22 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                                 <GitBranch className="h-4 w-4" aria-hidden="true" />
                               </Button>
                               <Button
-                                aria-label="Copy quote setup"
+                                aria-label="Duplicate quote"
+                                disabled={duplicatingQuoteId === quote.id}
                                 onClick={(event) => {
                                   event.stopPropagation()
-                                  openCopyQuoteModal(quote)
+                                  void handleDuplicateQuote(quote)
                                 }}
                                 size="icon"
-                                title="Copy quote setup"
+                                title="Duplicate quote"
                                 type="button"
                                 variant="ghost"
                               >
-                                <Copy className="h-4 w-4" aria-hidden="true" />
+                                {duplicatingQuoteId === quote.id ? (
+                                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                ) : (
+                                  <Copy className="h-4 w-4" aria-hidden="true" />
+                                )}
                               </Button>
                               <Button
                                 aria-label="Edit quote"

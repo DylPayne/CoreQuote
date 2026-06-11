@@ -169,6 +169,13 @@ def _quote_revision_name(name: str, revision: int) -> str:
     return f"{trimmed} v{revision}"
 
 
+def _quote_copy_name(name: str) -> str:
+    trimmed = name.strip() or "Quote"
+    if re.search(r"\bcopy\b", trimmed, flags=re.IGNORECASE):
+        return trimmed
+    return f"{trimmed} (Copy)"
+
+
 def _pricing_settings_values(payload: dict[str, Any]) -> dict[str, int]:
     defaults = _default_pricing_settings()
     return {
@@ -504,6 +511,23 @@ class WorkspaceStore:
             raise WorkspaceNotFound("Quote not found")
         return self.get_quote(company_id, quote_id)
 
+    def duplicate_quote(self, company_id: str, quote_id: str) -> dict:
+        with self._connect() as conn:
+            with conn.transaction():
+                source = self._get_quote_revision_source(conn, company_id, quote_id)
+                source_pricing_settings = self._get_quote_pricing_settings_response(conn, company_id, source["id"], source)
+                new_quote_id = self._insert_quote_copy(
+                    conn,
+                    company_id=company_id,
+                    source=source,
+                    name=_quote_copy_name(source["name"]),
+                    quote_number=self._next_quote_number(conn, company_id, source["project_id"]),
+                    revision=1,
+                    previous_revision_id=None,
+                    pricing_settings=source_pricing_settings,
+                )
+        return self.get_quote(company_id, new_quote_id)
+
     def create_quote_revision(self, company_id: str, quote_id: str) -> dict:
         with self._connect() as conn:
             with conn.transaction():
@@ -515,102 +539,126 @@ class WorkspaceStore:
                     source["quote_number"],
                 )
                 source_pricing_settings = self._get_quote_pricing_settings_response(conn, company_id, source["id"], source)
-                row = conn.execute(
-                    """
-                    INSERT INTO quotes (
-                        company_id,
-                        project_id,
-                        name,
-                        notes,
-                        status,
-                        quote_number,
-                        revision,
-                        previous_revision_id,
-                        default_carcass_board_type_id,
-                        default_door_board_type_id,
-                        default_panel_board_type_id,
-                        default_slide_id,
-                        default_hinge_id,
-                        default_base_handle_id,
-                        default_wall_handle_id,
-                        default_tall_handle_id,
-                        default_drawer_handle_id,
-                        unit_defaults,
-                        custom_panels
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id::text
-                    """,
-                    (
-                        company_id,
-                        source["project_id"],
-                        _quote_revision_name(source["name"], next_revision),
-                        source["notes"],
-                        "draft",
-                        source["quote_number"],
-                        next_revision,
-                        source["id"],
-                        source["default_carcass_board_type_id"],
-                        source["default_door_board_type_id"],
-                        source["default_panel_board_type_id"],
-                        source["default_slide_id"],
-                        source["default_hinge_id"],
-                        source["default_base_handle_id"],
-                        source["default_wall_handle_id"],
-                        source["default_tall_handle_id"],
-                        source["default_drawer_handle_id"],
-                        Jsonb(source["unit_defaults"]),
-                        Jsonb(source["custom_panels"]),
-                    ),
-                ).fetchone()
-                new_quote_id = row["id"]
-                conn.execute(
-                    """
-                    INSERT INTO quote_units (
-                        company_id,
-                        quote_id,
-                        unit_number,
-                        unit_type_key,
-                        height,
-                        width,
-                        depth,
-                        thickness,
-                        carcass_board_type_id,
-                        door_board_type_id,
-                        extra_params
-                    )
-                    SELECT
-                        company_id,
-                        %s,
-                        unit_number,
-                        unit_type_key,
-                        height,
-                        width,
-                        depth,
-                        thickness,
-                        carcass_board_type_id,
-                        door_board_type_id,
-                        extra_params
-                    FROM quote_units
-                    WHERE company_id = %s
-                      AND quote_id = %s
-                    ORDER BY unit_number ASC, created_at ASC
-                    """,
-                    (new_quote_id, company_id, quote_id),
+                new_quote_id = self._insert_quote_copy(
+                    conn,
+                    company_id=company_id,
+                    source=source,
+                    name=_quote_revision_name(source["name"], next_revision),
+                    quote_number=source["quote_number"],
+                    revision=next_revision,
+                    previous_revision_id=source["id"],
+                    pricing_settings=source_pricing_settings,
                 )
-                conn.execute(
-                    """
-                    INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
-                    SELECT company_id, %s, extra_id, quantity
-                    FROM quote_extras
-                    WHERE company_id = %s
-                      AND quote_id = %s
-                    ORDER BY created_at ASC, id ASC
-                    """,
-                    (new_quote_id, company_id, quote_id),
-                )
-                self._insert_quote_pricing_settings(conn, company_id, new_quote_id, source_pricing_settings)
         return self.get_quote(company_id, new_quote_id)
+
+    def _insert_quote_copy(
+        self,
+        conn,
+        *,
+        company_id: str,
+        source: dict[str, Any],
+        name: str,
+        quote_number: str,
+        revision: int,
+        previous_revision_id: str | None,
+        pricing_settings: dict[str, int],
+    ) -> str:
+        row = conn.execute(
+            """
+            INSERT INTO quotes (
+                company_id,
+                project_id,
+                name,
+                notes,
+                status,
+                quote_number,
+                revision,
+                previous_revision_id,
+                default_carcass_board_type_id,
+                default_door_board_type_id,
+                default_panel_board_type_id,
+                default_slide_id,
+                default_hinge_id,
+                default_base_handle_id,
+                default_wall_handle_id,
+                default_tall_handle_id,
+                default_drawer_handle_id,
+                unit_defaults,
+                custom_panels
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id::text
+            """,
+            (
+                company_id,
+                source["project_id"],
+                name,
+                source["notes"],
+                "draft",
+                quote_number,
+                revision,
+                previous_revision_id,
+                source["default_carcass_board_type_id"],
+                source["default_door_board_type_id"],
+                source["default_panel_board_type_id"],
+                source["default_slide_id"],
+                source["default_hinge_id"],
+                source["default_base_handle_id"],
+                source["default_wall_handle_id"],
+                source["default_tall_handle_id"],
+                source["default_drawer_handle_id"],
+                Jsonb(source.get("unit_defaults") or {}),
+                Jsonb(source.get("custom_panels") or {}),
+            ),
+        ).fetchone()
+        new_quote_id = row["id"]
+        conn.execute(
+            """
+            INSERT INTO quote_units (
+                company_id,
+                quote_id,
+                unit_number,
+                unit_type_key,
+                height,
+                width,
+                depth,
+                thickness,
+                carcass_board_type_id,
+                door_board_type_id,
+                extra_params
+            )
+            SELECT
+                company_id,
+                %s,
+                unit_number,
+                unit_type_key,
+                height,
+                width,
+                depth,
+                thickness,
+                carcass_board_type_id,
+                door_board_type_id,
+                extra_params
+            FROM quote_units
+            WHERE company_id = %s
+              AND quote_id = %s
+            ORDER BY unit_number ASC, created_at ASC, id ASC
+            """,
+            (new_quote_id, company_id, source["id"]),
+        )
+        conn.execute(
+            """
+            INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
+            SELECT company_id, %s, extra_id, quantity
+            FROM quote_extras
+            WHERE company_id = %s
+              AND quote_id = %s
+            ORDER BY created_at ASC, id ASC
+            """,
+            (new_quote_id, company_id, source["id"]),
+        )
+        self._insert_quote_pricing_settings(conn, company_id, new_quote_id, pricing_settings)
+        return new_quote_id
 
     def delete_quote(self, company_id: str, quote_id: str) -> None:
         with self._connect() as conn:

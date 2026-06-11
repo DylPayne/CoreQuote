@@ -41,6 +41,7 @@ class FakeWorkspaceStore:
         self.created_quote_payload: tuple[str, str, dict] | None = None
         self.updated_quote_payload: tuple[str, str, dict] | None = None
         self.updated_quote_status_payload: tuple[str, str, str] | None = None
+        self.duplicated_quote: tuple[str, str] | None = None
         self.created_quote_revision: tuple[str, str] | None = None
         self.deleted_quote: tuple[str, str] | None = None
         self.created_unit_payload: tuple[str, str, dict] | None = None
@@ -114,6 +115,23 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Quote not found")
         self.updated_quote_status_payload = (company_id, quote_id, status)
         return quote(quote_id, project_id="project-1", status=status, unit_count=2)
+
+    def duplicate_quote(self, company_id: str, quote_id: str) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.duplicated_quote = (company_id, quote_id)
+        return quote(
+            "quote-copy",
+            project_id="project-1",
+            name="Kitchen Quote (Copy)",
+            quote_number="Q-002",
+            revision=1,
+            previous_revision_id=None,
+            previous_revision_quote_number=None,
+            previous_revision_revision=None,
+            status="draft",
+            unit_count=2,
+        )
 
     def create_quote_revision(self, company_id: str, quote_id: str) -> dict:
         if quote_id == "missing":
@@ -543,6 +561,55 @@ def test_create_quote_revision_requires_quotes_write_permission():
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: quotes:write"}
     assert store.created_quote_revision is None
+
+
+def test_duplicate_quote_creates_editable_copy_with_new_quote_number():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/duplicate", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] == "quote-copy"
+    assert body["name"] == "Kitchen Quote (Copy)"
+    assert body["status"] == "draft"
+    assert body["quote_number"] == "Q-002"
+    assert body["revision"] == 1
+    assert body["previous_revision_id"] is None
+    assert body["unit_count"] == 2
+    assert store.duplicated_quote == ("company-1", "quote-1")
+
+
+def test_duplicate_quote_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/duplicate", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.duplicated_quote is None
+
+
+def test_duplicate_quote_returns_404_for_hidden_quote():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/missing/duplicate", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Quote not found"}
+    assert store.duplicated_quote is None
 
 
 def test_create_unit_and_update_unit_use_nested_quote_scope():
