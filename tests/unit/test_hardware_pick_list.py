@@ -108,6 +108,64 @@ def test_hardware_pick_list_warns_for_missing_component_choices():
     assert result["warnings"][0]["message"] == "Choose a drawer slide for Unit 1 drawers."
 
 
+def test_hardware_pick_list_prefers_unit_hardware_overrides():
+    result = build_hardware_pick_list(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen Quote",
+            "default_slide_id": "slide-default",
+            "default_hinge_id": "hinge-default",
+            "default_base_handle_id": "handle-default",
+            "default_drawer_handle_id": "handle-default",
+        },
+        units=[
+            unit(
+                1,
+                "Base Draw",
+                extra_params={
+                    "num_drawers": 2,
+                    "handle_qty": 2,
+                    "slide_id": "slide-override",
+                    "handle_id": "handle-override",
+                },
+            ),
+            unit(
+                2,
+                "Base Door",
+                extra_params={
+                    "num_doors": 2,
+                    "hinge_id": "hinge-override",
+                    "handle_id": "handle-override",
+                },
+            ),
+        ],
+        quote_extras=[],
+        slide_lookup={
+            "slide-default": {"id": "slide-default", "brand": "Default", "model": "Slide", "code": "SD"},
+            "slide-override": {"id": "slide-override", "brand": "Override", "model": "Slide", "code": "SO"},
+        },
+        hinge_lookup={
+            "hinge-default": {"id": "hinge-default", "brand": "Default", "model": "Hinge", "code": "HD"},
+            "hinge-override": {"id": "hinge-override", "brand": "Override", "model": "Hinge", "code": "HO"},
+        },
+        handle_lookup={
+            "handle-default": {"id": "handle-default", "name": "Default pull", "supplier": "Core", "code": "PD"},
+            "handle-override": {"id": "handle-override", "name": "Override pull", "supplier": "Core", "code": "PO"},
+        },
+        extra_lookup={},
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert result["warnings"] == []
+    assert "slide::slide-default" not in items
+    assert "hinge::hinge-default" not in items
+    assert "handle::handle-default" not in items
+    assert items["slide::slide-override"]["unit_numbers"] == [1]
+    assert items["hinge::hinge-override"]["unit_numbers"] == [2]
+    assert items["handle::handle-override"]["unit_numbers"] == [1, 2]
+
+
 def unit(unit_number: int, unit_type_key: str, *, height: int = 780, extra_params: dict | None = None) -> dict:
     return {
         "unit_number": unit_number,

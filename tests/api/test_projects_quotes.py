@@ -46,6 +46,7 @@ class FakeWorkspaceStore:
         self.created_unit_payload: tuple[str, str, dict] | None = None
         self.duplicated_unit: tuple[str, str, str] | None = None
         self.bulk_saved_units: tuple[str, str, list[dict]] | None = None
+        self.bulk_applied_unit_overrides: tuple[str, str, dict] | None = None
         self.reordered_units: tuple[str, str, list[str]] | None = None
         self.updated_unit_payload: tuple[str, str, str, dict] | None = None
         self.deleted_unit: tuple[str, str, str] | None = None
@@ -198,6 +199,40 @@ class FakeWorkspaceStore:
                 extra_params=row.get("extra_params", {}),
             )
             for index, row in enumerate(payloads, start=1)
+        ]
+
+    def bulk_apply_unit_overrides(self, company_id: str, quote_id: str, payload: dict) -> list[dict]:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        if "missing" in payload.get("unit_ids", []):
+            raise WorkspaceNotFound("Unit not found")
+        if set(payload) == {"unit_ids"}:
+            raise WorkspaceValidationError("Select at least one field to apply")
+        if payload.get("height") == 1:
+            raise WorkspaceValidationError("Unit 1: height must be a positive integer")
+        self.bulk_applied_unit_overrides = (company_id, quote_id, payload)
+        return [
+            unit(
+                unit_id,
+                quote_id=quote_id,
+                unit_number=index,
+                unit_type_key="Base Door" if unit_id != "unit-drawer" else "Base Draw",
+                width=600,
+                height=payload.get("height", 780),
+                depth=payload.get("depth", 580),
+                carcass_board_type_id=payload.get("carcass_board_type_id"),
+                door_board_type_id=payload.get("door_board_type_id"),
+                extra_params={
+                    key: value
+                    for key, value in {
+                        "handle_id": payload.get("handle_id"),
+                        "slide_id": payload.get("slide_id") if unit_id == "unit-drawer" else None,
+                        "hinge_id": payload.get("hinge_id") if unit_id != "unit-drawer" else None,
+                    }.items()
+                    if value
+                },
+            )
+            for index, unit_id in enumerate(payload.get("unit_ids", []), start=1)
         ]
 
     def reorder_units(self, company_id: str, quote_id: str, unit_ids: list[str]) -> list[dict]:
@@ -686,6 +721,107 @@ def test_bulk_save_units_surfaces_row_specific_setup_errors():
     assert response.status_code == 422
     assert response.json() == {"detail": "units[1]: Carcass board is required"}
     assert store.bulk_saved_units is None
+
+
+def test_bulk_apply_unit_overrides_updates_selected_units():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = {
+        "unit_ids": ["unit-1", "unit-drawer"],
+        "carcass_board_type_id": "board-2",
+        "handle_id": "handle-2",
+        "slide_id": "slide-2",
+        "hinge_id": "hinge-2",
+        "height": 800,
+        "depth": 560,
+    }
+    try:
+        response = client.patch("/api/v1/quotes/quote-1/units/bulk-apply", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [(row["id"], row["height"], row["depth"], row["carcass_board_type_id"]) for row in body] == [
+        ("unit-1", 800, 560, "board-2"),
+        ("unit-drawer", 800, 560, "board-2"),
+    ]
+    assert body[0]["extra_params"] == {"handle_id": "handle-2", "hinge_id": "hinge-2"}
+    assert body[1]["extra_params"] == {"handle_id": "handle-2", "slide_id": "slide-2"}
+    assert store.bulk_applied_unit_overrides == ("company-1", "quote-1", payload)
+
+
+def test_bulk_apply_unit_overrides_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/units/bulk-apply",
+            json={"unit_ids": ["unit-1"], "depth": 560},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.bulk_applied_unit_overrides is None
+
+
+def test_bulk_apply_unit_overrides_returns_404_for_invalid_unit_access():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/units/bulk-apply",
+            json={"unit_ids": ["unit-1", "missing"], "depth": 560},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Unit not found"}
+    assert store.bulk_applied_unit_overrides is None
+
+
+def test_bulk_apply_unit_overrides_requires_at_least_one_field():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/units/bulk-apply",
+            json={"unit_ids": ["unit-1"]},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Select at least one field to apply"}
+    assert store.bulk_applied_unit_overrides is None
+
+
+def test_bulk_apply_unit_overrides_surfaces_validation_failures():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/units/bulk-apply",
+            json={"unit_ids": ["unit-1"], "height": 1},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Unit 1: height must be a positive integer"}
+    assert store.bulk_applied_unit_overrides is None
 
 
 def test_reorder_units_persists_requested_workshop_order():

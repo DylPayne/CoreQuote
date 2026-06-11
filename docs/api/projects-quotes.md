@@ -167,6 +167,7 @@ GET    /api/v1/quotes/{quote_id}/units
 POST   /api/v1/quotes/{quote_id}/units
 POST   /api/v1/quotes/{quote_id}/units/{unit_id}/duplicate
 PUT    /api/v1/quotes/{quote_id}/units/bulk
+PATCH  /api/v1/quotes/{quote_id}/units/bulk-apply
 PUT    /api/v1/quotes/{quote_id}/units/reorder
 PATCH  /api/v1/quotes/{quote_id}/units/{unit_id}
 DELETE /api/v1/quotes/{quote_id}/units/{unit_id}
@@ -274,6 +275,47 @@ Errors:
 
 - `404` when the quote or an edited unit is not visible to the current company.
 - `422` for invalid rows, with row-prefixed messages such as `units[2]: Carcass board is required`.
+- `409` for write conflicts.
+
+Bulk applying selected unit overrides:
+
+```http
+PATCH /api/v1/quotes/{quote_id}/units/bulk-apply
+```
+
+Permission: `quotes:write`
+
+Request payload:
+
+```json
+{
+  "unit_ids": ["unit-uuid-1", "unit-uuid-2"],
+  "carcass_board_type_id": "board-uuid",
+  "door_board_type_id": "board-uuid",
+  "handle_id": "handle-uuid",
+  "slide_id": "slide-uuid",
+  "hinge_id": "hinge-uuid",
+  "height": 780,
+  "depth": 580
+}
+```
+
+`unit_ids` must contain at least one visible unit on the quote and cannot contain duplicates. At least one apply field must be present. Optional board and hardware IDs may be `null` to clear the selected override and fall back to quote defaults.
+
+Board and dimension fields apply to every selected unit. Hardware fields are stored as unit-level `extra_params` overrides and apply only to compatible unit families:
+
+- `slide_id` applies to drawer units.
+- `hinge_id` applies to door units.
+- `handle_id` applies to drawer, base door, wall door, and tall door units.
+
+Unsupported hardware fields are ignored for a selected unit rather than changing unrelated cabinet types. The API validates quote visibility, selected unit visibility, library item visibility, positive dimensions, board defaults/overrides, and effective carcass thickness before writing the batch.
+
+Response: `200` with the refreshed unit list in quote/workshop order.
+
+Errors:
+
+- `404` when the quote, a selected unit, or a selected library item is not visible to the current company.
+- `422` when the request has no apply fields, duplicate unit IDs, invalid dimensions, or invalid board/default combinations.
 - `409` for write conflicts.
 
 Reordering units:

@@ -265,6 +265,19 @@ class QuoteUnitBulkSaveRequest(BaseModel):
     units: list[QuoteUnitBulkRowRequest] = Field(min_length=1)
 
 
+class QuoteUnitBulkApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unit_ids: list[str] = Field(min_length=1)
+    carcass_board_type_id: str | None = None
+    door_board_type_id: str | None = None
+    handle_id: str | None = None
+    slide_id: str | None = None
+    hinge_id: str | None = None
+    height: int | None = Field(default=None, gt=0)
+    depth: int | None = Field(default=None, gt=0)
+
+
 class QuoteUnitReorderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -112,7 +112,7 @@ def build_hardware_pick_list(
             num_drawers = _non_negative_int(extra_params.get("num_drawers"), 3)
             if num_drawers > 0:
                 location = _unit_location(unit_number, "drawers")
-                slide_id = str(quote.get("default_slide_id") or "").strip()
+                slide_id = str(extra_params.get("slide_id") or quote.get("default_slide_id") or "").strip()
                 if slide_id:
                     slide = slide_lookup.get(slide_id)
                     if not slide:
@@ -144,7 +144,7 @@ def build_hardware_pick_list(
                     )
 
                 handle_qty = _non_negative_int(extra_params.get("handle_qty"), num_drawers)
-                handle_id = str(quote.get("default_drawer_handle_id") or "").strip()
+                handle_id = str(extra_params.get("handle_id") or quote.get("default_drawer_handle_id") or "").strip()
                 _add_handle_requirement(
                     add_item=add_item,
                     add_warning=add_warning,
@@ -162,7 +162,7 @@ def build_hardware_pick_list(
                 continue
 
             location = _unit_location(unit_number, "doors")
-            hinge_id = str(quote.get("default_hinge_id") or "").strip()
+            hinge_id = str(extra_params.get("hinge_id") or quote.get("default_hinge_id") or "").strip()
             hinges_per_door = max(2, math.ceil(height / 600)) if height > 0 else 2
             if hinge_id:
                 hinge = hinge_lookup.get(hinge_id)
@@ -195,14 +195,15 @@ def build_hardware_pick_list(
                 )
 
             if canonical_type == "Wall Door":
-                handle_id = str(quote.get("default_wall_handle_id") or "").strip()
+                default_handle_id = str(quote.get("default_wall_handle_id") or "").strip()
                 handle_label = "wall handle"
             elif canonical_type == "Tall Door":
-                handle_id = str(quote.get("default_tall_handle_id") or "").strip()
+                default_handle_id = str(quote.get("default_tall_handle_id") or "").strip()
                 handle_label = "tall handle"
             else:
-                handle_id = str(quote.get("default_base_handle_id") or "").strip()
+                default_handle_id = str(quote.get("default_base_handle_id") or "").strip()
                 handle_label = "base handle"
+            handle_id = str(extra_params.get("handle_id") or default_handle_id).strip()
             handle_qty = _non_negative_int(extra_params.get("handle_qty"), num_doors)
             _add_handle_requirement(
                 add_item=add_item,

@@ -15,7 +15,7 @@ from corequote_core.customer_quote_pdf import (
     customer_quote_filename,
     render_customer_quote_pdf,
 )
-from corequote_core.hardware_pick_list import build_hardware_pick_list
+from corequote_core.hardware_pick_list import build_hardware_pick_list, canonical_unit_type
 from corequote_core.output_review import build_quote_output_review
 from corequote_core.quote_readiness import evaluate_quote_readiness
 from corequote_core.workshop_schedule_pdf import (
@@ -194,6 +194,13 @@ def _clean_pricing_settings_payload(payload: dict[str, Any], *, defaults: dict[s
         if cleaned[field] < 1:
             raise WorkspaceValidationError(f"{field} must be a positive integer")
     return cleaned
+
+
+def _set_optional_extra_param(extra_params: dict[str, Any], key: str, value: str | None) -> None:
+    if value:
+        extra_params[key] = value
+    else:
+        extra_params.pop(key, None)
 
 
 class WorkspaceStore:
@@ -875,6 +882,118 @@ class WorkspaceStore:
                             ),
                         )
                         next_unit_number += 1
+        return self.list_units(company_id, quote_id)
+
+    def bulk_apply_unit_overrides(self, company_id: str, quote_id: str, payload: dict[str, Any]) -> list[dict]:
+        unit_ids = [str(unit_id).strip() for unit_id in payload.get("unit_ids", []) if str(unit_id).strip()]
+        if not unit_ids:
+            raise WorkspaceValidationError("Select at least one unit")
+        if len(set(unit_ids)) != len(unit_ids):
+            raise WorkspaceValidationError("unit_ids must not contain duplicate units")
+
+        apply_keys = set(payload) - {"unit_ids"}
+        if not apply_keys:
+            raise WorkspaceValidationError("Select at least one field to apply")
+
+        cleaned: dict[str, Any] = {}
+        for key in ("carcass_board_type_id", "door_board_type_id", "handle_id", "slide_id", "hinge_id"):
+            if key in payload:
+                cleaned[key] = _optional_uuid(payload.get(key))
+        for key in ("height", "depth"):
+            if key in payload:
+                try:
+                    value = int(payload[key])
+                except (TypeError, ValueError) as exc:
+                    raise WorkspaceValidationError(f"{key} must be a positive integer") from exc
+                if value <= 0:
+                    raise WorkspaceValidationError(f"{key} must be a positive integer")
+                cleaned[key] = value
+
+        with self._connect() as conn:
+            with conn.transaction():
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
+                rows = conn.execute(
+                    f"""
+                    SELECT {UNIT_SELECT}
+                    FROM quote_units u
+                    WHERE u.company_id = %s
+                      AND u.quote_id = %s
+                      AND u.id = ANY(%s::uuid[])
+                    ORDER BY u.unit_number ASC, u.created_at ASC, u.id ASC
+                    FOR UPDATE
+                    """,
+                    (company_id, quote_id, unit_ids),
+                ).fetchall()
+                if len(rows) != len(unit_ids):
+                    raise WorkspaceNotFound("Unit not found")
+
+                if cleaned.get("handle_id"):
+                    self._ensure_library_item_visible(conn, company_id, "handles", cleaned["handle_id"], "Handle")
+                if cleaned.get("slide_id"):
+                    self._ensure_library_item_visible(conn, company_id, "slides", cleaned["slide_id"], "Slide")
+                if cleaned.get("hinge_id"):
+                    self._ensure_library_item_visible(conn, company_id, "hinges", cleaned["hinge_id"], "Hinge")
+
+                prepared_rows: list[dict[str, Any]] = []
+                for row in rows:
+                    data = {
+                        "unit_type_key": row["unit_type_key"],
+                        "height": cleaned.get("height", row["height"]),
+                        "width": row["width"],
+                        "depth": cleaned.get("depth", row["depth"]),
+                        "carcass_board_type_id": cleaned.get(
+                            "carcass_board_type_id",
+                            row["carcass_board_type_id"],
+                        ),
+                        "door_board_type_id": cleaned.get("door_board_type_id", row["door_board_type_id"]),
+                        "extra_params": dict(row.get("extra_params") or {}),
+                    }
+                    unit_family = canonical_unit_type(str(row["unit_type_key"]))
+                    if "handle_id" in cleaned and unit_family in {"Base Draw", "Base Door", "Wall Door", "Tall Door"}:
+                        _set_optional_extra_param(data["extra_params"], "handle_id", cleaned["handle_id"])
+                    if "slide_id" in cleaned and unit_family == "Base Draw":
+                        _set_optional_extra_param(data["extra_params"], "slide_id", cleaned["slide_id"])
+                    if "hinge_id" in cleaned and unit_family in {"Base Door", "Wall Door", "Tall Door"}:
+                        _set_optional_extra_param(data["extra_params"], "hinge_id", cleaned["hinge_id"])
+
+                    try:
+                        self._validate_unit_defaults(conn, company_id, data)
+                        thickness = self._resolve_unit_thickness(conn, company_id, quote, data)
+                    except WorkspaceValidationError as exc:
+                        raise WorkspaceValidationError(f"Unit {row['unit_number']}: {exc}") from exc
+                    prepared_rows.append({"id": row["id"], "data": data, "thickness": thickness})
+
+                for row in prepared_rows:
+                    data = row["data"]
+                    conn.execute(
+                        """
+                        UPDATE quote_units
+                        SET unit_type_key = %s,
+                            height = %s,
+                            width = %s,
+                            depth = %s,
+                            thickness = %s,
+                            carcass_board_type_id = %s,
+                            door_board_type_id = %s,
+                            extra_params = %s
+                        WHERE company_id = %s
+                          AND quote_id = %s
+                          AND id = %s
+                        """,
+                        (
+                            data["unit_type_key"],
+                            data["height"],
+                            data["width"],
+                            data["depth"],
+                            row["thickness"],
+                            data["carcass_board_type_id"],
+                            data["door_board_type_id"],
+                            Jsonb(data["extra_params"]),
+                            company_id,
+                            quote_id,
+                            row["id"],
+                        ),
+                    )
         return self.list_units(company_id, quote_id)
 
     def reorder_units(self, company_id: str, quote_id: str, unit_ids: list[str]) -> list[dict]:
