@@ -7,8 +7,9 @@ into dictionaries, and this module performs the deterministic pricing math.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from typing import Any
+
+from corequote_core.hardware_pick_list import build_hardware_pick_list
 
 
 PRICEABLE_ITEM_TYPES = {
@@ -45,19 +46,6 @@ PRICE_COMPONENT_LABELS = {
     "day": "Day rate",
     "trip": "Trip rate",
     "commission": "Commission allowance",
-}
-
-
-SIMPLIFIED_UNIT_TYPE_CANDIDATES: dict[str, tuple[str, ...]] = {
-    "Base Draw": ("Base Draw", "Base Drawer", "Base 1 Draw", "Base 2 Draw", "Base 3 Draw", "Base 4 Draw"),
-    "Base Door": ("Base Door", "Base 1 Door", "Base 2 Door"),
-    "Wall Door": ("Wall Door", "Wall 1 Door", "Wall 2 Door"),
-    "Tall Door": ("Tall Door", "Tall Standard", "Tall Pantry"),
-}
-UNIT_TYPE_ALIAS_TO_CANONICAL: dict[str, str] = {
-    alias: canonical
-    for canonical, aliases in SIMPLIFIED_UNIT_TYPE_CANDIDATES.items()
-    for alias in aliases
 }
 
 
@@ -132,6 +120,15 @@ def price_quote_detailed(
         cutting_rows=cutting_rows,
         board_lookup=board_lookup,
     )
+    hardware_pick_list = build_hardware_pick_list(
+        quote=quote,
+        units=units,
+        quote_extras=quote_extras,
+        slide_lookup=slide_lookup,
+        hinge_lookup=hinge_lookup,
+        handle_lookup=handle_lookup,
+        extra_lookup=extra_lookup,
+    )
     carcass_area_m2 = 0.0
 
     for key, usage in sorted(board_groups.items(), key=lambda item: (_bucket_sort(item[0][1]), item[0][0])):
@@ -184,35 +181,11 @@ def price_quote_detailed(
         )
 
     for line in _hardware_lines(
-        quote=quote,
-        units=units,
+        hardware_pick_list=hardware_pick_list,
         settings=settings,
         price_lookup=price_lookup,
-        slide_lookup=slide_lookup,
-        hinge_lookup=hinge_lookup,
-        handle_lookup=handle_lookup,
     ):
         add_line(line)
-
-    for selected_extra in quote_extras:
-        extra_id = str(selected_extra.get("extra_id") or "").strip()
-        quantity = _non_negative_int(selected_extra.get("quantity"), 1)
-        if not extra_id or quantity <= 0:
-            continue
-        add_line(
-            _priced_catalog_line(
-                item_type="extra",
-                item_key=f"extra::{extra_id}",
-                price_component="unit",
-                bucket="extra",
-                description=_extra_description(extra_lookup.get(extra_id)),
-                qty=float(quantity),
-                uom="pcs",
-                markup_bps=settings.extras_markup_bps,
-                price_lookup=price_lookup,
-                commissionable=False,
-            )
-        )
 
     unit_count = len(units)
     if unit_count > 0:
@@ -298,10 +271,16 @@ def price_quote_detailed(
     return {
         "quote_id": quote["id"],
         "quote_name": quote["name"],
-        "is_complete": bool(active_price_list_id) and not missing_prices and not material_summary["warnings"],
+        "is_complete": (
+            bool(active_price_list_id)
+            and not missing_prices
+            and not material_summary["warnings"]
+            and not hardware_pick_list["warnings"]
+        ),
         "missing_items": missing_items,
         "missing_prices": missing_prices,
         "material_summary": material_summary,
+        "hardware_pick_list": hardware_pick_list,
         "subtotal_cents": cost_total_cents,
         "cost_total_cents": cost_total_cents,
         "sell_before_vat_cents": sell_before_vat_cents,
@@ -626,129 +605,52 @@ def _material_choice_label(material_role: str) -> str:
 
 def _hardware_lines(
     *,
-    quote: dict[str, Any],
-    units: list[dict[str, Any]],
+    hardware_pick_list: dict[str, Any],
     settings: DetailedPricingSettings,
     price_lookup: dict[tuple[str, str, str], dict[str, Any]],
-    slide_lookup: dict[str, dict[str, Any]],
-    hinge_lookup: dict[str, dict[str, Any]],
-    handle_lookup: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    required: dict[tuple[str, str, str], dict[str, Any]] = {}
-
-    def add_required(
-        item_type: str,
-        item_key: str,
-        price_component: str,
-        bucket: str,
-        description: str,
-        qty: float,
-        uom: str,
-        markup_bps: int,
-    ) -> None:
-        if not item_key or qty <= 0:
-            return
-        key = (item_type, item_key, price_component)
-        row = required.get(key)
-        if row:
-            row["qty"] += float(qty)
-            return
-        required[key] = {
-            "item_type": item_type,
-            "item_key": item_key,
-            "price_component": price_component,
-            "bucket": bucket,
-            "description": description,
-            "qty": float(qty),
-            "uom": uom,
-            "markup_bps": markup_bps,
-        }
-
-    for unit in units:
-        canonical_type = _canonical_unit_type(str(unit.get("unit_type_key") or unit.get("unit_type") or ""))
-        extra_params = unit.get("extra_params", {}) or {}
-        height = _non_negative_int(unit.get("height"), 0)
-
-        if canonical_type == "Base Draw":
-            num_drawers = _non_negative_int(extra_params.get("num_drawers"), 3)
-            slide_id = str(quote.get("default_slide_id") or "").strip()
-            if slide_id:
-                add_required(
-                    "slide",
-                    f"slide::{slide_id}",
-                    "unit",
-                    "component",
-                    _slide_description(slide_lookup.get(slide_id)),
-                    float(num_drawers),
-                    "pairs",
-                    settings.component_markup_bps,
-                )
-            handle_id = str(quote.get("default_drawer_handle_id") or "").strip()
-            drawer_handle_qty = _non_negative_int(extra_params.get("handle_qty"), num_drawers)
-            if handle_id:
-                add_required(
-                    "handle",
-                    f"handle::{handle_id}",
-                    "unit",
-                    "handle",
-                    _handle_description(handle_lookup.get(handle_id)),
-                    float(drawer_handle_qty),
-                    "pcs",
-                    settings.handle_markup_bps,
-                )
-
-        if canonical_type in {"Base Door", "Wall Door", "Tall Door"}:
-            num_doors = _non_negative_int(extra_params.get("num_doors"), 2)
-            hinge_id = str(quote.get("default_hinge_id") or "").strip()
-            hinges_per_door = max(2, math.ceil(height / 600)) if height > 0 else 2
-            if hinge_id:
-                add_required(
-                    "hinge",
-                    f"hinge::{hinge_id}",
-                    "unit",
-                    "component",
-                    _hinge_description(hinge_lookup.get(hinge_id)),
-                    float(num_doors * hinges_per_door),
-                    "pcs",
-                    settings.component_markup_bps,
-                )
-
-            if canonical_type == "Wall Door":
-                handle_id = str(quote.get("default_wall_handle_id") or "").strip()
-            elif canonical_type == "Tall Door":
-                handle_id = str(quote.get("default_tall_handle_id") or "").strip()
-            else:
-                handle_id = str(quote.get("default_base_handle_id") or "").strip()
-            handle_qty = _non_negative_int(extra_params.get("handle_qty"), num_doors)
-            if handle_id:
-                add_required(
-                    "handle",
-                    f"handle::{handle_id}",
-                    "unit",
-                    "handle",
-                    _handle_description(handle_lookup.get(handle_id)),
-                    float(handle_qty),
-                    "pcs",
-                    settings.handle_markup_bps,
-                )
-
     lines: list[dict[str, Any]] = []
-    for row in required.values():
+    for item in hardware_pick_list.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        item_type = str(item.get("item_type") or "")
+        if item_type not in {"slide", "hinge", "handle", "extra"}:
+            continue
+        bucket = "handle" if item_type == "handle" else "extra" if item_type == "extra" else "component"
+        markup_bps = (
+            settings.handle_markup_bps
+            if item_type == "handle"
+            else settings.extras_markup_bps
+            if item_type == "extra"
+            else settings.component_markup_bps
+        )
         lines.append(
             _priced_catalog_line(
-                item_type=row["item_type"],
-                item_key=row["item_key"],
-                price_component=row["price_component"],
-                bucket=row["bucket"],
-                description=row["description"],
-                qty=float(row["qty"]),
-                uom=str(row["uom"]),
-                markup_bps=int(row["markup_bps"]),
+                item_type=item_type,
+                item_key=str(item.get("item_key") or ""),
+                price_component="unit",
+                bucket=bucket,
+                description=_pick_list_pricing_description(item),
+                qty=float(item.get("quantity") or 0),
+                uom=str(item.get("uom") or "pcs"),
+                markup_bps=markup_bps,
                 price_lookup=price_lookup,
-                commissionable=True,
+                commissionable=item_type != "extra",
             )
         )
     return lines
+
+
+def _pick_list_pricing_description(item: dict[str, Any]) -> str:
+    item_type = str(item.get("item_type") or "")
+    item_name = str(item.get("item_name") or ITEM_TYPE_LABELS.get(item_type, item_type)).strip()
+    supplier = str(item.get("supplier") or "").strip()
+    code = str(item.get("code") or "").strip()
+    if item_type in {"slide", "hinge"} and code:
+        return f"{item_name} ({code})"
+    if item_type in {"handle", "extra"} and supplier:
+        return f"{item_name} · {supplier}"
+    return item_name
 
 
 def _priced_catalog_line(
@@ -1060,10 +962,6 @@ def _scaled_minimum_quantity(*, count: int, divisor: int, minimum_bps: int) -> f
     return float(round(max(minimum, count / divisor), 4))
 
 
-def _canonical_unit_type(unit_type: str) -> str:
-    return UNIT_TYPE_ALIAS_TO_CANONICAL.get(unit_type, unit_type)
-
-
 def _non_negative_int(value: Any, default: int) -> int:
     try:
         parsed = int(value)
@@ -1118,31 +1016,3 @@ def _board_description(board: dict[str, Any] | None) -> str:
     if not board:
         return "Board"
     return f"{board['brand']} {board['material']} ({board['thickness']}mm)"
-
-
-def _slide_description(slide: dict[str, Any] | None) -> str:
-    if not slide:
-        return "Slide"
-    code = str(slide.get("code", "")).strip()
-    return f"{slide['brand']} {slide['model']}{f' ({code})' if code else ''}"
-
-
-def _hinge_description(hinge: dict[str, Any] | None) -> str:
-    if not hinge:
-        return "Hinge"
-    code = str(hinge.get("code", "")).strip()
-    return f"{hinge['brand']} {hinge['model']}{f' ({code})' if code else ''}"
-
-
-def _handle_description(handle: dict[str, Any] | None) -> str:
-    if not handle:
-        return "Handle"
-    supplier = str(handle.get("supplier", "")).strip()
-    return f"{handle['name']}{f' · {supplier}' if supplier else ''}"
-
-
-def _extra_description(extra: dict[str, Any] | None) -> str:
-    if not extra:
-        return "Extra"
-    supplier = str(extra.get("supplier", "")).strip()
-    return f"{extra['name']}{f' · {supplier}' if supplier else ''}"

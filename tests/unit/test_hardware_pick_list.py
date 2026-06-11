@@ -1,0 +1,117 @@
+from corequote_core.hardware_pick_list import build_hardware_pick_list
+
+
+def test_hardware_pick_list_groups_real_job_hardware_and_extras():
+    result = build_hardware_pick_list(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen Quote",
+            "default_slide_id": "slide-1",
+            "default_hinge_id": "hinge-1",
+            "default_base_handle_id": "handle-base",
+            "default_wall_handle_id": "handle-wall",
+            "default_drawer_handle_id": "handle-drawer",
+        },
+        units=[
+            unit(1, "Base Draw", height=720, extra_params={"num_drawers": 3, "handle_qty": 3}),
+            unit(2, "Base Door", height=720, extra_params={"num_doors": 2}),
+            unit(3, "Base Door", height=720, extra_params={"num_doors": 2}),
+            unit(4, "Wall Door", height=720, extra_params={"num_doors": 2}),
+            unit(5, "Wall Door", height=720, extra_params={"num_doors": 2}),
+        ],
+        quote_extras=[{"extra_id": "extra-1", "quantity": 1}],
+        slide_lookup={
+            "slide-1": {
+                "id": "slide-1",
+                "brand": "Grass",
+                "model": "Dynapro",
+                "code": "S500",
+            }
+        },
+        hinge_lookup={
+            "hinge-1": {
+                "id": "hinge-1",
+                "brand": "Blum",
+                "model": "Clip top",
+                "code": "H110",
+            }
+        },
+        handle_lookup={
+            "handle-base": {"id": "handle-base", "name": "Base pull", "supplier": "Core", "code": "B128"},
+            "handle-wall": {"id": "handle-wall", "name": "Wall pull", "supplier": "Core", "code": "W128"},
+            "handle-drawer": {"id": "handle-drawer", "name": "Drawer pull", "supplier": "Core", "code": "D192"},
+        },
+        extra_lookup={
+            "extra-1": {
+                "id": "extra-1",
+                "name": "Waste removal",
+                "category_name": "Site extras",
+                "supplier": "Core",
+                "code": "WR1",
+            }
+        },
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert result["warnings"] == []
+    assert result["total_item_count"] == 6
+    assert result["total_quantity"] == 31
+
+    assert items["slide::slide-1"]["quantity"] == 3
+    assert items["slide::slide-1"]["uom"] == "pairs"
+    assert items["slide::slide-1"]["supplier"] == "Grass"
+    assert items["slide::slide-1"]["code"] == "S500"
+    assert items["slide::slide-1"]["used_in"] == ["Unit 1 drawers"]
+    assert items["slide::slide-1"]["unit_numbers"] == [1]
+
+    assert items["hinge::hinge-1"]["quantity"] == 16
+    assert items["hinge::hinge-1"]["used_in"] == [
+        "Unit 2 doors",
+        "Unit 3 doors",
+        "Unit 4 doors",
+        "Unit 5 doors",
+    ]
+    assert items["hinge::hinge-1"]["unit_numbers"] == [2, 3, 4, 5]
+
+    assert items["handle::handle-drawer"]["quantity"] == 3
+    assert items["handle::handle-base"]["quantity"] == 4
+    assert items["handle::handle-wall"]["quantity"] == 4
+
+    assert items["extra::extra-1"]["quantity"] == 1
+    assert items["extra::extra-1"]["supplier"] == "Core"
+    assert items["extra::extra-1"]["code"] == "WR1"
+    assert items["extra::extra-1"]["used_in"] == ["Quote extra"]
+
+
+def test_hardware_pick_list_warns_for_missing_component_choices():
+    result = build_hardware_pick_list(
+        quote={"id": "quote-1", "name": "Kitchen Quote"},
+        units=[
+            unit(1, "Base Draw", extra_params={"num_drawers": 2, "handle_qty": 2}),
+            unit(2, "Base Door", extra_params={"num_doors": 2}),
+        ],
+        quote_extras=[],
+        slide_lookup={},
+        hinge_lookup={},
+        handle_lookup={},
+        extra_lookup={},
+    )
+
+    assert result["items"] == []
+    assert [(warning["code"], warning["unit_number"]) for warning in result["warnings"]] == [
+        ("missing_slide_selection", 1),
+        ("missing_handle_selection", 1),
+        ("missing_hinge_selection", 2),
+        ("missing_handle_selection", 2),
+    ]
+    assert result["warnings"][0]["message"] == "Choose a drawer slide for Unit 1 drawers."
+
+
+def unit(unit_number: int, unit_type_key: str, *, height: int = 780, extra_params: dict | None = None) -> dict:
+    return {
+        "unit_number": unit_number,
+        "unit_type_key": unit_type_key,
+        "height": height,
+        "extra_params": extra_params or {},
+    }

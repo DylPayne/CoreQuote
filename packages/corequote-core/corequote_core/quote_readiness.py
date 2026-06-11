@@ -32,11 +32,13 @@ def evaluate_quote_readiness(
     cutting_list: dict[str, Any] | None,
     pricing_summary: dict[str, Any] | None,
     active_price_list_id: str | None,
+    hardware_pick_list: dict[str, Any] | None = None,
     cutting_error: str | None = None,
     pricing_error: str | None = None,
 ) -> dict[str, Any]:
     """Return structured quote readiness checks from current quote data."""
 
+    hardware_pick_list = hardware_pick_list or _hardware_pick_list_from_pricing_summary(pricing_summary)
     cutting_rows = _cutting_rows(cutting_list)
     validation_warnings = _cutlist_validation_warnings(cutting_list)
     invalid_cutting_rows = [] if validation_warnings else [row for row in cutting_rows if _invalid_cutting_row(row)]
@@ -48,6 +50,10 @@ def evaluate_quote_readiness(
     missing_unit_front_count = _missing_unit_front_count(quote, units, panel_rows)
     missing_custom_panel_count = _missing_custom_panel_board_count(quote, custom_panel_rows)
     missing_price_count = _missing_price_count(pricing_summary)
+    hardware_check = _hardware_pick_list_check(
+        hardware_pick_list=hardware_pick_list,
+        has_units=bool(units),
+    )
 
     checks = [
         _project_details_check(project),
@@ -75,9 +81,11 @@ def evaluate_quote_readiness(
             has_units=bool(units),
             missing_price_count=missing_price_count,
         ),
+        hardware_check,
         _required_outputs_check(
             has_valid_cutting_rows=bool(cutting_rows) and cutlist_warning_count == 0 and not cutting_error,
             has_priced_total=_has_priced_total(pricing_summary, missing_price_count=missing_price_count),
+            has_component_pick_list=hardware_check.severity == "pass",
             has_units=bool(units),
         ),
     ]
@@ -329,13 +337,61 @@ def _quote_totals_check(
     )
 
 
+def _hardware_pick_list_check(
+    *,
+    hardware_pick_list: dict[str, Any] | None,
+    has_units: bool,
+) -> QuoteReadinessCheck:
+    if not has_units:
+        return QuoteReadinessCheck(
+            id="hardware_pick_list",
+            severity="pass",
+            title="Hardware pick list pending",
+            message="Add cabinet units before checking slides, hinges, handles, and extras.",
+            action_label="Review units",
+            action_target="units",
+        )
+
+    warning_count = _hardware_pick_list_warning_count(hardware_pick_list)
+    if warning_count:
+        return QuoteReadinessCheck(
+            id="hardware_pick_list",
+            severity="warning",
+            title="Choose hardware for the quote",
+            message=f"{warning_count} component {_plural(warning_count, 'choice')} {_count_verb(warning_count)} attention before workshop handoff.",
+            action_label="Review quote hardware",
+            action_target="quote",
+        )
+
+    item_count = _hardware_pick_list_item_count(hardware_pick_list)
+    if item_count:
+        return QuoteReadinessCheck(
+            id="hardware_pick_list",
+            severity="pass",
+            title="Hardware pick list ready",
+            message=f"{item_count} hardware or extra {_plural(item_count, 'line')} ready for workshop review.",
+            action_label="Review outputs",
+            action_target="outputs",
+        )
+
+    return QuoteReadinessCheck(
+        id="hardware_pick_list",
+        severity="pass",
+        title="Hardware pick list ready",
+        message="No slides, hinges, handles, or extras are currently selected for this quote.",
+        action_label="Review outputs",
+        action_target="outputs",
+    )
+
+
 def _required_outputs_check(
     *,
     has_valid_cutting_rows: bool,
     has_priced_total: bool,
+    has_component_pick_list: bool,
     has_units: bool,
 ) -> QuoteReadinessCheck:
-    if has_valid_cutting_rows and has_priced_total:
+    if has_valid_cutting_rows and has_priced_total and has_component_pick_list:
         return QuoteReadinessCheck(
             id="required_outputs",
             severity="pass",
@@ -347,12 +403,15 @@ def _required_outputs_check(
 
     if not has_units:
         message = "Add cabinet units so CoreQuote can prepare review outputs."
-    elif not has_valid_cutting_rows and not has_priced_total:
-        message = "Prepare both a usable cutting list and a priced total before review."
-    elif not has_valid_cutting_rows:
-        message = "Prepare a usable cutting list before review."
     else:
-        message = "Prepare a priced quote total before review."
+        missing = []
+        if not has_valid_cutting_rows:
+            missing.append("a usable cutting list")
+        if not has_priced_total:
+            missing.append("a priced quote total")
+        if not has_component_pick_list:
+            missing.append("a complete hardware pick list")
+        message = f"Prepare {_join_words(missing)} before review."
 
     return QuoteReadinessCheck(
         id="required_outputs",
@@ -366,7 +425,7 @@ def _required_outputs_check(
 
 def _summary_message(*, is_ready: bool, warning_count: int, error_count: int) -> str:
     if is_ready:
-        return "This quote has client details, cabinet units, board choices, cutting rows, and priced totals ready for review."
+        return "This quote has client details, cabinet units, board choices, cutting rows, component pick list, and priced totals ready for review."
     if error_count:
         return (
             f"{error_count} readiness {_plural(error_count, 'check')} "
@@ -480,6 +539,33 @@ def _missing_price_count(pricing_summary: dict[str, Any] | None) -> int:
     if isinstance(lines, list):
         return sum(1 for line in lines if isinstance(line, dict) and bool(line.get("missing")))
     return 0
+
+
+def _hardware_pick_list_from_pricing_summary(pricing_summary: dict[str, Any] | None) -> dict[str, Any]:
+    if not pricing_summary:
+        return {"items": [], "warnings": []}
+    pick_list = pricing_summary.get("hardware_pick_list")
+    if isinstance(pick_list, dict):
+        return pick_list
+    return {"items": [], "warnings": []}
+
+
+def _hardware_pick_list_warning_count(hardware_pick_list: dict[str, Any] | None) -> int:
+    if not hardware_pick_list:
+        return 0
+    warnings = hardware_pick_list.get("warnings")
+    if not isinstance(warnings, list):
+        return 0
+    return sum(1 for warning in warnings if isinstance(warning, dict))
+
+
+def _hardware_pick_list_item_count(hardware_pick_list: dict[str, Any] | None) -> int:
+    if not hardware_pick_list:
+        return 0
+    items = hardware_pick_list.get("items")
+    if not isinstance(items, list):
+        return 0
+    return sum(1 for item in items if isinstance(item, dict))
 
 
 def _has_priced_total(pricing_summary: dict[str, Any] | None, *, missing_price_count: int) -> bool:

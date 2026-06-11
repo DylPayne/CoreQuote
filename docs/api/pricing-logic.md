@@ -89,6 +89,12 @@ estimates because CoreQuote does not yet perform nesting or waste optimization.
 Warnings call out missing board choices, missing board records, and missing
 sheet dimensions.
 
+Each quote calculation also produces `hardware_pick_list` for internal workshop
+or purchasing review. It uses the same component-count source as pricing for
+slides, hinges, handles, and selected quote extras, but returns only catalog
+identity, supplier/code, quantity, unit associations, and setup warnings. It
+does not expose cost, sell, profit, markup, or margin fields.
+
 The calculation keeps legacy response totals for existing callers:
 
 - `subtotal_cents`: cost subtotal before markup.
@@ -129,6 +135,7 @@ The pricing tab should show:
 - complete or missing-price status;
 - grouped missing price guidance before detailed line items;
 - material summary groups and warnings before detailed line items;
+- hardware and extras pick-list groups and warnings before detailed line items;
 - quote totals with cost/sell/profit columns;
 - grouped line details by bucket;
 - clear missing price rows that tell the estimator which price-list item is

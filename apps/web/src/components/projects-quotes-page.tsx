@@ -31,7 +31,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -103,6 +103,73 @@ function missingPriceGroups(rows: MissingPrice[]) {
 
 function formatMissingPriceCount(count: number) {
   return `${count} missing ${count === 1 ? 'price' : 'prices'}`
+}
+
+function formatPickListCount(count: number) {
+  return `${count} ${count === 1 ? 'line' : 'lines'}`
+}
+
+function formatSupplierCode(supplier: string, code: string) {
+  if (supplier && code) return `${supplier} / ${code}`
+  return supplier || code || '-'
+}
+
+function HardwarePickListReview({ pickList }: { pickList?: HardwarePickList }) {
+  if (!pickList) return null
+  if (pickList.items.length === 0 && pickList.warnings.length === 0) return null
+
+  return (
+    <div className="grid gap-3 border-y border-border py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Hardware pick list</p>
+          <Badge variant="outline">{formatPickListCount(pickList.total_item_count)}</Badge>
+          <Badge variant={pickList.warnings.length > 0 ? 'warning' : 'outline'}>
+            {`${pickList.total_quantity} ${pickList.total_quantity === 1 ? 'item' : 'items'}`}
+          </Badge>
+        </div>
+        {pickList.warnings.length > 0 ? <Badge variant="warning">{`${pickList.warnings.length} warnings`}</Badge> : null}
+      </div>
+
+      {pickList.warnings.length > 0 ? (
+        <div className="grid gap-2">
+          {pickList.warnings.map((warning) => (
+            <Alert className="flex items-start gap-2 text-xs" key={`${warning.code}:${warning.item_type}:${warning.unit_number}:${warning.item_ref_id ?? ''}`} variant="warning">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{warning.message}</span>
+            </Alert>
+          ))}
+        </div>
+      ) : null}
+
+      {pickList.items.length > 0 ? (
+        <TableContainer>
+          <Table className="min-w-[780px] text-xs">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Type</TableHead>
+                <TableHead>Item</TableHead>
+                <TableHead>Supplier / Code</TableHead>
+                <TableHead>Used in</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pickList.items.map((item) => (
+                <TableRow key={item.item_key}>
+                  <TableCell>{item.type_label}</TableCell>
+                  <TableCell>{item.item_name}</TableCell>
+                  <TableCell>{formatSupplierCode(item.supplier, item.code)}</TableCell>
+                  <TableCell>{item.usage_label || '-'}</TableCell>
+                  <TableCell className="text-right">{`${formatPricingQty(item.quantity)} ${item.uom}`}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      ) : null}
+    </div>
+  )
 }
 
 function MaterialSummaryReview({ currencyCode, summary }: { currencyCode: string; summary?: MaterialSummary }) {
@@ -1965,6 +2032,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                             currencyCode={pricingCurrencyCode}
                             summary={selectedQuotePricing.material_summary}
                           />
+                          <HardwarePickListReview pickList={selectedQuotePricing.hardware_pick_list} />
                           {selectedQuotePricing.lines.length === 0 ? (
                             <Alert className="text-xs">
                               Add units and library prices to produce the quote line breakdown.

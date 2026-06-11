@@ -648,6 +648,50 @@ Response shape:
         "total_edge_m": 7.5,
         "total_estimated_sheets": 1
       },
+      "hardware_pick_list": {
+        "items": [
+          {
+            "item_type": "slide",
+            "type_label": "Slides",
+            "item_key": "slide::slide-uuid",
+            "item_ref_id": "slide-uuid",
+            "item_name": "Grass Dynapro",
+            "supplier": "Grass",
+            "code": "S500",
+            "quantity": 3,
+            "uom": "pairs",
+            "unit_numbers": [1],
+            "used_in": ["Unit 1 drawers"],
+            "usage_label": "Unit 1 drawers"
+          },
+          {
+            "item_type": "extra",
+            "type_label": "Extras",
+            "item_key": "extra::extra-uuid",
+            "item_ref_id": "extra-uuid",
+            "item_name": "Waste removal",
+            "supplier": "Core",
+            "code": "WR1",
+            "quantity": 1,
+            "uom": "pcs",
+            "unit_numbers": [],
+            "used_in": ["Quote extra"],
+            "usage_label": "Quote extra"
+          }
+        ],
+        "warnings": [
+          {
+            "severity": "warning",
+            "code": "missing_handle_selection",
+            "item_type": "handle",
+            "unit_number": 1,
+            "item_ref_id": null,
+            "message": "Choose a drawer handle for Unit 1 drawers."
+          }
+        ],
+        "total_item_count": 2,
+        "total_quantity": 4
+      },
       "subtotal_cents": 346783,
       "cost_total_cents": 346783,
       "sell_before_vat_cents": 433479,
@@ -699,6 +743,15 @@ nested or optimized board counts. Missing board selections, unavailable board
 records, or missing sheet dimensions appear in `material_summary.warnings`.
 Customer-facing quote PDFs do not include internal material cost or sell data.
 
+Each quote also includes `hardware_pick_list` for workshop or purchasing review.
+It groups slide, hinge, handle, and selected quote-extra quantities by catalog
+item, preserves stable `item_ref_id` values for future supplier ordering, and
+lists affected unit labels where available. Slide and hinge `supplier` values
+come from their catalog brand; handle and extra `supplier` values come from the
+supplier field. The pick list intentionally excludes price, sell, profit, and
+margin fields. Missing slide, hinge, handle, or stale catalog choices appear in
+`hardware_pick_list.warnings` and affect quote readiness.
+
 Line `bucket` values group the spreadsheet-derived pricing categories:
 `material`, `component`, `handle`, `labour`, `consumable`, `extra`,
 `installation`, `delivery`, and `commission`.
@@ -716,4 +769,5 @@ Line `bucket` values group the spreadsheet-derived pricing categories:
 - Pricing tab can load project totals via `GET /projects/{project_id}/pricing` and format all cent values with the returned `currency_code`.
 - Pricing UI should show `missing_prices` before detailed line items and use `action_label` / `message` copy such as "Add a price for..." instead of exposing raw item keys.
 - Quote pricing review should show `material_summary` groups and warnings before detailed line items. Treat `estimated_sheets` as an estimate; `null` means sheet dimensions are missing.
+- Quote pricing or output review should show `hardware_pick_list` groups and warnings for internal/workshop use. Do not mix its rows with client-facing margin, profit, or sell-price display.
 - Quote defaults are designed for fast unit creation UX: set defaults once on quote, then apply during add-unit flows.

@@ -102,6 +102,42 @@ def test_readiness_warns_for_invalid_cutlist_rows():
     assert check["action_target"] == "cutting-lists"
 
 
+def test_readiness_warns_for_missing_hardware_pick_list_choices():
+    readiness = evaluate_quote_readiness(
+        quote=quote(),
+        project=project(),
+        units=[unit()],
+        cutting_list=cutting_list(),
+        pricing_summary=pricing_summary(),
+        active_price_list_id="price-list-1",
+        hardware_pick_list={
+            "items": [],
+            "warnings": [
+                {
+                    "severity": "warning",
+                    "code": "missing_slide_selection",
+                    "item_type": "slide",
+                    "unit_number": 1,
+                    "item_ref_id": None,
+                    "message": "Choose a drawer slide for Unit 1 drawers.",
+                }
+            ],
+            "total_item_count": 0,
+            "total_quantity": 0,
+        },
+    )
+
+    hardware_check = check_by_id(readiness, "hardware_pick_list")
+    outputs_check = check_by_id(readiness, "required_outputs")
+
+    assert readiness["is_ready"] is False
+    assert hardware_check["severity"] == "warning"
+    assert hardware_check["title"] == "Choose hardware for the quote"
+    assert "1 component choice needs attention" in hardware_check["message"]
+    assert hardware_check["action_target"] == "quote"
+    assert outputs_check["severity"] == "warning"
+
+
 def test_readiness_uses_structured_cutlist_validation_warnings():
     readiness = evaluate_quote_readiness(
         quote=quote(),

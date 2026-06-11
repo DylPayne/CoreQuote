@@ -289,6 +289,39 @@ export type MaterialSummary = {
   total_estimated_sheets: number | null
 }
 
+export type HardwarePickListItemType = 'slide' | 'hinge' | 'handle' | 'extra'
+
+export type HardwarePickListItem = {
+  item_type: HardwarePickListItemType
+  type_label: string
+  item_key: string
+  item_ref_id: string
+  item_name: string
+  supplier: string
+  code: string
+  quantity: number
+  uom: string
+  unit_numbers: number[]
+  used_in: string[]
+  usage_label: string
+}
+
+export type HardwarePickListWarning = {
+  severity: 'warning'
+  code: 'missing_slide_selection' | 'missing_hinge_selection' | 'missing_handle_selection' | 'missing_catalog_item'
+  item_type: HardwarePickListItemType
+  unit_number: number
+  item_ref_id: string | null
+  message: string
+}
+
+export type HardwarePickList = {
+  items: HardwarePickListItem[]
+  warnings: HardwarePickListWarning[]
+  total_item_count: number
+  total_quantity: number
+}
+
 export type MissingPrice = {
   item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra' | 'labour' | 'consumable' | 'installation' | 'delivery' | 'adjustment'
   item_type_label: string
@@ -326,6 +359,7 @@ export type QuotePricingSummary = {
   cutlist_warnings: CutlistValidationWarning[]
   missing_prices: MissingPrice[]
   material_summary: MaterialSummary
+  hardware_pick_list: HardwarePickList
   subtotal_cents: number
   cost_total_cents: number
   sell_before_vat_cents: number
