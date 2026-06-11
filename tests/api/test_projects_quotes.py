@@ -44,6 +44,8 @@ class FakeWorkspaceStore:
         self.created_quote_revision: tuple[str, str] | None = None
         self.deleted_quote: tuple[str, str] | None = None
         self.created_unit_payload: tuple[str, str, dict] | None = None
+        self.duplicated_unit: tuple[str, str, str] | None = None
+        self.reordered_units: tuple[str, str, list[str]] | None = None
         self.updated_unit_payload: tuple[str, str, str, dict] | None = None
         self.deleted_unit: tuple[str, str, str] | None = None
         self.replaced_quote_extras_payload: tuple[str, str, list[dict]] | None = None
@@ -154,6 +156,37 @@ class FakeWorkspaceStore:
             door_board_type_id=payload.get("door_board_type_id"),
             extra_params=payload.get("extra_params", {}),
         )
+
+    def duplicate_unit(self, company_id: str, quote_id: str, unit_id: str) -> dict:
+        if quote_id == "missing" or unit_id == "missing":
+            raise WorkspaceNotFound("Unit not found")
+        self.duplicated_unit = (company_id, quote_id, unit_id)
+        return unit(
+            "unit-2",
+            quote_id=quote_id,
+            unit_number=2,
+            unit_type_key="Base Door",
+            width=600,
+            height=780,
+            depth=580,
+            thickness=16,
+            carcass_board_type_id="board-1",
+            door_board_type_id="board-2",
+            extra_params={"num_doors": 2, "num_shelves": 1},
+        )
+
+    def reorder_units(self, company_id: str, quote_id: str, unit_ids: list[str]) -> list[dict]:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        if "missing" in unit_ids:
+            raise WorkspaceNotFound("Unit not found")
+        if "partial" in unit_ids:
+            raise WorkspaceValidationError("Reorder payload must include every quote unit exactly once")
+        self.reordered_units = (company_id, quote_id, unit_ids)
+        return [
+            unit(unit_id, quote_id=quote_id, unit_number=index, unit_type_key="Base Door", width=600)
+            for index, unit_id in enumerate(unit_ids, start=1)
+        ]
 
     def update_unit(self, company_id: str, quote_id: str, unit_id: str, payload: dict) -> dict:
         if quote_id == "missing" or unit_id == "missing":
@@ -473,6 +506,129 @@ def test_create_unit_and_update_unit_use_nested_quote_scope():
     assert store.created_unit_payload == ("company-1", "quote-1", create_payload)
     assert store.updated_unit_payload == ("company-1", "quote-1", "unit-1", update_payload)
     assert create_response.json()["unit_number"] == 2
+
+
+def test_duplicate_unit_uses_nested_quote_scope_and_returns_copy():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/units/unit-1/duplicate", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] == "unit-2"
+    assert body["unit_number"] == 2
+    assert body["unit_type_key"] == "Base Door"
+    assert body["width"] == 600
+    assert body["carcass_board_type_id"] == "board-1"
+    assert body["door_board_type_id"] == "board-2"
+    assert body["extra_params"] == {"num_doors": 2, "num_shelves": 1}
+    assert store.duplicated_unit == ("company-1", "quote-1", "unit-1")
+
+
+def test_duplicate_unit_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/units/unit-1/duplicate", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.duplicated_unit is None
+
+
+def test_duplicate_unit_returns_404_if_unit_not_visible():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.post("/api/v1/quotes/quote-1/units/missing/duplicate", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Unit not found"}
+    assert store.duplicated_unit is None
+
+
+def test_reorder_units_persists_requested_workshop_order():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = {"unit_ids": ["unit-3", "unit-1", "unit-2"]}
+    try:
+        response = client.put("/api/v1/quotes/quote-1/units/reorder", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [(row["id"], row["unit_number"]) for row in body] == [
+        ("unit-3", 1),
+        ("unit-1", 2),
+        ("unit-2", 3),
+    ]
+    assert store.reordered_units == ("company-1", "quote-1", payload["unit_ids"])
+
+
+def test_reorder_units_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.put(
+            "/api/v1/quotes/quote-1/units/reorder",
+            json={"unit_ids": ["unit-1", "unit-2"]},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.reordered_units is None
+
+
+def test_reorder_units_returns_404_for_invalid_unit_access():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.put(
+            "/api/v1/quotes/quote-1/units/reorder",
+            json={"unit_ids": ["unit-1", "missing"]},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Unit not found"}
+    assert store.reordered_units is None
+
+
+def test_reorder_units_surfaces_row_order_validation_errors():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.put(
+            "/api/v1/quotes/quote-1/units/reorder",
+            json={"unit_ids": ["unit-1", "partial"]},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Reorder payload must include every quote unit exactly once"}
+    assert store.reordered_units is None
 
 
 def test_delete_unit_returns_204():

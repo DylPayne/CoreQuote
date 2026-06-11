@@ -30,6 +30,7 @@ from corequote_api.schemas import (
     QuoteRequest,
     QuoteResponse,
     QuoteStatusRequest,
+    QuoteUnitReorderRequest,
     QuoteUnitRequest,
     QuoteUnitResponse,
 )
@@ -240,6 +241,51 @@ def create_unit(
     except WorkspaceConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return QuoteUnitResponse.model_validate(row)
+
+
+@router.post(
+    "/quotes/{quote_id}/units/{unit_id}/duplicate",
+    response_model=QuoteUnitResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplicate quote unit",
+)
+def duplicate_unit(
+    quote_id: str,
+    unit_id: str,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> QuoteUnitResponse:
+    try:
+        row = store.duplicate_unit(current_user.company_id, quote_id, unit_id)
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unit not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return QuoteUnitResponse.model_validate(row)
+
+
+@router.put(
+    "/quotes/{quote_id}/units/reorder",
+    response_model=list[QuoteUnitResponse],
+    summary="Reorder quote units",
+)
+def reorder_units(
+    quote_id: str,
+    payload: QuoteUnitReorderRequest,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> list[QuoteUnitResponse]:
+    try:
+        rows = store.reorder_units(current_user.company_id, quote_id, payload.unit_ids)
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return [QuoteUnitResponse.model_validate(row) for row in rows]
 
 
 @router.patch(

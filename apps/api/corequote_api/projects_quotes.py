@@ -696,6 +696,117 @@ class WorkspaceStore:
                 ).fetchone()
         return self.get_unit(company_id, quote_id, row["id"])
 
+    def duplicate_unit(self, company_id: str, quote_id: str, unit_id: str) -> dict:
+        with self._connect() as conn:
+            with conn.transaction():
+                self._ensure_quote_visible(conn, company_id, quote_id)
+                source = conn.execute(
+                    """
+                    SELECT *
+                    FROM quote_units
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                      AND id = %s
+                    FOR UPDATE
+                    """,
+                    (company_id, quote_id, unit_id),
+                ).fetchone()
+                if not source:
+                    raise WorkspaceNotFound("Unit not found")
+
+                next_number_row = conn.execute(
+                    """
+                    SELECT COALESCE(MAX(unit_number), 0) + 1 AS next_unit_number
+                    FROM quote_units
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    """,
+                    (company_id, quote_id),
+                ).fetchone()
+                row = conn.execute(
+                    """
+                    INSERT INTO quote_units (
+                        company_id,
+                        quote_id,
+                        unit_number,
+                        unit_type_key,
+                        height,
+                        width,
+                        depth,
+                        thickness,
+                        carcass_board_type_id,
+                        door_board_type_id,
+                        extra_params
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id::text
+                    """,
+                    (
+                        company_id,
+                        quote_id,
+                        int(next_number_row["next_unit_number"]),
+                        source["unit_type_key"],
+                        source["height"],
+                        source["width"],
+                        source["depth"],
+                        source["thickness"],
+                        source["carcass_board_type_id"],
+                        source["door_board_type_id"],
+                        Jsonb(source["extra_params"] or {}),
+                    ),
+                ).fetchone()
+        return self.get_unit(company_id, quote_id, row["id"])
+
+    def reorder_units(self, company_id: str, quote_id: str, unit_ids: list[str]) -> list[dict]:
+        if len(set(unit_ids)) != len(unit_ids):
+            raise WorkspaceValidationError("Reorder payload must not contain duplicate units")
+
+        with self._connect() as conn:
+            with conn.transaction():
+                self._ensure_quote_visible(conn, company_id, quote_id)
+                rows = conn.execute(
+                    """
+                    SELECT id::text, unit_number
+                    FROM quote_units
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    ORDER BY unit_number ASC, created_at ASC, id ASC
+                    FOR UPDATE
+                    """,
+                    (company_id, quote_id),
+                ).fetchall()
+                current_ids = [row["id"] for row in rows]
+                current_set = set(current_ids)
+                requested_set = set(unit_ids)
+                if not requested_set.issubset(current_set):
+                    raise WorkspaceNotFound("Unit not found")
+                if requested_set != current_set:
+                    raise WorkspaceValidationError("Reorder payload must include every quote unit exactly once")
+
+                if current_ids != unit_ids:
+                    offset = max(int(row["unit_number"]) for row in rows) + len(rows)
+                    conn.execute(
+                        """
+                        UPDATE quote_units
+                        SET unit_number = unit_number + %s
+                        WHERE company_id = %s
+                          AND quote_id = %s
+                        """,
+                        (offset, company_id, quote_id),
+                    )
+                    for index, requested_id in enumerate(unit_ids, start=1):
+                        conn.execute(
+                            """
+                            UPDATE quote_units
+                            SET unit_number = %s
+                            WHERE company_id = %s
+                              AND quote_id = %s
+                              AND id = %s
+                            """,
+                            (index, company_id, quote_id, requested_id),
+                        )
+        return self.list_units(company_id, quote_id)
+
     def get_unit(self, company_id: str, quote_id: str, unit_id: str) -> dict:
         with self._connect() as conn:
             row = conn.execute(
