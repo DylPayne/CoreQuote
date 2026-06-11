@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 
 from corequote_core.detailed_pricing import DetailedPricingSettings
 from corequote_core.hardware_pick_list import build_hardware_pick_list
+from corequote_core.output_review import build_quote_output_review
 from corequote_core.quote_readiness import evaluate_quote_readiness
 from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes_errors import (
@@ -809,12 +810,49 @@ class WorkspaceStore:
         *,
         runtime_service: CutlistRuntimeService,
     ) -> dict:
+        return self._build_quote_review_context(
+            company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )["readiness"]
+
+    def get_quote_output_review(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict:
+        context = self._build_quote_review_context(
+            company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+        return build_quote_output_review(
+            quote=context["quote"],
+            project=context["project"],
+            currency_code=context["currency_code"],
+            readiness=context["readiness"],
+            cutting_list=context["cutting_list"],
+            pricing_summary=context["pricing_summary"],
+            active_price_list_id=context["active_price_list_id"],
+            hardware_pick_list=context["hardware_pick_list"],
+        )
+
+    def _build_quote_review_context(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict[str, Any]:
         quote = self.get_quote(company_id, quote_id)
         project = self.get_project(company_id, quote["project_id"])
         units = self.list_units(company_id, quote_id)
         use_rulesets = _is_enabled("CUTLIST_USE_DB_RULESETS")
 
         with self._connect() as conn:
+            currency_code = self._get_company_currency_code(conn, company_id)
             quote_settings = self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
             active_price_list_id = self._get_active_price_list_id(conn, company_id)
             price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id)
@@ -883,7 +921,7 @@ class WorkspaceStore:
         else:
             pricing_error = cutting_error
 
-        return evaluate_quote_readiness(
+        readiness = evaluate_quote_readiness(
             quote=quote,
             project=project,
             units=units,
@@ -894,6 +932,19 @@ class WorkspaceStore:
             cutting_error=cutting_error,
             pricing_error=pricing_error,
         )
+        return {
+            "quote": quote,
+            "project": project,
+            "currency_code": currency_code,
+            "units": units,
+            "active_price_list_id": active_price_list_id,
+            "hardware_pick_list": hardware_pick_list,
+            "cutting_list": cutting_list,
+            "cutting_error": cutting_error,
+            "pricing_summary": pricing_summary,
+            "pricing_error": pricing_error,
+            "readiness": readiness,
+        }
 
     def get_quote_custom_panels(self, company_id: str, quote_id: str) -> dict:
         quote = self.get_quote(company_id, quote_id)

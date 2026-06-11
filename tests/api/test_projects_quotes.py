@@ -32,8 +32,9 @@ class FakeAuthStore:
 
 
 class FakeWorkspaceStore:
-    def __init__(self, *, project_pricing_payload: dict | None = None):
+    def __init__(self, *, project_pricing_payload: dict | None = None, quote_output_review_payload: dict | None = None):
         self.project_pricing_payload = project_pricing_payload
+        self.quote_output_review_payload = quote_output_review_payload
         self.created_project_payload: tuple[str, dict] | None = None
         self.updated_project_payload: tuple[str, str, dict] | None = None
         self.deleted_project: tuple[str, str] | None = None
@@ -49,6 +50,7 @@ class FakeWorkspaceStore:
         self.replaced_quote_custom_panels_payload: tuple[str, str, dict] | None = None
         self.requested_cutting_list: tuple[str, str] | None = None
         self.requested_quote_readiness: tuple[str, str] | None = None
+        self.requested_quote_output_review: tuple[str, str] | None = None
         self.requested_quote_custom_panels: tuple[str, str] | None = None
         self.requested_project_pricing: tuple[str, str] | None = None
         self.requested_project_pricing_settings: tuple[str, str] | None = None
@@ -184,6 +186,12 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Quote not found")
         self.requested_quote_readiness = (company_id, quote_id)
         return quote_readiness(quote_id)
+
+    def get_quote_output_review(self, company_id: str, quote_id: str, runtime_service=None) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.requested_quote_output_review = (company_id, quote_id)
+        return self.quote_output_review_payload or quote_output_review(quote_id)
 
     def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
         if quote_id == "missing":
@@ -501,6 +509,65 @@ def test_get_quote_readiness_returns_404_if_quote_not_visible():
     assert response.status_code == 404
     assert response.json() == {"detail": "Quote not found"}
     assert store.requested_quote_readiness is None
+
+
+def test_get_quote_output_review_returns_actions_and_statuses():
+    payload = quote_output_review(
+        "quote-1",
+        actions=[
+            {
+                "id": "client_quote_pdf",
+                "group": "client",
+                "label": "Client quote",
+                "description": "Customer PDF with sell totals only. Internal costs and profit stay hidden.",
+                "enabled": False,
+                "warning": "Resolve readiness warnings before generating the client quote.",
+                "hides_internal_costs": True,
+                "action_target": "pricing",
+            },
+            {
+                "id": "workshop_schedule",
+                "group": "workshop",
+                "label": "Workshop schedule",
+                "description": "Cutting and production schedule for the workshop.",
+                "enabled": False,
+                "warning": "Fix cutting-list warnings before generating the workshop schedule.",
+                "hides_internal_costs": False,
+                "action_target": "cutting-lists",
+            },
+        ],
+    )
+    store = FakeWorkspaceStore(quote_output_review_payload=payload)
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/quote-1/output-review", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quote_id"] == "quote-1"
+    assert body["client_quote"]["status"] == "needs_attention"
+    assert body["internal_pricing"]["status"] == "needs_attention"
+    assert body["actions"][0]["label"] == "Client quote"
+    assert body["actions"][0]["enabled"] is False
+    assert body["actions"][0]["hides_internal_costs"] is True
+    assert store.requested_quote_output_review == ("company-1", "quote-1")
+
+
+def test_get_quote_output_review_requires_pricing_read_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/quote-1/output-review", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:read"}
+    assert store.requested_quote_output_review is None
 
 
 def test_quote_extras_read_and_replace():
@@ -1036,6 +1103,100 @@ def quote_readiness(quote_id: str) -> dict:
                 "action_label": "Add units",
                 "action_target": "units",
             }
+        ],
+    }
+
+
+def quote_output_review(quote_id: str, *, actions: list[dict] | None = None) -> dict:
+    return {
+        "quote_id": quote_id,
+        "quote_name": "Kitchen Quote",
+        "project_id": "project-1",
+        "project_name": "Main Kitchen",
+        "quote_status": "draft",
+        "quote_number": "Q-001",
+        "revision": 1,
+        "currency_code": "USD",
+        "readiness": quote_readiness(quote_id),
+        "client_quote": {
+            "id": "client_quote",
+            "label": "Client quote",
+            "status": "needs_attention",
+            "severity": "warning",
+            "message": "Resolve readiness warnings before generating the client quote.",
+        },
+        "internal_pricing": {
+            "id": "internal_pricing",
+            "label": "Internal pricing confidence",
+            "status": "needs_attention",
+            "severity": "warning",
+            "message": "Review missing prices before trusting internal margin and totals.",
+        },
+        "workshop_schedule": {
+            "id": "workshop_schedule",
+            "label": "Workshop schedule",
+            "status": "needs_attention",
+            "severity": "warning",
+            "message": "Fix cutting-list warnings before workshop handoff.",
+        },
+        "material_status": {
+            "id": "material_summary",
+            "label": "Material summary",
+            "status": "ready",
+            "severity": "pass",
+            "message": "Material summary is ready for review.",
+        },
+        "hardware_status": {
+            "id": "hardware_pick_list",
+            "label": "Hardware pick list",
+            "status": "ready",
+            "severity": "pass",
+            "message": "Hardware pick list is ready for review.",
+        },
+        "material_summary": material_summary(),
+        "hardware_pick_list": hardware_pick_list(),
+        "actions": actions
+        or [
+            {
+                "id": "client_quote_pdf",
+                "group": "client",
+                "label": "Client quote",
+                "description": "Customer PDF with sell totals only. Internal costs and profit stay hidden.",
+                "enabled": False,
+                "warning": "Resolve readiness warnings before generating the client quote.",
+                "hides_internal_costs": True,
+                "action_target": "pricing",
+            },
+            {
+                "id": "workshop_schedule",
+                "group": "workshop",
+                "label": "Workshop schedule",
+                "description": "Cutting and production schedule for the workshop.",
+                "enabled": False,
+                "warning": "Fix cutting-list warnings before generating the workshop schedule.",
+                "hides_internal_costs": False,
+                "action_target": "cutting-lists",
+            },
+            {
+                "id": "material_summary",
+                "group": "workshop",
+                "label": "Material summary",
+                "description": "Board quantities and estimated sheets for internal ordering.",
+                "enabled": True,
+                "warning": None,
+                "hides_internal_costs": False,
+                "action_target": "pricing",
+            },
+            {
+                "id": "hardware_pick_list",
+                "group": "workshop",
+                "label": "Hardware pick list",
+                "description": "Slides, hinges, handles, and extras to pick for production.",
+                "enabled": True,
+                "warning": None,
+                "hides_internal_costs": False,
+                "action_target": "pricing",
+            },
         ],
     }
 

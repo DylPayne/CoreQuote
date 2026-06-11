@@ -24,6 +24,7 @@ from corequote_api.schemas import (
     QuoteCuttingListResponse,
     QuoteExtrasRequest,
     QuoteExtrasResponse,
+    QuoteOutputReviewResponse,
     QuotePricingSettingsResponse,
     QuoteReadinessResponse,
     QuoteRequest,
@@ -318,6 +319,30 @@ def get_quote_readiness(
     except WorkspaceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
     return QuoteReadinessResponse.model_validate(payload)
+
+
+@router.get(
+    "/quotes/{quote_id}/output-review",
+    response_model=QuoteOutputReviewResponse,
+    summary="Review quote outputs",
+)
+def get_quote_output_review(
+    quote_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+    runtime_service: CutlistRuntimeDep,
+) -> QuoteOutputReviewResponse:
+    try:
+        payload = store.get_quote_output_review(
+            current_user.company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return QuoteOutputReviewResponse.model_validate(payload)
 
 
 @router.get("/quotes/{quote_id}/extras", response_model=QuoteExtrasResponse, summary="List selected quote extras")

@@ -4,8 +4,11 @@ import {
   ArrowRight,
   CheckCircle2,
   CircleDollarSign,
+  ClipboardList,
   Copy,
+  FileText,
   GitBranch,
+  Hammer,
   LoaderCircle,
   Pencil,
   Plus,
@@ -31,7 +34,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -309,6 +312,218 @@ function MissingPriceGuidance({
   )
 }
 
+function OutputStatusSummary({ status }: { status: QuoteOutputStatus }) {
+  return (
+    <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+      <div className="flex items-start gap-2">
+        <ReadinessIcon severity={status.severity} />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold">{status.label}</p>
+            <Badge variant={readinessBadgeVariant(status.severity)}>
+              {status.status === 'ready' ? 'Ready' : 'Needs attention'}
+            </Badge>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">{status.message}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OutputActionIcon({ action }: { action: QuoteOutputAction }) {
+  if (action.id === 'client_quote_pdf') return <FileText className="h-4 w-4" aria-hidden="true" />
+  if (action.id === 'workshop_schedule') return <Hammer className="h-4 w-4" aria-hidden="true" />
+  return <ClipboardList className="h-4 w-4" aria-hidden="true" />
+}
+
+function OutputActionCard({
+  action,
+  onReviewAction,
+}: {
+  action: QuoteOutputAction
+  onReviewAction: (action: QuoteOutputAction) => void
+}) {
+  return (
+    <div className="rounded-[var(--card-radius)] border border-border bg-card p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <OutputActionIcon action={action} />
+            <p className="text-sm font-semibold">{action.label}</p>
+            <Badge variant={action.enabled ? 'success' : 'warning'}>
+              {action.enabled ? 'Ready to generate' : 'Needs attention'}
+            </Badge>
+            {action.hides_internal_costs ? <Badge variant="outline">Hides internal costs</Badge> : null}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">{action.description}</p>
+          {action.warning ? (
+            <p className="mt-2 text-xs text-[var(--status-warning-foreground)]">{action.warning}</p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <Button
+            disabled={!action.enabled}
+            onClick={() => onReviewAction(action)}
+            size="sm"
+            type="button"
+          >
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            Review output
+          </Button>
+          {!action.enabled ? (
+            <Button onClick={() => onReviewAction(action)} size="sm" type="button" variant="outline">
+              Review source
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OutputReviewPanel({
+  currencyCode,
+  onReviewAction,
+  review,
+}: {
+  currencyCode: string
+  onReviewAction: (action: QuoteOutputAction) => void
+  review: QuoteOutputReview
+}) {
+  const clientActions = review.actions.filter((action) => action.group === 'client')
+  const workshopActions = review.actions.filter((action) => action.group === 'workshop')
+  const readinessWarnings = review.readiness.checks.filter((check) => check.severity !== 'pass')
+
+  return (
+    <div className="grid gap-5">
+      <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <ReadinessIcon severity={review.readiness.is_ready ? 'pass' : review.readiness.error_count > 0 ? 'error' : 'warning'} />
+              <p className="text-sm font-semibold">{review.readiness.summary_title}</p>
+              <Badge variant={review.readiness.is_ready ? 'success' : 'warning'}>
+                {review.readiness.is_ready ? 'Ready' : 'Needs attention'}
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{review.readiness.summary_message}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">{formatReadinessCount(review.readiness.warning_count, 'warning')}</Badge>
+            <Badge variant="outline">{formatReadinessCount(review.readiness.error_count, 'error')}</Badge>
+          </div>
+        </div>
+      </div>
+
+      {readinessWarnings.length > 0 ? (
+        <Alert className="text-xs" variant="warning">
+          <div className="grid gap-1">
+            {readinessWarnings.map((check) => (
+              <p key={check.id}>{`${check.title}: ${check.message}`}</p>
+            ))}
+          </div>
+        </Alert>
+      ) : null}
+
+      <section className="grid gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold">Client quote</p>
+            <p className="text-xs text-muted-foreground">Customer-facing output keeps cost, margin, and workshop detail internal.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={quoteStatusBadgeVariant(review.quote_status)}>{quoteStatusLabels[review.quote_status]}</Badge>
+            <Badge variant="outline">{`${review.quote_number} rev ${review.revision}`}</Badge>
+            <Badge variant="outline">{review.currency_code}</Badge>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">Client total</p>
+            <p className="text-base font-semibold">{formatCents(review.client_quote_total_cents, currencyCode)}</p>
+          </div>
+          <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">Missing prices</p>
+            <p className="text-base font-semibold">{review.pricing_missing_price_count}</p>
+          </div>
+          <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">Cutlist warnings</p>
+            <p className="text-base font-semibold">{review.cutlist_warning_count}</p>
+          </div>
+          <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">Output actions</p>
+            <p className="text-base font-semibold">{review.actions.length}</p>
+          </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <OutputStatusSummary status={review.client_quote} />
+          <OutputStatusSummary status={review.internal_pricing} />
+        </div>
+
+        <div className="grid gap-2">
+          {clientActions.map((action) => (
+            <OutputActionCard action={action} key={action.id} onReviewAction={onReviewAction} />
+          ))}
+        </div>
+      </section>
+
+      <section className="grid gap-3 border-t border-border pt-4">
+        <div>
+          <p className="text-sm font-semibold">Workshop package</p>
+          <p className="text-xs text-muted-foreground">Internal outputs for cutting, material ordering, and hardware picking.</p>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-3">
+          <OutputStatusSummary status={review.workshop_schedule} />
+          <OutputStatusSummary status={review.material_status} />
+          <OutputStatusSummary status={review.hardware_status} />
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">Workshop rows</p>
+            <p className="text-base font-semibold">{review.cutlist_row_count}</p>
+          </div>
+          <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">Material pieces</p>
+            <p className="text-base font-semibold">{review.material_summary.total_piece_count}</p>
+          </div>
+          <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">Material area</p>
+            <p className="text-base font-semibold">{formatMaterialArea(review.material_summary.total_area_m2)}</p>
+          </div>
+          <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-xs text-muted-foreground">Hardware quantity</p>
+            <p className="text-base font-semibold">{review.hardware_pick_list.total_quantity}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <Badge variant={review.material_warning_count > 0 ? 'warning' : 'outline'}>
+            {review.material_warning_count > 0
+              ? `${review.material_warning_count} material warnings`
+              : formatEstimatedSheets(review.material_summary.total_estimated_sheets)}
+          </Badge>
+          <Badge variant={review.hardware_warning_count > 0 ? 'warning' : 'outline'}>
+            {review.hardware_warning_count > 0
+              ? `${review.hardware_warning_count} hardware warnings`
+              : formatPickListCount(review.hardware_pick_list.total_item_count)}
+          </Badge>
+        </div>
+
+        <div className="grid gap-2">
+          {workshopActions.map((action) => (
+            <OutputActionCard action={action} key={action.id} onReviewAction={onReviewAction} />
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }: { authToken: string; currencyCode: string; onOpenLibraries: () => void }) {
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [quotes, setQuotes] = useState<QuoteRow[]>([])
@@ -322,6 +537,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
 
   const [quoteCuttingList, setQuoteCuttingList] = useState<QuoteCuttingList | null>(null)
   const [quoteReadiness, setQuoteReadiness] = useState<QuoteReadiness | null>(null)
+  const [quoteOutputReview, setQuoteOutputReview] = useState<QuoteOutputReview | null>(null)
   const [quoteExtrasSelection, setQuoteExtrasSelection] = useState<Record<string, number>>({})
   const [quoteCustomPanels, setQuoteCustomPanels] = useState<QuoteCustomPanelsState | null>(null)
   const [quoteCustomPanelRows, setQuoteCustomPanelRows] = useState<QuoteCustomPanelComputedRow[]>([])
@@ -357,6 +573,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [isLoadingUnits, setIsLoadingUnits] = useState(false)
   const [isLoadingCuttingList, setIsLoadingCuttingList] = useState(false)
   const [isLoadingQuoteReadiness, setIsLoadingQuoteReadiness] = useState(false)
+  const [isLoadingQuoteOutputReview, setIsLoadingQuoteOutputReview] = useState(false)
   const [isLoadingQuoteExtras, setIsLoadingQuoteExtras] = useState(false)
   const [isLoadingQuoteCustomPanels, setIsLoadingQuoteCustomPanels] = useState(false)
   const [isLoadingProjectPricing, setIsLoadingProjectPricing] = useState(false)
@@ -529,6 +746,22 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     [authToken],
   )
 
+  const loadQuoteOutputReview = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingQuoteOutputReview(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<QuoteOutputReview>(`/api/v1/quotes/${quoteId}/output-review`, { token: authToken })
+        setQuoteOutputReview(payload)
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not review quote outputs.')
+      } finally {
+        setIsLoadingQuoteOutputReview(false)
+      }
+    },
+    [authToken],
+  )
+
   const loadQuoteExtras = useCallback(
     async (quoteId: string) => {
       setIsLoadingQuoteExtras(true)
@@ -648,6 +881,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
         setUnits([])
         setQuoteCuttingList(null)
         setQuoteReadiness(null)
+        setQuoteOutputReview(null)
         setQuoteExtrasSelection({})
         setQuoteCustomPanels(null)
         setQuoteCustomPanelRows([])
@@ -663,6 +897,15 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     }, 0)
     return () => window.clearTimeout(handle)
   }, [loadQuotePricingSettings, loadQuoteReadiness, loadUnits, selectedQuoteId])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (selectedQuoteId && activeProjectTab === 'quotes' && activeQuoteTab === 'outputs') {
+        void loadQuoteOutputReview(selectedQuoteId)
+      }
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [activeProjectTab, activeQuoteTab, loadQuoteOutputReview, selectedQuoteId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -711,6 +954,14 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     }
   }
 
+  function openQuoteOutputsTab() {
+    setActiveProjectTab('quotes')
+    setActiveQuoteTab('outputs')
+    if (selectedQuoteId) {
+      void loadQuoteOutputReview(selectedQuoteId)
+    }
+  }
+
   function openQuotePanelsTab() {
     setActiveProjectTab('quotes')
     setActiveQuoteTab('panels')
@@ -754,10 +1005,36 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       openQuotePricingTab()
       return
     }
-    openQuoteCuttingListTab()
-    if (selectedProjectId) {
-      void loadProjectPricing(selectedProjectId)
+    openQuoteOutputsTab()
+  }
+
+  function handleOutputReviewAction(action: QuoteOutputAction) {
+    if (action.action_target === 'project') {
+      if (selectedProject) openEditProjectModal(selectedProject)
+      return
     }
+    if (action.action_target === 'quote') {
+      if (selectedQuote) openEditQuoteModal(selectedQuote)
+      return
+    }
+    if (action.action_target === 'units') {
+      setActiveProjectTab('quotes')
+      setActiveQuoteTab('units')
+      return
+    }
+    if (action.action_target === 'panels') {
+      openQuotePanelsTab()
+      return
+    }
+    if (action.action_target === 'cutting-lists') {
+      openQuoteCuttingListTab()
+      return
+    }
+    if (action.action_target === 'pricing') {
+      openQuotePricingTab()
+      return
+    }
+    openQuoteOutputsTab()
   }
 
   function openEditProjectModal(project: ProjectRow) {
@@ -1496,6 +1773,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                         : selectedQuote
                           ? activeQuoteTab === 'pricing'
                             ? 'Review this quote pricing override and priced line breakdown.'
+                            : activeQuoteTab === 'outputs'
+                              ? 'Review client and workshop outputs before generating.'
                             : activeQuoteTab === 'readiness'
                               ? 'Check whether this quote is complete enough to trust.'
                             : 'Build this quote using units, panels, cutting lists, and extras.'
@@ -1565,6 +1844,14 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                         Readiness
                       </button>
                       <button
+                        aria-pressed={activeQuoteTab === 'outputs'}
+                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'outputs' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                        onClick={openQuoteOutputsTab}
+                        type="button"
+                      >
+                        Review outputs
+                      </button>
+                      <button
                         aria-pressed={activeQuoteTab === 'units'}
                         className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'units' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                         onClick={() => setActiveQuoteTab('units')}
@@ -1616,6 +1903,23 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
             <CardContent>
               {activeProjectTab === 'quotes' && !selectedQuote ? (
                 <Alert className="text-xs">Choose a quote from the left pane or create a new quote for this project.</Alert>
+              ) : activeQuoteTab === 'outputs' ? (
+                isLoadingQuoteOutputReview ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Reviewing outputs
+                  </div>
+                ) : !quoteOutputReview ? (
+                  <Alert className="text-xs">
+                    Output review appears after the quote has enough saved details to check client and workshop outputs.
+                  </Alert>
+                ) : (
+                  <OutputReviewPanel
+                    currencyCode={quoteOutputReview.currency_code}
+                    onReviewAction={handleOutputReviewAction}
+                    review={quoteOutputReview}
+                  />
+                )
               ) : activeQuoteTab === 'readiness' ? (
                 isLoadingQuoteReadiness ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
