@@ -8,3 +8,6 @@ real cabinetry acceptance evidence.
 - [Smith Kitchen Phase 2](smith-kitchen-phase-2.md): shared Phase 2 output
   package scenario for customer PDF, workshop schedule, material summary, and
   hardware pick-list review.
+- [Smith Kitchen Phase 3 Fast Entry](smith-kitchen-phase-3-fast-entry.md):
+  shared Phase 3 scenario for duplicate quote, bulk unit entry, reorder, bulk
+  apply, workflow-friction notes, and downstream output confidence.
