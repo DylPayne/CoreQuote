@@ -322,11 +322,12 @@ Readiness checks currently use these stable IDs:
 - `cutlist_rows`
 - `missing_prices`
 - `quote_totals`
+- `hardware_pick_list`
 - `required_outputs`
 
 `action_target` maps to frontend workspace actions: `project`, `quote`,
 `units`, `panels`, `cutting-lists`, `pricing`, or `outputs`. The current UI
-uses `outputs` to review the cutting list and pricing areas together.
+uses `outputs` to open the quote output review screen.
 
 Errors:
 
@@ -341,6 +342,106 @@ Frontend integration notes:
 - Treat `is_ready` as the reusable status for future export/send workflows.
 - Use `checks[].action_target` for direct workspace navigation; do not parse
   message text.
+
+## Quote Output Review
+
+```http
+GET /api/v1/quotes/{quote_id}/output-review
+```
+
+Permission: `pricing:read`
+
+This endpoint builds the quote-level review screen used before generating
+client or workshop outputs. It combines readiness, pricing confidence,
+cutting-list status, material summary, hardware pick-list status, and the
+available output actions.
+
+Response excerpt:
+
+```json
+{
+  "quote_id": "quote-uuid",
+  "quote_name": "Kitchen Quote",
+  "project_id": "project-uuid",
+  "project_name": "Main Kitchen",
+  "quote_status": "draft",
+  "quote_number": "Q-001",
+  "revision": 1,
+  "currency_code": "USD",
+  "client_quote_total_cents": 498000,
+  "pricing_missing_price_count": 1,
+  "cutlist_row_count": 24,
+  "cutlist_warning_count": 1,
+  "readiness": {
+    "quote_id": "quote-uuid",
+    "status": "needs_attention",
+    "is_ready": false,
+    "summary_title": "Needs attention before review",
+    "summary_message": "2 readiness checks need attention before this quote is ready for review.",
+    "warning_count": 2,
+    "error_count": 0,
+    "checks": []
+  },
+  "client_quote": {
+    "id": "client_quote",
+    "label": "Client quote",
+    "status": "needs_attention",
+    "severity": "warning",
+    "message": "Resolve readiness warnings before generating the client quote."
+  },
+  "internal_pricing": {
+    "id": "internal_pricing",
+    "label": "Internal pricing confidence",
+    "status": "needs_attention",
+    "severity": "warning",
+    "message": "Review missing prices before trusting internal margin and totals."
+  },
+  "actions": [
+    {
+      "id": "client_quote_pdf",
+      "group": "client",
+      "label": "Client quote",
+      "description": "Customer PDF with sell totals only. Internal costs and profit stay hidden.",
+      "enabled": false,
+      "warning": "Resolve readiness warnings before generating the client quote.",
+      "hides_internal_costs": true,
+      "action_target": "pricing"
+    },
+    {
+      "id": "workshop_schedule",
+      "group": "workshop",
+      "label": "Workshop schedule",
+      "description": "Cutting and production schedule for the workshop.",
+      "enabled": false,
+      "warning": "Fix cutting-list warnings before generating the workshop schedule.",
+      "hides_internal_costs": false,
+      "action_target": "cutting-lists"
+    }
+  ]
+}
+```
+
+The full response also includes `workshop_schedule`, `material_status`,
+`hardware_status`, `material_summary`, and `hardware_pick_list` using the same
+schemas as the project pricing response.
+
+Errors:
+
+- `401` for missing/invalid bearer sessions.
+- `403` for roles without `pricing:read`.
+- `404` when the quote is not visible to the current company.
+- `422` when quote data cannot be evaluated.
+
+Frontend integration notes:
+
+- Load this endpoint when the estimator opens the quote's `Review outputs` tab.
+- Render `actions` in separate Client quote and Workshop package groups.
+- Treat `actions[].enabled` as the generate/readiness state. If false, show
+  `actions[].warning` before any export action.
+- The `client_quote_pdf` action has `hides_internal_costs: true`; client UI must
+  not show cost, profit, or internal margin beside that action.
+- Use `actions[].action_target` for navigation to the source area that can fix a
+  warning or inspect the output detail.
 
 ## Quote Extras Selection
 

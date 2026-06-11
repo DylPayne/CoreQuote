@@ -157,6 +157,51 @@ export type QuoteReadiness = {
   checks: QuoteReadinessCheck[]
 }
 
+export type QuoteOutputStatus = {
+  id: string
+  label: string
+  status: QuoteReadinessStatus
+  severity: QuoteReadinessSeverity
+  message: string
+}
+
+export type QuoteOutputAction = {
+  id: 'client_quote_pdf' | 'workshop_schedule' | 'material_summary' | 'hardware_pick_list'
+  group: 'client' | 'workshop'
+  label: string
+  description: string
+  enabled: boolean
+  warning: string | null
+  hides_internal_costs: boolean
+  action_target: QuoteReadinessActionTarget
+}
+
+export type QuoteOutputReview = {
+  quote_id: string
+  quote_name: string
+  project_id: string
+  project_name: string
+  quote_status: QuoteStatus
+  quote_number: string
+  revision: number
+  currency_code: string
+  client_quote_total_cents: number
+  pricing_missing_price_count: number
+  cutlist_row_count: number
+  cutlist_warning_count: number
+  material_warning_count: number
+  hardware_warning_count: number
+  readiness: QuoteReadiness
+  client_quote: QuoteOutputStatus
+  internal_pricing: QuoteOutputStatus
+  workshop_schedule: QuoteOutputStatus
+  material_status: QuoteOutputStatus
+  hardware_status: QuoteOutputStatus
+  material_summary: MaterialSummary
+  hardware_pick_list: HardwarePickList
+  actions: QuoteOutputAction[]
+}
+
 export type QuoteExtrasResponse = {
   quote_id: string
   items: Array<{ extra_id: string; quantity: number }>
@@ -394,7 +439,7 @@ export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
 export type ProjectWorkspaceTab = 'quotes' | 'pricing'
 export type PricingWorkspaceTab = 'overview' | 'settings' | 'quotes'
-export type QuoteWorkspaceTab = 'readiness' | 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
+export type QuoteWorkspaceTab = 'readiness' | 'outputs' | 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
 export type CuttingListViewTab = 'carcass' | 'panels' | 'extras'
 
 export type ProjectDraft = {

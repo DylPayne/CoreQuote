@@ -14,6 +14,8 @@ QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
 QuoteReadinessActionTarget = Literal["project", "quote", "units", "panels", "cutting-lists", "pricing", "outputs"]
+QuoteOutputActionId = Literal["client_quote_pdf", "workshop_schedule", "material_summary", "hardware_pick_list"]
+QuoteOutputGroup = Literal["client", "workshop"]
 MaterialRole = Literal["carcass", "door_panel", "visible_panel"]
 MaterialSummaryWarningCode = Literal["missing_board_selection", "missing_board_record", "missing_board_dimensions"]
 HardwarePickListItemType = Literal["slide", "hinge", "handle", "extra"]
@@ -438,6 +440,25 @@ class QuoteReadinessResponse(BaseModel):
     checks: list[QuoteReadinessCheckResponse] = Field(default_factory=list)
 
 
+class QuoteOutputStatusResponse(BaseModel):
+    id: str
+    label: str
+    status: QuoteReadinessStatus
+    severity: QuoteReadinessSeverity
+    message: str
+
+
+class QuoteOutputActionResponse(BaseModel):
+    id: QuoteOutputActionId
+    group: QuoteOutputGroup
+    label: str
+    description: str
+    enabled: bool
+    warning: str | None = None
+    hides_internal_costs: bool = False
+    action_target: QuoteReadinessActionTarget
+
+
 class QuotePricingLineResponse(BaseModel):
     item_type: Literal[
         "board",
@@ -547,6 +568,32 @@ class HardwarePickListResponse(BaseModel):
     warnings: list[HardwarePickListWarningResponse] = Field(default_factory=list)
     total_item_count: int = Field(default=0, ge=0)
     total_quantity: int = Field(default=0, ge=0)
+
+
+class QuoteOutputReviewResponse(BaseModel):
+    quote_id: str
+    quote_name: str
+    project_id: str
+    project_name: str
+    quote_status: QuoteStatus = "draft"
+    quote_number: str
+    revision: int = Field(ge=1)
+    currency_code: str = Field(description="Company ISO 4217 currency code used to display customer totals.")
+    client_quote_total_cents: int = Field(default=0, ge=0)
+    pricing_missing_price_count: int = Field(default=0, ge=0)
+    cutlist_row_count: int = Field(default=0, ge=0)
+    cutlist_warning_count: int = Field(default=0, ge=0)
+    material_warning_count: int = Field(default=0, ge=0)
+    hardware_warning_count: int = Field(default=0, ge=0)
+    readiness: QuoteReadinessResponse
+    client_quote: QuoteOutputStatusResponse
+    internal_pricing: QuoteOutputStatusResponse
+    workshop_schedule: QuoteOutputStatusResponse
+    material_status: QuoteOutputStatusResponse
+    hardware_status: QuoteOutputStatusResponse
+    material_summary: MaterialSummaryResponse = Field(default_factory=MaterialSummaryResponse)
+    hardware_pick_list: HardwarePickListResponse = Field(default_factory=HardwarePickListResponse)
+    actions: list[QuoteOutputActionResponse] = Field(default_factory=list)
 
 
 class MissingPriceResponse(BaseModel):
