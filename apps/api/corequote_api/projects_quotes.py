@@ -18,6 +18,11 @@ from corequote_core.customer_quote_pdf import (
 from corequote_core.hardware_pick_list import build_hardware_pick_list
 from corequote_core.output_review import build_quote_output_review
 from corequote_core.quote_readiness import evaluate_quote_readiness
+from corequote_core.workshop_schedule_pdf import (
+    build_workshop_schedule_document,
+    render_workshop_schedule_pdf,
+    workshop_schedule_filename,
+)
 from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes_errors import (
     WorkspaceConflict,
@@ -887,6 +892,50 @@ class WorkspaceStore:
             "content": render_customer_quote_pdf(document),
         }
 
+    def generate_workshop_schedule_pdf(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        company: dict[str, Any],
+        runtime_service: CutlistRuntimeService,
+    ) -> dict[str, Any]:
+        context = self._build_quote_review_context(
+            company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+        review = build_quote_output_review(
+            quote=context["quote"],
+            project=context["project"],
+            currency_code=context["currency_code"],
+            readiness=context["readiness"],
+            cutting_list=context["cutting_list"],
+            pricing_summary=context["pricing_summary"],
+            active_price_list_id=context["active_price_list_id"],
+            hardware_pick_list=context["hardware_pick_list"],
+        )
+        action = next((row for row in review["actions"] if row["id"] == "workshop_schedule"), None)
+        if not action or not action["enabled"]:
+            raise WorkspaceValidationError(
+                str((action or {}).get("warning") or context["readiness"]["summary_message"])
+            )
+        if not context["cutting_list"]:
+            raise WorkspaceValidationError("Add cabinet units before generating the workshop schedule.")
+
+        document = build_workshop_schedule_document(
+            company=company,
+            quote=context["quote"],
+            project=context["project"],
+            units=context["units"],
+            cutting_list=context["cutting_list"],
+            board_lookup=context["board_lookup"],
+        )
+        return {
+            "filename": workshop_schedule_filename(document),
+            "content": render_workshop_schedule_pdf(document),
+        }
+
     def _build_quote_review_context(
         self,
         company_id: str,
@@ -989,6 +1038,7 @@ class WorkspaceStore:
             "hardware_pick_list": hardware_pick_list,
             "cutting_list": cutting_list,
             "cutting_error": cutting_error,
+            "board_lookup": lookups["boards"],
             "pricing_summary": pricing_summary,
             "pricing_error": pricing_error,
             "readiness": readiness,

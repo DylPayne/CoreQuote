@@ -118,6 +118,17 @@ function formatSupplierCode(supplier: string, code: string) {
   return supplier || code || '-'
 }
 
+function downloadBlob(blob: Blob, filename: string | null, fallbackFilename: string) {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename ?? fallbackFilename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 function HardwarePickListReview({ pickList }: { pickList?: HardwarePickList }) {
   if (!pickList) return null
   if (pickList.items.length === 0 && pickList.warnings.length === 0) return null
@@ -349,8 +360,13 @@ function OutputActionCard({
   onGenerateAction: (action: QuoteOutputAction) => void
   onReviewAction: (action: QuoteOutputAction) => void
 }) {
-  const isCustomerPdf = action.id === 'client_quote_pdf'
+  const isPdfExport = action.id === 'client_quote_pdf' || action.id === 'workshop_schedule'
   const isGenerating = generatingActionId === action.id
+  const actionBadgeLabel = action.enabled
+    ? action.warning
+      ? 'Generates with warnings'
+      : 'Ready to generate'
+    : 'Needs attention'
 
   return (
     <div className="rounded-[var(--card-radius)] border border-border bg-card p-3">
@@ -359,8 +375,8 @@ function OutputActionCard({
           <div className="flex flex-wrap items-center gap-2">
             <OutputActionIcon action={action} />
             <p className="text-sm font-semibold">{action.label}</p>
-            <Badge variant={action.enabled ? 'success' : 'warning'}>
-              {action.enabled ? 'Ready to generate' : 'Needs attention'}
+            <Badge variant={action.enabled && !action.warning ? 'success' : 'warning'}>
+              {actionBadgeLabel}
             </Badge>
             {action.hides_internal_costs ? <Badge variant="outline">Hides internal costs</Badge> : null}
           </div>
@@ -372,20 +388,20 @@ function OutputActionCard({
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
           <Button
             disabled={!action.enabled || isGenerating}
-            onClick={() => (isCustomerPdf ? onGenerateAction(action) : onReviewAction(action))}
+            onClick={() => (isPdfExport ? onGenerateAction(action) : onReviewAction(action))}
             size="sm"
             type="button"
           >
             {isGenerating ? (
               <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : isCustomerPdf ? (
+            ) : isPdfExport ? (
               <Download className="h-4 w-4" aria-hidden="true" />
             ) : (
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             )}
-            {isCustomerPdf ? (isGenerating ? 'Generating PDF' : 'Download PDF') : 'Review output'}
+            {isPdfExport ? (isGenerating ? 'Generating PDF' : 'Download PDF') : 'Review output'}
           </Button>
-          {!action.enabled ? (
+          {action.warning ? (
             <Button onClick={() => onReviewAction(action)} size="sm" type="button" variant="outline">
               Review source
             </Button>
@@ -799,17 +815,28 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       setError(null)
       try {
         const { blob, filename } = await apiRequestBlob(`/api/v1/quotes/${quoteId}/customer-quote.pdf`, { token: authToken })
-        const url = window.URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = filename ?? 'customer-quote.pdf'
-        document.body.appendChild(link)
-        link.click()
-        link.remove()
-        window.URL.revokeObjectURL(url)
+        downloadBlob(blob, filename, 'customer-quote.pdf')
         await loadQuoteOutputReview(quoteId)
       } catch (downloadError) {
         setError(downloadError instanceof Error ? downloadError.message : 'Could not download the customer quote PDF.')
+        void loadQuoteOutputReview(quoteId)
+      } finally {
+        setGeneratingOutputActionId(null)
+      }
+    },
+    [authToken, loadQuoteOutputReview],
+  )
+
+  const downloadWorkshopSchedulePdf = useCallback(
+    async (quoteId: string) => {
+      setGeneratingOutputActionId('workshop_schedule')
+      setError(null)
+      try {
+        const { blob, filename } = await apiRequestBlob(`/api/v1/quotes/${quoteId}/workshop-schedule.pdf`, { token: authToken })
+        downloadBlob(blob, filename, 'workshop-schedule.pdf')
+        await loadQuoteOutputReview(quoteId)
+      } catch (downloadError) {
+        setError(downloadError instanceof Error ? downloadError.message : 'Could not download the workshop schedule PDF.')
         void loadQuoteOutputReview(quoteId)
       } finally {
         setGeneratingOutputActionId(null)
@@ -1096,6 +1123,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   function handleGenerateOutputAction(action: QuoteOutputAction) {
     if (action.id === 'client_quote_pdf' && selectedQuoteId) {
       void downloadCustomerQuotePdf(selectedQuoteId)
+      return
+    }
+    if (action.id === 'workshop_schedule' && selectedQuoteId) {
+      void downloadWorkshopSchedulePdf(selectedQuoteId)
       return
     }
     handleOutputReviewAction(action)

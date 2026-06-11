@@ -23,6 +23,7 @@ All rows are scoped to `current_user.company_id`.
 - Quote and unit read: `quotes:read`
 - Quote and unit create/update/delete: `quotes:write`
 - Quote readiness read: `quotes:read`
+- Workshop schedule PDF export: `quotes:read`
 - Project pricing summary read: `pricing:read`
 - Project and quote pricing settings read: `pricing:read`
 - Project and quote pricing settings update: `pricing:update`
@@ -412,8 +413,8 @@ Response excerpt:
       "group": "workshop",
       "label": "Workshop schedule",
       "description": "Cutting and production schedule for the workshop.",
-      "enabled": false,
-      "warning": "Fix cutting-list warnings before generating the workshop schedule.",
+      "enabled": true,
+      "warning": "Cutting-list warnings will be included in the workshop schedule.",
       "hides_internal_costs": false,
       "action_target": "cutting-lists"
     }
@@ -436,8 +437,9 @@ Frontend integration notes:
 
 - Load this endpoint when the estimator opens the quote's `Review outputs` tab.
 - Render `actions` in separate Client quote and Workshop package groups.
-- Treat `actions[].enabled` as the generate/readiness state. If false, show
-  `actions[].warning` before any export action.
+- Treat `actions[].enabled` as the generate/readiness state. Show
+  `actions[].warning` before any export action even when export remains enabled
+  with warnings.
 - The `client_quote_pdf` action has `hides_internal_costs: true`; client UI must
   not show cost, profit, or internal margin beside that action.
 - Use `actions[].action_target` for navigation to the source area that can fix a
@@ -494,6 +496,57 @@ Frontend integration notes:
   `Content-Disposition` filename when available.
 - If the PDF request returns `422`, show the returned detail and refresh
   output review so readiness warnings stay current.
+
+## Workshop Schedule PDF
+
+```http
+GET /api/v1/quotes/{quote_id}/workshop-schedule.pdf
+```
+
+Permission: `quotes:read`
+
+Returns an `application/pdf` attachment for the workshop cutting schedule. The
+filename is generated from the quote name, quote number, and revision, for
+example:
+
+```http
+Content-Disposition: attachment; filename="workshop-Smith-Kitchen-Quote-v1-Q-001-rev-1.pdf"
+```
+
+The export uses the same live cutting-list context as
+`GET /quotes/{quote_id}/cutting-list` and `GET /quotes/{quote_id}/output-review`.
+Generation is allowed when the quote has at least one cutting row. Cutting-list
+validation warnings do not block export; they are included in the PDF warning
+section and affected rows are marked for checking.
+
+Workshop schedule PDF contents:
+
+- Company name, project name, client/site, quote name, quote number, revision,
+  and export date.
+- Grouped carcass, panel, custom panel, hardware, and other cutting-list rows
+  when present.
+- Unit number, description, length, width, quantity, board/material where known,
+  and a row status.
+- Validation warning text for invalid dimensions or missing/unavailable board
+  selections.
+
+Customer-facing price totals, internal costs, profit, and margin fields are not
+rendered in this export.
+
+Errors:
+
+- `401` for missing/invalid bearer sessions.
+- `403` for roles without `quotes:read`.
+- `404` when the quote is not visible to the current company.
+- `422` when there are no schedule rows to export.
+
+Frontend integration notes:
+
+- The output review `workshop_schedule` action downloads this endpoint as a
+  blob when `enabled` is true.
+- If `warning` is present, keep the download action visible and show a route
+  back to the cutting-list source so the estimator can inspect invalid rows.
+- Use the response `Content-Disposition` filename when available.
 
 ## Quote Extras Selection
 

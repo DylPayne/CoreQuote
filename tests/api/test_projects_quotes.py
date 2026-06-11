@@ -52,6 +52,7 @@ class FakeWorkspaceStore:
         self.requested_quote_readiness: tuple[str, str] | None = None
         self.requested_quote_output_review: tuple[str, str] | None = None
         self.generated_customer_quote_pdf: tuple[str, str, dict] | None = None
+        self.generated_workshop_schedule_pdf: tuple[str, str, dict] | None = None
         self.requested_quote_custom_panels: tuple[str, str] | None = None
         self.requested_project_pricing: tuple[str, str] | None = None
         self.requested_project_pricing_settings: tuple[str, str] | None = None
@@ -203,6 +204,17 @@ class FakeWorkspaceStore:
         return {
             "filename": "Smith-Kitchen-Quote-v1-Q-001-rev-1.pdf",
             "content": b"%PDF-1.3 customer quote",
+        }
+
+    def generate_workshop_schedule_pdf(self, company_id: str, quote_id: str, *, company: dict, runtime_service=None) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        if quote_id == "empty":
+            raise WorkspaceValidationError("Add cabinet units before generating the workshop schedule.")
+        self.generated_workshop_schedule_pdf = (company_id, quote_id, company)
+        return {
+            "filename": "workshop-Smith-Kitchen-Quote-v1-Q-001-rev-1.pdf",
+            "content": b"%PDF-1.3 workshop schedule",
         }
 
     def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
@@ -634,6 +646,45 @@ def test_download_customer_quote_pdf_requires_pricing_read_permission():
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: pricing:read"}
     assert store.generated_customer_quote_pdf is None
+
+
+def test_download_workshop_schedule_pdf_returns_pdf_attachment():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+
+    try:
+        response = client.get("/api/v1/quotes/quote-1/workshop-schedule.pdf", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == 'attachment; filename="workshop-Smith-Kitchen-Quote-v1-Q-001-rev-1.pdf"'
+    assert response.content.startswith(b"%PDF")
+    assert store.generated_workshop_schedule_pdf == (
+        "company-1",
+        "quote-1",
+        {
+            "name": "CoreQuote Test Co",
+            "contact_name": "Test Owner",
+            "contact_email": "test.owner@corequote.local",
+        },
+    )
+
+
+def test_download_workshop_schedule_pdf_surfaces_empty_schedule_blocker():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+
+    try:
+        response = client.get("/api/v1/quotes/empty/workshop-schedule.pdf", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Add cabinet units before generating the workshop schedule."}
 
 
 def test_quote_extras_read_and_replace():
