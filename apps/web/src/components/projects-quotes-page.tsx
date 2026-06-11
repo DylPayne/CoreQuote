@@ -6,6 +6,7 @@ import {
   CircleDollarSign,
   ClipboardList,
   Copy,
+  Download,
   FileText,
   GitBranch,
   Hammer,
@@ -27,7 +28,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { apiRequest } from '@/components/projects-quotes/api'
+import { apiRequest, apiRequestBlob } from '@/components/projects-quotes/api'
 import { customUnitTypeValue, defaultProjectDraft, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
@@ -339,11 +340,18 @@ function OutputActionIcon({ action }: { action: QuoteOutputAction }) {
 
 function OutputActionCard({
   action,
+  generatingActionId,
+  onGenerateAction,
   onReviewAction,
 }: {
   action: QuoteOutputAction
+  generatingActionId: QuoteOutputAction['id'] | null
+  onGenerateAction: (action: QuoteOutputAction) => void
   onReviewAction: (action: QuoteOutputAction) => void
 }) {
+  const isCustomerPdf = action.id === 'client_quote_pdf'
+  const isGenerating = generatingActionId === action.id
+
   return (
     <div className="rounded-[var(--card-radius)] border border-border bg-card p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -363,13 +371,19 @@ function OutputActionCard({
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
           <Button
-            disabled={!action.enabled}
-            onClick={() => onReviewAction(action)}
+            disabled={!action.enabled || isGenerating}
+            onClick={() => (isCustomerPdf ? onGenerateAction(action) : onReviewAction(action))}
             size="sm"
             type="button"
           >
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            Review output
+            {isGenerating ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : isCustomerPdf ? (
+              <Download className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            )}
+            {isCustomerPdf ? (isGenerating ? 'Generating PDF' : 'Download PDF') : 'Review output'}
           </Button>
           {!action.enabled ? (
             <Button onClick={() => onReviewAction(action)} size="sm" type="button" variant="outline">
@@ -384,10 +398,14 @@ function OutputActionCard({
 
 function OutputReviewPanel({
   currencyCode,
+  generatingActionId,
+  onGenerateAction,
   onReviewAction,
   review,
 }: {
   currencyCode: string
+  generatingActionId: QuoteOutputAction['id'] | null
+  onGenerateAction: (action: QuoteOutputAction) => void
   onReviewAction: (action: QuoteOutputAction) => void
   review: QuoteOutputReview
 }) {
@@ -465,7 +483,13 @@ function OutputReviewPanel({
 
         <div className="grid gap-2">
           {clientActions.map((action) => (
-            <OutputActionCard action={action} key={action.id} onReviewAction={onReviewAction} />
+            <OutputActionCard
+              action={action}
+              generatingActionId={generatingActionId}
+              key={action.id}
+              onGenerateAction={onGenerateAction}
+              onReviewAction={onReviewAction}
+            />
           ))}
         </div>
       </section>
@@ -516,7 +540,13 @@ function OutputReviewPanel({
 
         <div className="grid gap-2">
           {workshopActions.map((action) => (
-            <OutputActionCard action={action} key={action.id} onReviewAction={onReviewAction} />
+            <OutputActionCard
+              action={action}
+              generatingActionId={generatingActionId}
+              key={action.id}
+              onGenerateAction={onGenerateAction}
+              onReviewAction={onReviewAction}
+            />
           ))}
         </div>
       </section>
@@ -587,6 +617,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
   const [isSavingProjectPricingSettings, setIsSavingProjectPricingSettings] = useState(false)
   const [isSavingQuotePricingSettings, setIsSavingQuotePricingSettings] = useState(false)
+  const [generatingOutputActionId, setGeneratingOutputActionId] = useState<QuoteOutputAction['id'] | null>(null)
   const [isQuoteExtrasDirty, setIsQuoteExtrasDirty] = useState(false)
   const [isQuoteCustomPanelsDirty, setIsQuoteCustomPanelsDirty] = useState(false)
 
@@ -760,6 +791,31 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       }
     },
     [authToken],
+  )
+
+  const downloadCustomerQuotePdf = useCallback(
+    async (quoteId: string) => {
+      setGeneratingOutputActionId('client_quote_pdf')
+      setError(null)
+      try {
+        const { blob, filename } = await apiRequestBlob(`/api/v1/quotes/${quoteId}/customer-quote.pdf`, { token: authToken })
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = filename ?? 'customer-quote.pdf'
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.URL.revokeObjectURL(url)
+        await loadQuoteOutputReview(quoteId)
+      } catch (downloadError) {
+        setError(downloadError instanceof Error ? downloadError.message : 'Could not download the customer quote PDF.')
+        void loadQuoteOutputReview(quoteId)
+      } finally {
+        setGeneratingOutputActionId(null)
+      }
+    },
+    [authToken, loadQuoteOutputReview],
   )
 
   const loadQuoteExtras = useCallback(
@@ -1035,6 +1091,14 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       return
     }
     openQuoteOutputsTab()
+  }
+
+  function handleGenerateOutputAction(action: QuoteOutputAction) {
+    if (action.id === 'client_quote_pdf' && selectedQuoteId) {
+      void downloadCustomerQuotePdf(selectedQuoteId)
+      return
+    }
+    handleOutputReviewAction(action)
   }
 
   function openEditProjectModal(project: ProjectRow) {
@@ -1916,6 +1980,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                 ) : (
                   <OutputReviewPanel
                     currencyCode={quoteOutputReview.currency_code}
+                    generatingActionId={generatingOutputActionId}
+                    onGenerateAction={handleGenerateOutputAction}
                     onReviewAction={handleOutputReviewAction}
                     review={quoteOutputReview}
                   />

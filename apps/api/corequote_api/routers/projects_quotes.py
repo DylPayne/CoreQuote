@@ -345,6 +345,47 @@ def get_quote_output_review(
     return QuoteOutputReviewResponse.model_validate(payload)
 
 
+@router.get(
+    "/quotes/{quote_id}/customer-quote.pdf",
+    summary="Download customer quote PDF",
+    responses={
+        200: {
+            "description": "Customer-facing quote PDF.",
+            "content": {"application/pdf": {}},
+        },
+        404: {"description": "Quote was not found or is not visible to the current company."},
+        422: {"description": "Quote readiness or pricing blocks customer PDF generation."},
+    },
+)
+def download_customer_quote_pdf(
+    quote_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+    runtime_service: CutlistRuntimeDep,
+) -> Response:
+    try:
+        payload = store.generate_customer_quote_pdf(
+            current_user.company_id,
+            quote_id,
+            company={
+                "name": current_user.company_name,
+                "contact_name": current_user.name,
+                "contact_email": current_user.email,
+            },
+            runtime_service=runtime_service,
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    return Response(
+        content=payload["content"],
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{payload["filename"]}"'},
+    )
+
+
 @router.get("/quotes/{quote_id}/extras", response_model=QuoteExtrasResponse, summary="List selected quote extras")
 def list_quote_extras(
     quote_id: str,
