@@ -166,6 +166,7 @@ The API copies the source quote header, units, custom panel configuration, selec
 GET    /api/v1/quotes/{quote_id}/units
 POST   /api/v1/quotes/{quote_id}/units
 POST   /api/v1/quotes/{quote_id}/units/{unit_id}/duplicate
+PUT    /api/v1/quotes/{quote_id}/units/bulk
 PUT    /api/v1/quotes/{quote_id}/units/reorder
 PATCH  /api/v1/quotes/{quote_id}/units/{unit_id}
 DELETE /api/v1/quotes/{quote_id}/units/{unit_id}
@@ -223,6 +224,57 @@ Permission: `quotes:write`
 The API copies the source unit on the same quote, including dimensions, effective thickness, board overrides, and `extra_params`. It assigns a new unit identity and the next `unit_number`. Later edits to the duplicate update only the duplicate row.
 
 Response: `201` with the normal unit response shape.
+
+Bulk saving units:
+
+```http
+PUT /api/v1/quotes/{quote_id}/units/bulk
+```
+
+Permission: `quotes:write`
+
+Request payload:
+
+```json
+{
+  "units": [
+    {
+      "unit_type_key": "Base Door",
+      "height": 780,
+      "width": 600,
+      "depth": 580,
+      "carcass_board_type_id": "board-uuid",
+      "door_board_type_id": "board-uuid",
+      "extra_params": {
+        "num_doors": 2,
+        "num_shelves": 1
+      }
+    },
+    {
+      "id": "existing-unit-uuid",
+      "unit_type_key": "Base Draw",
+      "height": 780,
+      "width": 900,
+      "depth": 580,
+      "carcass_board_type_id": "board-uuid",
+      "door_board_type_id": "board-uuid",
+      "extra_params": {
+        "num_drawers": 3
+      }
+    }
+  ]
+}
+```
+
+Rows without `id` create new units at the end of the quote order. Rows with `id` update existing units on the same quote. The batch validates quote visibility, unit visibility, dimensions, board defaults/overrides, and effective carcass thickness before any row is written, so invalid batches do not create partial units.
+
+Response: `200` with the refreshed unit list in quote/workshop order.
+
+Errors:
+
+- `404` when the quote or an edited unit is not visible to the current company.
+- `422` for invalid rows, with row-prefixed messages such as `units[2]: Carcass board is required`.
+- `409` for write conflicts.
 
 Reordering units:
 

@@ -38,6 +38,7 @@ from corequote_api.projects_quotes_payloads import (
     _clean_quote_status,
     _clean_unit_payload,
     _is_enabled,
+    _optional_uuid,
 )
 from corequote_api.projects_quotes_pricing import (
     _build_cutting_list_preview,
@@ -756,6 +757,125 @@ class WorkspaceStore:
                     ),
                 ).fetchone()
         return self.get_unit(company_id, quote_id, row["id"])
+
+    def bulk_save_units(self, company_id: str, quote_id: str, payloads: list[dict[str, Any]]) -> list[dict]:
+        cleaned_rows: list[dict[str, Any]] = []
+        seen_existing_ids: set[str] = set()
+        for index, payload in enumerate(payloads):
+            try:
+                row_id = _optional_uuid(payload.get("id"))
+                if row_id:
+                    if row_id in seen_existing_ids:
+                        raise WorkspaceValidationError("id must be unique in the batch")
+                    seen_existing_ids.add(row_id)
+                cleaned_rows.append({"id": row_id, "data": _clean_unit_payload(payload)})
+            except WorkspaceValidationError as exc:
+                raise WorkspaceValidationError(f"units[{index}]: {exc}") from exc
+
+        with self._connect() as conn:
+            with conn.transaction():
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
+                if seen_existing_ids:
+                    existing_rows = conn.execute(
+                        """
+                        SELECT id::text
+                        FROM quote_units
+                        WHERE company_id = %s
+                          AND quote_id = %s
+                          AND id = ANY(%s::uuid[])
+                        FOR UPDATE
+                        """,
+                        (company_id, quote_id, list(seen_existing_ids)),
+                    ).fetchall()
+                    existing_ids = {row["id"] for row in existing_rows}
+                    if existing_ids != seen_existing_ids:
+                        raise WorkspaceNotFound("Unit not found")
+
+                prepared_rows: list[dict[str, Any]] = []
+                for index, row in enumerate(cleaned_rows):
+                    try:
+                        self._validate_unit_defaults(conn, company_id, row["data"])
+                        thickness = self._resolve_unit_thickness(conn, company_id, quote, row["data"])
+                    except WorkspaceValidationError as exc:
+                        raise WorkspaceValidationError(f"units[{index}]: {exc}") from exc
+                    prepared_rows.append({**row, "thickness": thickness})
+
+                next_number_row = conn.execute(
+                    """
+                    SELECT COALESCE(MAX(unit_number), 0) + 1 AS next_unit_number
+                    FROM quote_units
+                    WHERE company_id = %s
+                      AND quote_id = %s
+                    """,
+                    (company_id, quote_id),
+                ).fetchone()
+                next_unit_number = int(next_number_row["next_unit_number"])
+                for row in prepared_rows:
+                    data = row["data"]
+                    if row["id"]:
+                        conn.execute(
+                            """
+                            UPDATE quote_units
+                            SET unit_type_key = %s,
+                                height = %s,
+                                width = %s,
+                                depth = %s,
+                                thickness = %s,
+                                carcass_board_type_id = %s,
+                                door_board_type_id = %s,
+                                extra_params = %s
+                            WHERE company_id = %s
+                              AND quote_id = %s
+                              AND id = %s
+                            """,
+                            (
+                                data["unit_type_key"],
+                                data["height"],
+                                data["width"],
+                                data["depth"],
+                                row["thickness"],
+                                data["carcass_board_type_id"],
+                                data["door_board_type_id"],
+                                Jsonb(data["extra_params"]),
+                                company_id,
+                                quote_id,
+                                row["id"],
+                            ),
+                        )
+                    else:
+                        conn.execute(
+                            """
+                            INSERT INTO quote_units (
+                                company_id,
+                                quote_id,
+                                unit_number,
+                                unit_type_key,
+                                height,
+                                width,
+                                depth,
+                                thickness,
+                                carcass_board_type_id,
+                                door_board_type_id,
+                                extra_params
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                company_id,
+                                quote_id,
+                                next_unit_number,
+                                data["unit_type_key"],
+                                data["height"],
+                                data["width"],
+                                data["depth"],
+                                row["thickness"],
+                                data["carcass_board_type_id"],
+                                data["door_board_type_id"],
+                                Jsonb(data["extra_params"]),
+                            ),
+                        )
+                        next_unit_number += 1
+        return self.list_units(company_id, quote_id)
 
     def reorder_units(self, company_id: str, quote_id: str, unit_ids: list[str]) -> list[dict]:
         if len(set(unit_ids)) != len(unit_ids):
