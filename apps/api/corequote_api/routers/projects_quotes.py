@@ -179,6 +179,28 @@ def update_quote_status(
 
 
 @router.post(
+    "/quotes/{quote_id}/duplicate",
+    response_model=QuoteResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplicate quote",
+)
+def duplicate_quote(
+    quote_id: str,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> QuoteResponse:
+    try:
+        row = store.duplicate_quote(current_user.company_id, quote_id)
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return QuoteResponse.model_validate(row)
+
+
+@router.post(
     "/quotes/{quote_id}/revisions",
     response_model=QuoteResponse,
     status_code=status.HTTP_201_CREATED,

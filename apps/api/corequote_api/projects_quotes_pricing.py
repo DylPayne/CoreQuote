@@ -66,8 +66,9 @@ def _build_cutting_list_preview(
     runtime_service: CutlistRuntimeService,
     use_rulesets: bool,
     board_lookup: dict[str, dict[str, Any]],
-    slide_lookup: dict[str, dict[str, Any]],
+    slide_lookup: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    slide_lookup = slide_lookup or {}
     default_slide = slide_lookup.get(str(quote.get("default_slide_id") or ""))
     payload_units = [
         _to_runtime_unit(
@@ -139,12 +140,12 @@ def _to_runtime_unit(
     *,
     quote: dict[str, Any],
     board_lookup: dict[str, dict[str, Any]],
-    slide_lookup: dict[str, dict[str, Any]],
-    default_slide: dict[str, Any] | None,
+    slide_lookup: dict[str, dict[str, Any]] | None = None,
+    default_slide: dict[str, Any] | None = None,
     allow_missing_board_fallback: bool = False,
 ) -> dict[str, Any]:
     extra_params = dict(unit.get("extra_params") or {})
-    unit_slide = slide_lookup.get(str(extra_params.get("slide_id") or "")) or default_slide
+    unit_slide = (slide_lookup or {}).get(str(extra_params.get("slide_id") or "")) or default_slide
     if unit_slide:
         extra_params.setdefault("slide_brand", unit_slide.get("brand", ""))
         extra_params.setdefault("slide_model", unit_slide.get("model", ""))

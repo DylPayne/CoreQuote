@@ -81,6 +81,7 @@ POST  /api/v1/projects/{project_id}/quotes
 GET   /api/v1/quotes/{quote_id}
 PATCH /api/v1/quotes/{quote_id}
 PATCH /api/v1/quotes/{quote_id}/status
+POST  /api/v1/quotes/{quote_id}/duplicate
 POST  /api/v1/quotes/{quote_id}/revisions
 DELETE /api/v1/quotes/{quote_id}
 ```
@@ -152,13 +153,29 @@ Status update payload:
 
 Status changes are permissive in this version so cabinetmakers can reflect the real job conversation without workflow lock-in.
 
+Duplicating a quote:
+
+```http
+POST /api/v1/quotes/{quote_id}/duplicate
+```
+
+Permission: `quotes:write`
+
+The API creates a new editable `draft` quote in the same project. It copies the source quote defaults, unit defaults, units, custom panel configuration, selected extras, and quote pricing settings. The duplicate receives the next project quote number, starts at revision `1`, and does not link `previous_revision_id`, so it behaves as a separate alternative rather than part of the original revision chain.
+
+The source quote is not changed. Existing customer quote PDFs, workshop schedules, readiness state, pricing, and status remain traceable through the source quote number and revision.
+
+Response: `201` with the normal quote response shape.
+
 Creating a revision:
 
 ```http
 POST /api/v1/quotes/{quote_id}/revisions
 ```
 
-The API copies the source quote header, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
+Permission: `quotes:write`
+
+The API copies the source quote header, defaults, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
 
 ## Quote Units
 
