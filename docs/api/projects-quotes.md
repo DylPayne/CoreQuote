@@ -443,6 +443,58 @@ Frontend integration notes:
 - Use `actions[].action_target` for navigation to the source area that can fix a
   warning or inspect the output detail.
 
+## Customer Quote PDF
+
+```http
+GET /api/v1/quotes/{quote_id}/customer-quote.pdf
+```
+
+Permission: `pricing:read`
+
+Returns an `application/pdf` attachment for the customer-facing quote. The
+filename is generated from the quote name, quote number, and revision, for
+example:
+
+```http
+Content-Disposition: attachment; filename="Smith-Kitchen-Quote-v1-Q-001-rev-1.pdf"
+```
+
+The export uses the same live readiness and pricing context as
+`GET /quotes/{quote_id}/output-review`. Generation is allowed only when the
+`client_quote_pdf` output action is enabled. If readiness or pricing blocks
+export, the API returns the same warning text surfaced in output review.
+
+Customer PDF contents:
+
+- Company name, a logo placeholder, current user name/email as contact details,
+  and the company currency.
+- Client name, site address, project name, quote name, quote number, revision,
+  issue date, and expiry date.
+- Customer summary rows for cabinetry, visible panels, hardware/extras,
+  installation, delivery, VAT, and grand total where those values are present.
+- Terms and notes from `quote.notes`, or a default validity note when notes are
+  blank.
+
+Internal cost, profit, and margin fields are not copied into the customer PDF
+document model and must not be rendered in the file.
+
+Errors:
+
+- `401` for missing/invalid bearer sessions.
+- `403` for roles without `pricing:read`.
+- `404` when the quote is not visible to the current company.
+- `422` when readiness, missing prices, or another pricing/setup issue blocks
+  customer PDF generation.
+
+Frontend integration notes:
+
+- Load `output-review` when the estimator opens `Review outputs`; use the
+  `client_quote_pdf` action state to enable the download button.
+- On click, request this endpoint as a blob and use the response
+  `Content-Disposition` filename when available.
+- If the PDF request returns `422`, show the returned detail and refresh
+  output review so readiness warnings stay current.
+
 ## Quote Extras Selection
 
 ```http
@@ -842,7 +894,8 @@ handoff. It is aggregated from the same runtime cutlist rows used for pricing,
 grouped by board type, role, and thickness. Sheet counts are estimates, not
 nested or optimized board counts. Missing board selections, unavailable board
 records, or missing sheet dimensions appear in `material_summary.warnings`.
-Customer-facing quote PDFs do not include internal material cost or sell data.
+Customer-facing quote PDFs include summarized customer amounts only; they do not
+include internal material cost, profit, margin, or line-level pricing detail.
 
 Each quote also includes `hardware_pick_list` for workshop or purchasing review.
 It groups slide, hinge, handle, and selected quote-extra quantities by catalog

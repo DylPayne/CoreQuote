@@ -10,6 +10,11 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from corequote_core.detailed_pricing import DetailedPricingSettings
+from corequote_core.customer_quote_pdf import (
+    build_customer_quote_document,
+    customer_quote_filename,
+    render_customer_quote_pdf,
+)
 from corequote_core.hardware_pick_list import build_hardware_pick_list
 from corequote_core.output_review import build_quote_output_review
 from corequote_core.quote_readiness import evaluate_quote_readiness
@@ -838,6 +843,49 @@ class WorkspaceStore:
             active_price_list_id=context["active_price_list_id"],
             hardware_pick_list=context["hardware_pick_list"],
         )
+
+    def generate_customer_quote_pdf(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        company: dict[str, Any],
+        runtime_service: CutlistRuntimeService,
+    ) -> dict[str, Any]:
+        context = self._build_quote_review_context(
+            company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+        review = build_quote_output_review(
+            quote=context["quote"],
+            project=context["project"],
+            currency_code=context["currency_code"],
+            readiness=context["readiness"],
+            cutting_list=context["cutting_list"],
+            pricing_summary=context["pricing_summary"],
+            active_price_list_id=context["active_price_list_id"],
+            hardware_pick_list=context["hardware_pick_list"],
+        )
+        action = next((row for row in review["actions"] if row["id"] == "client_quote_pdf"), None)
+        if not action or not action["enabled"]:
+            raise WorkspaceValidationError(
+                str((action or {}).get("warning") or context["readiness"]["summary_message"])
+            )
+        if not context["pricing_summary"]:
+            raise WorkspaceValidationError("Finish pricing before generating the client quote.")
+
+        document = build_customer_quote_document(
+            company=company,
+            quote=context["quote"],
+            project=context["project"],
+            currency_code=context["currency_code"],
+            pricing_summary=context["pricing_summary"],
+        )
+        return {
+            "filename": customer_quote_filename(document),
+            "content": render_customer_quote_pdf(document),
+        }
 
     def _build_quote_review_context(
         self,
