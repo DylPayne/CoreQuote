@@ -165,6 +165,8 @@ The API copies the source quote header, units, custom panel configuration, selec
 ```http
 GET    /api/v1/quotes/{quote_id}/units
 POST   /api/v1/quotes/{quote_id}/units
+POST   /api/v1/quotes/{quote_id}/units/{unit_id}/duplicate
+PUT    /api/v1/quotes/{quote_id}/units/reorder
 PATCH  /api/v1/quotes/{quote_id}/units/{unit_id}
 DELETE /api/v1/quotes/{quote_id}/units/{unit_id}
 ```
@@ -209,6 +211,44 @@ Response shape:
 ```
 
 Unit numbering is sequential per quote. On delete, remaining units are automatically renumbered to keep a gapless order for UI display and cutlist workflows.
+
+Duplicating a unit:
+
+```http
+POST /api/v1/quotes/{quote_id}/units/{unit_id}/duplicate
+```
+
+Permission: `quotes:write`
+
+The API copies the source unit on the same quote, including dimensions, effective thickness, board overrides, and `extra_params`. It assigns a new unit identity and the next `unit_number`. Later edits to the duplicate update only the duplicate row.
+
+Response: `201` with the normal unit response shape.
+
+Reordering units:
+
+```http
+PUT /api/v1/quotes/{quote_id}/units/reorder
+```
+
+Permission: `quotes:write`
+
+Request payload:
+
+```json
+{
+  "unit_ids": ["unit-uuid-2", "unit-uuid-1", "unit-uuid-3"]
+}
+```
+
+The payload must include every unit currently on the quote exactly once. The first ID receives `unit_number` 1, the second receives `unit_number` 2, and so on. Reordering changes the display/workshop order used by cutting lists, pricing, readiness, material summary, hardware pick list, and workshop outputs because those downstream views read the same persisted quote unit order.
+
+Response: `200` with the refreshed unit list in the requested order.
+
+Errors:
+
+- `404` when the quote or a requested unit is not visible to the current company.
+- `422` when the order omits existing quote units or includes duplicate unit IDs.
+- `409` for write conflicts.
 
 ## Quote Cutting List
 

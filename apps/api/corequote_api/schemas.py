@@ -255,6 +255,12 @@ class QuoteUnitResponse(QuoteUnitRequest):
     updated_at: datetime
 
 
+class QuoteUnitReorderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unit_ids: list[str] = Field(min_length=1)
+
+
 class QuoteExtraSelectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

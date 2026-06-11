@@ -1,7 +1,9 @@
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
@@ -629,6 +631,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingQuoteStatus, setIsSavingQuoteStatus] = useState(false)
   const [isCreatingQuoteRevision, setIsCreatingQuoteRevision] = useState(false)
+  const [duplicatingUnitId, setDuplicatingUnitId] = useState<string | null>(null)
+  const [isReorderingUnits, setIsReorderingUnits] = useState(false)
   const [isSavingQuoteExtras, setIsSavingQuoteExtras] = useState(false)
   const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
   const [isSavingProjectPricingSettings, setIsSavingProjectPricingSettings] = useState(false)
@@ -1457,6 +1461,25 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     }
   }
 
+  async function refreshAfterUnitMutation(quoteId: string, options: { reloadUnits?: boolean } = {}) {
+    if (options.reloadUnits !== false) {
+      await loadUnits(quoteId)
+    }
+    await loadQuoteReadiness(quoteId)
+    if (activeQuoteTab === 'cutting-lists') {
+      await loadQuoteCuttingList(quoteId)
+    }
+    if (activeQuoteTab === 'outputs') {
+      await loadQuoteOutputReview(quoteId)
+    }
+    if (selectedProjectId) {
+      await loadQuotes(selectedProjectId)
+      if (activeProjectTab === 'pricing' || activeQuoteTab === 'pricing') {
+        await loadProjectPricing(selectedProjectId)
+      }
+    }
+  }
+
   async function handleUnitSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selectedQuoteId) return
@@ -1485,23 +1508,60 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
         })
       }
       setIsUnitModalOpen(false)
-      await loadUnits(selectedQuoteId)
-      await loadQuoteReadiness(selectedQuoteId)
-      if (activeQuoteTab === 'cutting-lists') {
-        await loadQuoteCuttingList(selectedQuoteId)
-      }
-      if (selectedProjectId) {
-        await loadQuotes(selectedProjectId)
-        if (activeQuoteTab === 'pricing') {
-          await loadProjectPricing(selectedProjectId)
-        }
-      }
+      await refreshAfterUnitMutation(selectedQuoteId)
     } catch (saveError) {
       const message = saveError instanceof Error ? saveError.message : 'Could not save unit.'
       setError(message)
       setModalError(message)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleDuplicateUnit(unitId: string) {
+    if (!selectedQuoteId) return
+    setDuplicatingUnitId(unitId)
+    setError(null)
+    try {
+      await apiRequest<UnitRow>(`/api/v1/quotes/${selectedQuoteId}/units/${unitId}/duplicate`, {
+        method: 'POST',
+        token: authToken,
+      })
+      await refreshAfterUnitMutation(selectedQuoteId)
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not duplicate unit.')
+    } finally {
+      setDuplicatingUnitId(null)
+    }
+  }
+
+  async function handleMoveUnit(unitId: string, direction: 'up' | 'down') {
+    if (!selectedQuoteId) return
+    const currentIndex = units.findIndex((unit) => unit.id === unitId)
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= units.length) return
+
+    const nextUnits = [...units]
+    const currentUnit = nextUnits[currentIndex]
+    const targetUnit = nextUnits[targetIndex]
+    if (!currentUnit || !targetUnit) return
+    nextUnits[currentIndex] = targetUnit
+    nextUnits[targetIndex] = currentUnit
+
+    setIsReorderingUnits(true)
+    setError(null)
+    try {
+      const orderedRows = await apiRequest<UnitRow[]>(`/api/v1/quotes/${selectedQuoteId}/units/reorder`, {
+        method: 'PUT',
+        token: authToken,
+        body: { unit_ids: nextUnits.map((unit) => unit.id) },
+      })
+      setUnits(orderedRows)
+      await refreshAfterUnitMutation(selectedQuoteId, { reloadUnits: false })
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not reorder units.')
+    } finally {
+      setIsReorderingUnits(false)
     }
   }
 
@@ -1541,17 +1601,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     setError(null)
     try {
       await apiRequest(`/api/v1/quotes/${selectedQuoteId}/units/${unitId}`, { method: 'DELETE', token: authToken })
-      await loadUnits(selectedQuoteId)
-      await loadQuoteReadiness(selectedQuoteId)
-      if (activeQuoteTab === 'cutting-lists') {
-        await loadQuoteCuttingList(selectedQuoteId)
-      }
-      if (selectedProjectId) {
-        await loadQuotes(selectedProjectId)
-        if (activeQuoteTab === 'pricing') {
-          await loadProjectPricing(selectedProjectId)
-        }
-      }
+      await refreshAfterUnitMutation(selectedQuoteId)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Could not delete unit.')
     }
@@ -2116,7 +2166,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                           <TableHead>Dimensions (mm)</TableHead>
                           <TableHead>Boards</TableHead>
                           <TableHead>Extra Params</TableHead>
-                          <TableHead className="w-24" />
+                          <TableHead className="w-48" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -2132,9 +2182,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                             </TableCell>
                           </TableRow>
                         ) : (
-                          units.map((unit) => {
+                          units.map((unit, index) => {
                             const carcassBoardId = unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? null
                             const doorBoardId = unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? null
+                            const unitActionsDisabled = isReorderingUnits || duplicatingUnitId !== null
                             return (
                               <TableRow key={unit.id}>
                                 <TableCell>{unit.unit_number}</TableCell>
@@ -2144,10 +2195,63 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                                 <TableCell className="max-w-72 truncate text-xs text-muted-foreground">{formatExtraParams(unit.extra_params)}</TableCell>
                                 <TableCell>
                                   <div className="flex justify-end gap-1">
-                                    <Button onClick={() => openEditUnitModal(unit)} size="icon" type="button" variant="ghost">
+                                    <Button
+                                      aria-label={`Move unit ${unit.unit_number} up`}
+                                      disabled={index === 0 || unitActionsDisabled}
+                                      onClick={() => void handleMoveUnit(unit.id, 'up')}
+                                      size="icon"
+                                      title="Move up"
+                                      type="button"
+                                      variant="ghost"
+                                    >
+                                      <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
+                                    <Button
+                                      aria-label={`Move unit ${unit.unit_number} down`}
+                                      disabled={index === units.length - 1 || unitActionsDisabled}
+                                      onClick={() => void handleMoveUnit(unit.id, 'down')}
+                                      size="icon"
+                                      title="Move down"
+                                      type="button"
+                                      variant="ghost"
+                                    >
+                                      <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                                    </Button>
+                                    <Button
+                                      aria-label={`Duplicate unit ${unit.unit_number}`}
+                                      disabled={unitActionsDisabled}
+                                      onClick={() => void handleDuplicateUnit(unit.id)}
+                                      size="icon"
+                                      title="Duplicate"
+                                      type="button"
+                                      variant="ghost"
+                                    >
+                                      {duplicatingUnitId === unit.id ? (
+                                        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                      ) : (
+                                        <Copy className="h-4 w-4" aria-hidden="true" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      aria-label={`Edit unit ${unit.unit_number}`}
+                                      disabled={unitActionsDisabled}
+                                      onClick={() => openEditUnitModal(unit)}
+                                      size="icon"
+                                      title="Edit"
+                                      type="button"
+                                      variant="ghost"
+                                    >
                                       <Pencil className="h-4 w-4" aria-hidden="true" />
                                     </Button>
-                                    <Button onClick={() => void handleDeleteUnit(unit.id)} size="icon" type="button" variant="ghost">
+                                    <Button
+                                      aria-label={`Delete unit ${unit.unit_number}`}
+                                      disabled={unitActionsDisabled}
+                                      onClick={() => void handleDeleteUnit(unit.id)}
+                                      size="icon"
+                                      title="Delete"
+                                      type="button"
+                                      variant="ghost"
+                                    >
                                       <Trash2 className="h-4 w-4" aria-hidden="true" />
                                     </Button>
                                   </div>
