@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from corequote_core.detailed_pricing import DetailedPricingSettings
+from corequote_core.hardware_pick_list import build_hardware_pick_list
 from corequote_core.quote_readiness import evaluate_quote_readiness
 from corequote_api.cutting_runtime import CutlistRuntimeService
 from corequote_api.projects_quotes_errors import (
@@ -832,6 +833,16 @@ class WorkspaceStore:
             except psycopg.errors.UndefinedTable:
                 quote_extras = []
 
+        hardware_pick_list = build_hardware_pick_list(
+            quote=quote,
+            units=units,
+            quote_extras=quote_extras,
+            slide_lookup=lookups["slides"],
+            hinge_lookup=lookups["hinges"],
+            handle_lookup=lookups["handles"],
+            extra_lookup=lookups["extras"],
+        )
+
         cutting_list = None
         cutting_error = None
         try:
@@ -879,6 +890,7 @@ class WorkspaceStore:
             cutting_list=cutting_list,
             pricing_summary=pricing_summary,
             active_price_list_id=active_price_list_id,
+            hardware_pick_list=hardware_pick_list,
             cutting_error=cutting_error,
             pricing_error=pricing_error,
         )
@@ -954,21 +966,22 @@ class WorkspaceStore:
                         (company_id, quote_id),
                     )
                     if cleaned_items:
-                        conn.executemany(
-                            """
-                            INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
-                            VALUES (%s, %s, %s, %s)
-                            """,
-                            [
-                                (
-                                    company_id,
-                                    quote_id,
-                                    row["extra_id"],
-                                    row["quantity"],
-                                )
-                                for row in cleaned_items
-                            ],
-                        )
+                        with conn.cursor() as cur:
+                            cur.executemany(
+                                """
+                                INSERT INTO quote_extras (company_id, quote_id, extra_id, quantity)
+                                VALUES (%s, %s, %s, %s)
+                                """,
+                                [
+                                    (
+                                        company_id,
+                                        quote_id,
+                                        row["extra_id"],
+                                        row["quantity"],
+                                    )
+                                    for row in cleaned_items
+                                ],
+                            )
         except psycopg.errors.UndefinedTable as exc:
             raise WorkspaceValidationError("Quote extras storage is not available. Apply the latest DB migrations.") from exc
         return self.list_quote_extras(company_id, quote_id)

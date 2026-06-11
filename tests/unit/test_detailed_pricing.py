@@ -203,6 +203,49 @@ def test_detailed_pricing_reports_grouped_missing_hardware_price():
     assert result["missing_prices"][0]["action_label"] == "Add a price for Bar · Core"
 
 
+def test_detailed_pricing_includes_hardware_pick_list_without_prices():
+    result = price_quote_detailed(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen",
+            "default_slide_id": "slide-1",
+            "default_hinge_id": "hinge-1",
+            "default_base_handle_id": "handle-base",
+            "default_drawer_handle_id": "handle-drawer",
+        },
+        units=[
+            {"unit_number": 1, "unit_type_key": "Base Draw", "height": 780, "extra_params": {"num_drawers": 3}},
+            {"unit_number": 2, "unit_type_key": "Base Door", "height": 780, "extra_params": {"num_doors": 2}},
+        ],
+        quote_extras=[{"extra_id": "extra-1", "quantity": 2}],
+        cutting_rows=[],
+        settings=DetailedPricingSettings(),
+        price_lookup={},
+        board_lookup={},
+        slide_lookup={"slide-1": {"brand": "Grass", "model": "Dynapro", "code": "500"}},
+        hinge_lookup={"hinge-1": {"brand": "Blum", "model": "Clip top", "code": "110"}},
+        handle_lookup={
+            "handle-base": {"name": "Base pull", "supplier": "Core", "code": "B128"},
+            "handle-drawer": {"name": "Drawer pull", "supplier": "Core", "code": "D192"},
+        },
+        extra_lookup={"extra-1": {"name": "Waste removal", "supplier": "Core", "code": "WR1"}},
+        active_price_list_id=None,
+    )
+
+    pick_list = result["hardware_pick_list"]
+    items = {item["item_key"]: item for item in pick_list["items"]}
+
+    assert result["is_complete"] is False
+    assert pick_list["warnings"] == []
+    assert items["slide::slide-1"]["quantity"] == 3
+    assert items["hinge::hinge-1"]["quantity"] == 4
+    assert items["handle::handle-drawer"]["quantity"] == 3
+    assert items["handle::handle-base"]["quantity"] == 2
+    assert items["extra::extra-1"]["quantity"] == 2
+    assert "cost_total_cents" not in items["slide::slide-1"]
+    assert "sell_total_cents" not in items["extra::extra-1"]
+
+
 def test_detailed_pricing_material_summary_groups_board_roles_and_sheet_estimates():
     result = price_quote_detailed(
         quote={

@@ -691,6 +691,27 @@ def test_get_project_pricing_returns_quote_material_summary():
     assert summary["warnings"][0]["message"] == "Add sheet length and width for Egger Oak look (18mm) to estimate sheets."
 
 
+def test_get_project_pricing_returns_quote_hardware_pick_list():
+    payload = project_pricing("project-1", hardware_pick_list=hardware_pick_list())
+    store = FakeWorkspaceStore(project_pricing_payload=payload)
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/projects/project-1/pricing", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    pick_list = response.json()["quotes"][0]["hardware_pick_list"]
+    assert pick_list["total_item_count"] == 2
+    assert pick_list["total_quantity"] == 7
+    assert pick_list["items"][0]["item_type"] == "slide"
+    assert pick_list["items"][0]["supplier"] == "Grass"
+    assert pick_list["items"][0]["code"] == "S500"
+    assert pick_list["items"][0]["used_in"] == ["Unit 1 drawers"]
+    assert pick_list["warnings"][0]["code"] == "missing_handle_selection"
+
+
 def test_project_pricing_settings_read_and_update():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
@@ -1026,6 +1047,7 @@ def project_pricing(
     missing_prices: list[dict] | None = None,
     quote_missing_prices: list[dict] | None = None,
     material_summary: dict | None = None,
+    hardware_pick_list: dict | None = None,
 ) -> dict:
     return {
         "project_id": project_id,
@@ -1060,6 +1082,7 @@ def project_pricing(
                 "is_complete": is_complete,
                 "missing_items": [],
                 "material_summary": material_summary or {"groups": [], "warnings": [], "total_area_m2": 0, "total_piece_count": 0, "total_edge_m": 0, "total_estimated_sheets": None},
+                "hardware_pick_list": hardware_pick_list or {"items": [], "warnings": [], "total_item_count": 0, "total_quantity": 0},
                 "missing_prices": quote_missing_prices or [],
                 "subtotal_cents": 346783,
                 "cost_total_cents": 346783,
@@ -1071,6 +1094,53 @@ def project_pricing(
                 "lines": [],
             }
         ],
+    }
+
+
+def hardware_pick_list() -> dict:
+    return {
+        "items": [
+            {
+                "item_type": "slide",
+                "type_label": "Slides",
+                "item_key": "slide::slide-1",
+                "item_ref_id": "slide-1",
+                "item_name": "Grass Dynapro",
+                "supplier": "Grass",
+                "code": "S500",
+                "quantity": 3,
+                "uom": "pairs",
+                "unit_numbers": [1],
+                "used_in": ["Unit 1 drawers"],
+                "usage_label": "Unit 1 drawers",
+            },
+            {
+                "item_type": "extra",
+                "type_label": "Extras",
+                "item_key": "extra::extra-1",
+                "item_ref_id": "extra-1",
+                "item_name": "Waste removal",
+                "supplier": "Core",
+                "code": "WR1",
+                "quantity": 4,
+                "uom": "pcs",
+                "unit_numbers": [],
+                "used_in": ["Quote extra"],
+                "usage_label": "Quote extra",
+            },
+        ],
+        "warnings": [
+            {
+                "severity": "warning",
+                "code": "missing_handle_selection",
+                "item_type": "handle",
+                "unit_number": 1,
+                "item_ref_id": None,
+                "message": "Choose a drawer handle for Unit 1 drawers.",
+            }
+        ],
+        "total_item_count": 2,
+        "total_quantity": 7,
     }
 
 

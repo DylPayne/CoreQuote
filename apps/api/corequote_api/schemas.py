@@ -16,6 +16,13 @@ QuoteReadinessSeverity = Literal["pass", "warning", "error"]
 QuoteReadinessActionTarget = Literal["project", "quote", "units", "panels", "cutting-lists", "pricing", "outputs"]
 MaterialRole = Literal["carcass", "door_panel", "visible_panel"]
 MaterialSummaryWarningCode = Literal["missing_board_selection", "missing_board_record", "missing_board_dimensions"]
+HardwarePickListItemType = Literal["slide", "hinge", "handle", "extra"]
+HardwarePickListWarningCode = Literal[
+    "missing_slide_selection",
+    "missing_hinge_selection",
+    "missing_handle_selection",
+    "missing_catalog_item",
+]
 
 
 class HealthResponse(BaseModel):
@@ -511,6 +518,37 @@ class MaterialSummaryResponse(BaseModel):
     total_estimated_sheets: int | None = Field(default=None, ge=0)
 
 
+class HardwarePickListItemResponse(BaseModel):
+    item_type: HardwarePickListItemType
+    type_label: str
+    item_key: str
+    item_ref_id: str
+    item_name: str
+    supplier: str = ""
+    code: str = ""
+    quantity: int = Field(ge=0)
+    uom: str
+    unit_numbers: list[int] = Field(default_factory=list)
+    used_in: list[str] = Field(default_factory=list)
+    usage_label: str = ""
+
+
+class HardwarePickListWarningResponse(BaseModel):
+    severity: Literal["warning"] = "warning"
+    code: HardwarePickListWarningCode
+    item_type: HardwarePickListItemType
+    unit_number: int = Field(ge=0)
+    item_ref_id: str | None = None
+    message: str
+
+
+class HardwarePickListResponse(BaseModel):
+    items: list[HardwarePickListItemResponse] = Field(default_factory=list)
+    warnings: list[HardwarePickListWarningResponse] = Field(default_factory=list)
+    total_item_count: int = Field(default=0, ge=0)
+    total_quantity: int = Field(default=0, ge=0)
+
+
 class MissingPriceResponse(BaseModel):
     item_type: Literal[
         "board",
@@ -599,6 +637,7 @@ class QuotePricingSummaryResponse(BaseModel):
     cutlist_warnings: list[CutlistValidationWarningResponse] = Field(default_factory=list)
     missing_prices: list[MissingPriceResponse] = Field(default_factory=list)
     material_summary: MaterialSummaryResponse = Field(default_factory=MaterialSummaryResponse)
+    hardware_pick_list: HardwarePickListResponse = Field(default_factory=HardwarePickListResponse)
     subtotal_cents: int = 0
     cost_total_cents: int = 0
     sell_before_vat_cents: int = 0
