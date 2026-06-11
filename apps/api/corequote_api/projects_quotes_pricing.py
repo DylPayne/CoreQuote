@@ -74,6 +74,7 @@ def _build_cutting_list_preview(
             unit,
             quote=quote,
             board_lookup=board_lookup,
+            slide_lookup=slide_lookup,
             default_slide=default_slide,
             allow_missing_board_fallback=True,
         )
@@ -138,18 +139,20 @@ def _to_runtime_unit(
     *,
     quote: dict[str, Any],
     board_lookup: dict[str, dict[str, Any]],
+    slide_lookup: dict[str, dict[str, Any]],
     default_slide: dict[str, Any] | None,
     allow_missing_board_fallback: bool = False,
 ) -> dict[str, Any]:
     extra_params = dict(unit.get("extra_params") or {})
-    if default_slide:
-        extra_params.setdefault("slide_brand", default_slide.get("brand", ""))
-        extra_params.setdefault("slide_model", default_slide.get("model", ""))
-        extra_params.setdefault("slide_code", default_slide.get("code", ""))
-        extra_params.setdefault("slide_length", int(default_slide.get("length", 0) or 0))
-        extra_params.setdefault("slide_side_length", int(default_slide.get("side_length", 0) or 0))
-        extra_params.setdefault("slide_side_clearance_total", int(default_slide.get("side_clearance_total", 0) or 0))
-        extra_params.setdefault("slide_side_height_uplift", int(default_slide.get("side_height_uplift", 0) or 0))
+    unit_slide = slide_lookup.get(str(extra_params.get("slide_id") or "")) or default_slide
+    if unit_slide:
+        extra_params.setdefault("slide_brand", unit_slide.get("brand", ""))
+        extra_params.setdefault("slide_model", unit_slide.get("model", ""))
+        extra_params.setdefault("slide_code", unit_slide.get("code", ""))
+        extra_params.setdefault("slide_length", int(unit_slide.get("length", 0) or 0))
+        extra_params.setdefault("slide_side_length", int(unit_slide.get("side_length", 0) or 0))
+        extra_params.setdefault("slide_side_clearance_total", int(unit_slide.get("side_clearance_total", 0) or 0))
+        extra_params.setdefault("slide_side_height_uplift", int(unit_slide.get("side_height_uplift", 0) or 0))
     try:
         thickness = _resolved_unit_thickness(unit, quote=quote, board_lookup=board_lookup)
     except WorkspaceValidationError as exc:

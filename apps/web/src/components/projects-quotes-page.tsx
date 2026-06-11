@@ -125,6 +125,23 @@ type BulkUnitTemplate = {
   width: string
 }
 
+type BulkApplyDraft = {
+  apply_carcass_board_type_id: boolean
+  carcass_board_type_id: string
+  apply_door_board_type_id: boolean
+  door_board_type_id: string
+  apply_handle_id: boolean
+  handle_id: string
+  apply_slide_id: boolean
+  slide_id: string
+  apply_hinge_id: boolean
+  hinge_id: string
+  apply_height: boolean
+  height: string
+  apply_depth: boolean
+  depth: string
+}
+
 const smithKitchenBulkTemplates: BulkUnitTemplate[] = [
   { unit_type_key: 'Base Door', width: '600' },
   { unit_type_key: 'Base Door', width: '600' },
@@ -139,6 +156,25 @@ let bulkUnitRowCounter = 0
 function nextBulkUnitRowKey() {
   bulkUnitRowCounter += 1
   return `bulk-unit-${bulkUnitRowCounter}`
+}
+
+function defaultBulkApplyDraft(): BulkApplyDraft {
+  return {
+    apply_carcass_board_type_id: false,
+    carcass_board_type_id: '',
+    apply_door_board_type_id: false,
+    door_board_type_id: '',
+    apply_handle_id: false,
+    handle_id: '',
+    apply_slide_id: false,
+    slide_id: '',
+    apply_hinge_id: false,
+    hinge_id: '',
+    apply_height: false,
+    height: '',
+    apply_depth: false,
+    depth: '',
+  }
 }
 
 function formatSupplierCode(supplier: string, code: string) {
@@ -627,12 +663,14 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [search, setSearch] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null)
+  const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([])
 
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft)
   const [quoteDraft, setQuoteDraft] = useState<QuoteDraft>(defaultQuoteDraft)
   const [unitDraft, setUnitDraft] = useState<UnitDraft>(defaultUnitDraft)
   const [bulkUnitRows, setBulkUnitRows] = useState<BulkUnitGridRow[]>([])
   const [bulkUnitErrors, setBulkUnitErrors] = useState<Record<string, string>>({})
+  const [bulkApplyDraft, setBulkApplyDraft] = useState<BulkApplyDraft>(defaultBulkApplyDraft)
   const [projectPricingSettingsDraft, setProjectPricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
   const [quotePricingSettingsDraft, setQuotePricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
 
@@ -644,6 +682,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false)
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false)
   const [isBulkUnitModalOpen, setIsBulkUnitModalOpen] = useState(false)
+  const [isBulkApplyModalOpen, setIsBulkApplyModalOpen] = useState(false)
 
   const [isLoadingProjects, setIsLoadingProjects] = useState(true)
   const [isLoadingQuotes, setIsLoadingQuotes] = useState(false)
@@ -663,6 +702,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [duplicatingUnitId, setDuplicatingUnitId] = useState<string | null>(null)
   const [isReorderingUnits, setIsReorderingUnits] = useState(false)
   const [isSavingBulkUnits, setIsSavingBulkUnits] = useState(false)
+  const [isSavingBulkApply, setIsSavingBulkApply] = useState(false)
   const [isSavingQuoteExtras, setIsSavingQuoteExtras] = useState(false)
   const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
   const [isSavingProjectPricingSettings, setIsSavingProjectPricingSettings] = useState(false)
@@ -720,6 +760,16 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     0,
   ) ?? 0
   const panelFamilyCounts = useMemo(() => countPanelFamilies(units), [units])
+  const selectedUnitCount = selectedUnitIds.length
+
+  useEffect(() => {
+    const visibleUnitIds = new Set(units.map((unit) => unit.id))
+    setSelectedUnitIds((current) => current.filter((unitId) => visibleUnitIds.has(unitId)))
+  }, [units])
+
+  useEffect(() => {
+    setSelectedUnitIds([])
+  }, [selectedQuoteId])
 
   const loadLibraries = useCallback(async () => {
     setIsLoadingLibraries(true)
@@ -1336,6 +1386,32 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     setBulkUnitRows((current) => [...current, bulkRowForTemplate({ unit_type_key: 'Base Door', width: '600' })])
   }
 
+  function toggleUnitSelection(unitId: string, selected: boolean) {
+    setSelectedUnitIds((current) => {
+      if (selected) {
+        return current.includes(unitId) ? current : [...current, unitId]
+      }
+      return current.filter((id) => id !== unitId)
+    })
+  }
+
+  function toggleAllUnits(selected: boolean) {
+    setSelectedUnitIds(selected ? units.map((unit) => unit.id) : [])
+  }
+
+  function openBulkApplyModal() {
+    if (!selectedQuote || selectedUnitIds.length === 0) return
+    setModalError(null)
+    setBulkApplyDraft({
+      ...defaultBulkApplyDraft(),
+      carcass_board_type_id: selectedQuote.default_carcass_board_type_id ?? '',
+      door_board_type_id: selectedQuote.default_door_board_type_id ?? '',
+      height: '',
+      depth: '',
+    })
+    setIsBulkApplyModalOpen(true)
+  }
+
   function updateBulkUnitRow(rowKey: string, patch: Partial<BulkUnitGridRow>) {
     setBulkUnitRows((current) => current.map((row) => (row.rowKey === rowKey ? { ...row, ...patch } : row)))
     setBulkUnitErrors((current) => {
@@ -1343,6 +1419,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       delete next[rowKey]
       return next
     })
+  }
+
+  function updateBulkApplyDraft(patch: Partial<BulkApplyDraft>) {
+    setBulkApplyDraft((current) => ({ ...current, ...patch }))
   }
 
   function handleBulkUnitTypeChange(row: BulkUnitGridRow, nextValue: string) {
@@ -1686,6 +1766,83 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       setModalError(message)
     } finally {
       setIsSavingBulkUnits(false)
+    }
+  }
+
+  function bulkApplyPayload(): { ok: true; payload: Record<string, unknown> } | { ok: false; error: string } {
+    const payload: Record<string, unknown> = { unit_ids: selectedUnitIds }
+    let fieldCount = 0
+
+    if (bulkApplyDraft.apply_carcass_board_type_id) {
+      payload.carcass_board_type_id = bulkApplyDraft.carcass_board_type_id || null
+      fieldCount += 1
+    }
+    if (bulkApplyDraft.apply_door_board_type_id) {
+      payload.door_board_type_id = bulkApplyDraft.door_board_type_id || null
+      fieldCount += 1
+    }
+    if (bulkApplyDraft.apply_handle_id) {
+      payload.handle_id = bulkApplyDraft.handle_id || null
+      fieldCount += 1
+    }
+    if (bulkApplyDraft.apply_slide_id) {
+      payload.slide_id = bulkApplyDraft.slide_id || null
+      fieldCount += 1
+    }
+    if (bulkApplyDraft.apply_hinge_id) {
+      payload.hinge_id = bulkApplyDraft.hinge_id || null
+      fieldCount += 1
+    }
+    if (bulkApplyDraft.apply_height) {
+      const height = Number(bulkApplyDraft.height)
+      if (!Number.isInteger(height) || height <= 0) {
+        return { ok: false, error: 'Height must be a positive whole number.' }
+      }
+      payload.height = height
+      fieldCount += 1
+    }
+    if (bulkApplyDraft.apply_depth) {
+      const depth = Number(bulkApplyDraft.depth)
+      if (!Number.isInteger(depth) || depth <= 0) {
+        return { ok: false, error: 'Depth must be a positive whole number.' }
+      }
+      payload.depth = depth
+      fieldCount += 1
+    }
+    if (fieldCount === 0) {
+      return { ok: false, error: 'Choose at least one field to apply.' }
+    }
+    return { ok: true, payload }
+  }
+
+  async function handleBulkApplySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedQuoteId || selectedUnitIds.length === 0) return
+    const nextPayload = bulkApplyPayload()
+    if (!nextPayload.ok) {
+      setModalError(nextPayload.error)
+      return
+    }
+
+    setIsSavingBulkApply(true)
+    setError(null)
+    setModalError(null)
+    try {
+      const savedRows = await apiRequest<UnitRow[]>(`/api/v1/quotes/${selectedQuoteId}/units/bulk-apply`, {
+        method: 'PATCH',
+        token: authToken,
+        body: nextPayload.payload,
+      })
+      setUnits(savedRows)
+      setSelectedUnitIds([])
+      setIsBulkApplyModalOpen(false)
+      await refreshAfterUnitMutation(selectedQuoteId, { reloadUnits: false })
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Could not apply unit changes.'
+      setError(message)
+      setModalError(message)
+    } finally {
+      setIsSavingBulkApply(false)
     }
   }
 
@@ -2137,6 +2294,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                         <ClipboardList className="h-4 w-4" aria-hidden="true" />
                         Bulk entry
                       </Button>
+                      <Button disabled={!selectedQuote || selectedUnitCount === 0} onClick={openBulkApplyModal} type="button" variant="outline">
+                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                        {`Bulk apply (${selectedUnitCount})`}
+                      </Button>
                     </div>
                   ) : null}
                 </div>
@@ -2336,6 +2497,14 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-10">
+                            <Checkbox
+                              aria-label="Select all units"
+                              checked={units.length > 0 && selectedUnitIds.length === units.length}
+                              disabled={units.length === 0}
+                              onChange={(event) => toggleAllUnits(event.target.checked)}
+                            />
+                          </TableHead>
                           <TableHead>#</TableHead>
                           <TableHead>Type</TableHead>
                           <TableHead>Dimensions (mm)</TableHead>
@@ -2347,7 +2516,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                       <TableBody>
                         {units.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={6}>
+                            <TableCell colSpan={7}>
                               <div className="grid gap-1 py-3">
                                 <p className="font-medium">Add the cabinets or built-ins for this quote.</p>
                                 <p className="text-sm leading-5 text-muted-foreground">
@@ -2363,6 +2532,13 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                             const unitActionsDisabled = isReorderingUnits || duplicatingUnitId !== null
                             return (
                               <TableRow key={unit.id}>
+                                <TableCell>
+                                  <Checkbox
+                                    aria-label={`Select unit ${unit.unit_number}`}
+                                    checked={selectedUnitIds.includes(unit.id)}
+                                    onChange={(event) => toggleUnitSelection(unit.id, event.target.checked)}
+                                  />
+                                </TableCell>
                                 <TableCell>{unit.unit_number}</TableCell>
                                 <TableCell>{unit.unit_type_key}</TableCell>
                                 <TableCell>{`${unit.height} x ${unit.width} x ${unit.depth} · t${unit.thickness}`}</TableCell>
@@ -3434,6 +3610,173 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                   Save units
                 </Button>
               </div>
+            </div>
+          </form>
+        </ModalCard>
+      ) : null}
+
+      {isBulkApplyModalOpen ? (
+        <ModalCard title="Bulk Apply" onClose={() => setIsBulkApplyModalOpen(false)}>
+          <form className="grid gap-4" onSubmit={handleBulkApplySubmit}>
+            {modalError ? <Alert variant="destructive">{modalError}</Alert> : null}
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Badge variant="outline">{`${selectedUnitCount} ${selectedUnitCount === 1 ? 'unit' : 'units'} selected`}</Badge>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={bulkApplyDraft.apply_carcass_board_type_id}
+                    onChange={(event) => updateBulkApplyDraft({ apply_carcass_board_type_id: event.target.checked })}
+                  />
+                  Carcass board
+                </Label>
+                <Select
+                  disabled={!bulkApplyDraft.apply_carcass_board_type_id}
+                  onChange={(event) => updateBulkApplyDraft({ carcass_board_type_id: event.target.value })}
+                  value={bulkApplyDraft.carcass_board_type_id}
+                >
+                  <option value="">Use quote default</option>
+                  {boards.map((board) => (
+                    <option key={board.id} value={board.id}>
+                      {`${board.brand} ${board.material} (${board.thickness}mm)`}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={bulkApplyDraft.apply_door_board_type_id}
+                    onChange={(event) => updateBulkApplyDraft({ apply_door_board_type_id: event.target.checked })}
+                  />
+                  Door board
+                </Label>
+                <Select
+                  disabled={!bulkApplyDraft.apply_door_board_type_id}
+                  onChange={(event) => updateBulkApplyDraft({ door_board_type_id: event.target.value })}
+                  value={bulkApplyDraft.door_board_type_id}
+                >
+                  <option value="">Use quote default</option>
+                  {boards.map((board) => (
+                    <option key={board.id} value={board.id}>
+                      {`${board.brand} ${board.material} (${board.thickness}mm)`}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={bulkApplyDraft.apply_handle_id}
+                    onChange={(event) => updateBulkApplyDraft({ apply_handle_id: event.target.checked })}
+                  />
+                  Handle
+                </Label>
+                <Select
+                  disabled={!bulkApplyDraft.apply_handle_id}
+                  onChange={(event) => updateBulkApplyDraft({ handle_id: event.target.value })}
+                  value={bulkApplyDraft.handle_id}
+                >
+                  <option value="">Use quote default</option>
+                  {handles.map((handle) => (
+                    <option key={handle.id} value={handle.id}>
+                      {`${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}`}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={bulkApplyDraft.apply_slide_id}
+                    onChange={(event) => updateBulkApplyDraft({ apply_slide_id: event.target.checked })}
+                  />
+                  Slide
+                </Label>
+                <Select
+                  disabled={!bulkApplyDraft.apply_slide_id}
+                  onChange={(event) => updateBulkApplyDraft({ slide_id: event.target.value })}
+                  value={bulkApplyDraft.slide_id}
+                >
+                  <option value="">Use quote default</option>
+                  {slides.map((slide) => (
+                    <option key={slide.id} value={slide.id}>
+                      {`${slide.brand} ${slide.model}${slide.code ? ` (${slide.code})` : ''}`}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={bulkApplyDraft.apply_hinge_id}
+                    onChange={(event) => updateBulkApplyDraft({ apply_hinge_id: event.target.checked })}
+                  />
+                  Hinge
+                </Label>
+                <Select
+                  disabled={!bulkApplyDraft.apply_hinge_id}
+                  onChange={(event) => updateBulkApplyDraft({ hinge_id: event.target.value })}
+                  value={bulkApplyDraft.hinge_id}
+                >
+                  <option value="">Use quote default</option>
+                  {hinges.map((hinge) => (
+                    <option key={hinge.id} value={hinge.id}>
+                      {`${hinge.brand} ${hinge.model} (${hinge.opening_angle_deg}deg)`}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={bulkApplyDraft.apply_height}
+                    onChange={(event) => updateBulkApplyDraft({ apply_height: event.target.checked })}
+                  />
+                  Height
+                </Label>
+                <Input
+                  disabled={!bulkApplyDraft.apply_height}
+                  min={1}
+                  onChange={(event) => updateBulkApplyDraft({ height: event.target.value })}
+                  type="number"
+                  value={bulkApplyDraft.height}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={bulkApplyDraft.apply_depth}
+                    onChange={(event) => updateBulkApplyDraft({ apply_depth: event.target.checked })}
+                  />
+                  Depth
+                </Label>
+                <Input
+                  disabled={!bulkApplyDraft.apply_depth}
+                  min={1}
+                  onChange={(event) => updateBulkApplyDraft({ depth: event.target.value })}
+                  type="number"
+                  value={bulkApplyDraft.depth}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setIsBulkApplyModalOpen(false)} type="button" variant="outline">
+                Cancel
+              </Button>
+              <Button disabled={isSavingBulkApply} type="submit">
+                {isSavingBulkApply ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                Apply changes
+              </Button>
             </div>
           </form>
         </ModalCard>
