@@ -255,6 +255,16 @@ class QuoteUnitResponse(QuoteUnitRequest):
     updated_at: datetime
 
 
+class QuoteUnitBulkRowRequest(QuoteUnitRequest):
+    id: str | None = None
+
+
+class QuoteUnitBulkSaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    units: list[QuoteUnitBulkRowRequest] = Field(min_length=1)
+
+
 class QuoteUnitReorderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

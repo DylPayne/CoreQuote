@@ -30,6 +30,7 @@ from corequote_api.schemas import (
     QuoteRequest,
     QuoteResponse,
     QuoteStatusRequest,
+    QuoteUnitBulkSaveRequest,
     QuoteUnitReorderRequest,
     QuoteUnitRequest,
     QuoteUnitResponse,
@@ -264,6 +265,32 @@ def duplicate_unit(
     except WorkspaceConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return QuoteUnitResponse.model_validate(row)
+
+
+@router.put(
+    "/quotes/{quote_id}/units/bulk",
+    response_model=list[QuoteUnitResponse],
+    summary="Bulk save quote units",
+)
+def bulk_save_units(
+    quote_id: str,
+    payload: QuoteUnitBulkSaveRequest,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> list[QuoteUnitResponse]:
+    try:
+        rows = store.bulk_save_units(
+            current_user.company_id,
+            quote_id,
+            [row.model_dump() for row in payload.units],
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return [QuoteUnitResponse.model_validate(row) for row in rows]
 
 
 @router.put(

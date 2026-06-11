@@ -18,7 +18,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -113,6 +113,32 @@ function formatMissingPriceCount(count: number) {
 
 function formatPickListCount(count: number) {
   return `${count} ${count === 1 ? 'line' : 'lines'}`
+}
+
+type BulkUnitGridRow = UnitDraft & {
+  id: string | null
+  rowKey: string
+}
+
+type BulkUnitTemplate = {
+  unit_type_key: UnitPresetKey
+  width: string
+}
+
+const smithKitchenBulkTemplates: BulkUnitTemplate[] = [
+  { unit_type_key: 'Base Door', width: '600' },
+  { unit_type_key: 'Base Door', width: '600' },
+  { unit_type_key: 'Base Draw', width: '900' },
+  { unit_type_key: 'Wall Door', width: '600' },
+  { unit_type_key: 'Wall Door', width: '600' },
+  { unit_type_key: 'Tall Door', width: '600' },
+]
+
+let bulkUnitRowCounter = 0
+
+function nextBulkUnitRowKey() {
+  bulkUnitRowCounter += 1
+  return `bulk-unit-${bulkUnitRowCounter}`
 }
 
 function formatSupplierCode(supplier: string, code: string) {
@@ -605,6 +631,8 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft)
   const [quoteDraft, setQuoteDraft] = useState<QuoteDraft>(defaultQuoteDraft)
   const [unitDraft, setUnitDraft] = useState<UnitDraft>(defaultUnitDraft)
+  const [bulkUnitRows, setBulkUnitRows] = useState<BulkUnitGridRow[]>([])
+  const [bulkUnitErrors, setBulkUnitErrors] = useState<Record<string, string>>({})
   const [projectPricingSettingsDraft, setProjectPricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
   const [quotePricingSettingsDraft, setQuotePricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
 
@@ -615,6 +643,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false)
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false)
+  const [isBulkUnitModalOpen, setIsBulkUnitModalOpen] = useState(false)
 
   const [isLoadingProjects, setIsLoadingProjects] = useState(true)
   const [isLoadingQuotes, setIsLoadingQuotes] = useState(false)
@@ -633,6 +662,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   const [isCreatingQuoteRevision, setIsCreatingQuoteRevision] = useState(false)
   const [duplicatingUnitId, setDuplicatingUnitId] = useState<string | null>(null)
   const [isReorderingUnits, setIsReorderingUnits] = useState(false)
+  const [isSavingBulkUnits, setIsSavingBulkUnits] = useState(false)
   const [isSavingQuoteExtras, setIsSavingQuoteExtras] = useState(false)
   const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
   const [isSavingProjectPricingSettings, setIsSavingProjectPricingSettings] = useState(false)
@@ -1257,6 +1287,79 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     setIsUnitModalOpen(true)
   }
 
+  function bulkRowForTemplate(template: BulkUnitTemplate): BulkUnitGridRow {
+    const dims = resolveDefaultDims(selectedQuote?.unit_defaults ?? fallbackUnitDefaults, template.unit_type_key)
+    return {
+      ...defaultUnitDraft,
+      id: null,
+      rowKey: nextBulkUnitRowKey(),
+      unit_type_key: template.unit_type_key,
+      custom_unit_type_key: '',
+      width: template.width,
+      height: String(dims.height),
+      depth: String(dims.depth),
+      carcass_board_type_id: selectedQuote?.default_carcass_board_type_id ?? '',
+      door_board_type_id: selectedQuote?.default_door_board_type_id ?? '',
+      num_drawers: template.unit_type_key === 'Base Draw' ? '3' : defaultUnitDraft.num_drawers,
+      num_doors: template.unit_type_key === 'Base Draw' ? defaultUnitDraft.num_doors : '2',
+      num_shelves: template.unit_type_key === 'Base Draw' ? defaultUnitDraft.num_shelves : '1',
+    }
+  }
+
+  function bulkRowFromUnit(unit: UnitRow): BulkUnitGridRow {
+    const unitTypeIsPreset = unitPresets.includes(unit.unit_type_key as UnitPresetKey)
+    return {
+      id: unit.id,
+      rowKey: nextBulkUnitRowKey(),
+      unit_type_key: unitTypeIsPreset ? unit.unit_type_key : customUnitTypeValue,
+      custom_unit_type_key: unitTypeIsPreset ? '' : unit.unit_type_key,
+      height: String(unit.height),
+      width: String(unit.width),
+      depth: String(unit.depth),
+      carcass_board_type_id: unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? '',
+      door_board_type_id: unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? '',
+      num_drawers: String(numberFromExtra(unit.extra_params, 'num_drawers', 3)),
+      num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
+      num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
+    }
+  }
+
+  function openBulkUnitModal() {
+    if (!selectedQuote) return
+    setModalError(null)
+    setBulkUnitErrors({})
+    setBulkUnitRows(units.length > 0 ? units.map((unit) => bulkRowFromUnit(unit)) : smithKitchenBulkTemplates.map((template) => bulkRowForTemplate(template)))
+    setIsBulkUnitModalOpen(true)
+  }
+
+  function addBulkUnitRow() {
+    setBulkUnitRows((current) => [...current, bulkRowForTemplate({ unit_type_key: 'Base Door', width: '600' })])
+  }
+
+  function updateBulkUnitRow(rowKey: string, patch: Partial<BulkUnitGridRow>) {
+    setBulkUnitRows((current) => current.map((row) => (row.rowKey === rowKey ? { ...row, ...patch } : row)))
+    setBulkUnitErrors((current) => {
+      const next = { ...current }
+      delete next[rowKey]
+      return next
+    })
+  }
+
+  function handleBulkUnitTypeChange(row: BulkUnitGridRow, nextValue: string) {
+    if (nextValue === customUnitTypeValue) {
+      updateBulkUnitRow(row.rowKey, { unit_type_key: customUnitTypeValue })
+      return
+    }
+    const nextType = nextValue as UnitPresetKey
+    const dims = resolveDefaultDims(selectedQuote?.unit_defaults ?? fallbackUnitDefaults, nextType)
+    updateBulkUnitRow(row.rowKey, {
+      unit_type_key: nextType,
+      custom_unit_type_key: '',
+      height: String(dims.height),
+      depth: String(dims.depth),
+    })
+  }
+
   async function handleSaveQuoteCustomPanels() {
     if (!selectedQuoteId || !quoteCustomPanels) return
     setIsSavingQuoteCustomPanels(true)
@@ -1515,6 +1618,74 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       setModalError(message)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  function validateBulkUnitRows() {
+    const nextErrors: Record<string, string> = {}
+    bulkUnitRows.forEach((row) => {
+      const unitType = resolvedUnitType(row).trim()
+      const width = Number(row.width)
+      const height = Number(row.height)
+      const depth = Number(row.depth)
+      const isDrawer = unitType.toLowerCase().includes('draw')
+      const drawers = Number(row.num_drawers)
+      const doors = Number(row.num_doors)
+      const shelves = Number(row.num_shelves)
+
+      if (!unitType) {
+        nextErrors[row.rowKey] = 'Unit type is required.'
+      } else if (!Number.isInteger(width) || width <= 0) {
+        nextErrors[row.rowKey] = 'Width must be a positive whole number.'
+      } else if (!Number.isInteger(height) || height <= 0) {
+        nextErrors[row.rowKey] = 'Height must be a positive whole number.'
+      } else if (!Number.isInteger(depth) || depth <= 0) {
+        nextErrors[row.rowKey] = 'Depth must be a positive whole number.'
+      } else if (!row.carcass_board_type_id) {
+        nextErrors[row.rowKey] = 'Carcass board is required.'
+      } else if (isDrawer && (!Number.isInteger(drawers) || drawers <= 0)) {
+        nextErrors[row.rowKey] = 'Drawers must be a positive whole number.'
+      } else if (!isDrawer && (!Number.isInteger(doors) || doors <= 0)) {
+        nextErrors[row.rowKey] = 'Doors must be a positive whole number.'
+      } else if (!isDrawer && (!Number.isInteger(shelves) || shelves < 0)) {
+        nextErrors[row.rowKey] = 'Shelves must be zero or a whole number.'
+      }
+    })
+    setBulkUnitErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
+  async function handleBulkUnitSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedQuoteId) return
+    if (!validateBulkUnitRows()) {
+      setModalError('Fix the highlighted rows before saving.')
+      return
+    }
+
+    setIsSavingBulkUnits(true)
+    setError(null)
+    setModalError(null)
+    try {
+      const savedRows = await apiRequest<UnitRow[]>(`/api/v1/quotes/${selectedQuoteId}/units/bulk`, {
+        method: 'PUT',
+        token: authToken,
+        body: {
+          units: bulkUnitRows.map((row) => ({
+            id: row.id,
+            ...unitPayloadFromDraft(row),
+          })),
+        },
+      })
+      setUnits(savedRows)
+      setIsBulkUnitModalOpen(false)
+      await refreshAfterUnitMutation(selectedQuoteId, { reloadUnits: false })
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Could not save bulk units.'
+      setError(message)
+      setModalError(message)
+    } finally {
+      setIsSavingBulkUnits(false)
     }
   }
 
@@ -1961,6 +2132,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                       <Button disabled={!selectedQuote} onClick={openCreateUnitModal} type="button">
                         <Plus className="h-4 w-4" aria-hidden="true" />
                         Add unit
+                      </Button>
+                      <Button disabled={!selectedQuote} onClick={openBulkUnitModal} type="button" variant="outline">
+                        <ClipboardList className="h-4 w-4" aria-hidden="true" />
+                        Bulk entry
                       </Button>
                     </div>
                   ) : null}
@@ -3087,6 +3262,178 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                 {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
                 Save unit
               </Button>
+            </div>
+          </form>
+        </ModalCard>
+      ) : null}
+
+      {isBulkUnitModalOpen ? (
+        <ModalCard title="Bulk Unit Entry" onClose={() => setIsBulkUnitModalOpen(false)}>
+          <form className="grid gap-3" onSubmit={handleBulkUnitSubmit}>
+            {modalError ? <Alert variant="destructive">{modalError}</Alert> : null}
+            {boards.length === 0 ? (
+              <Alert className="text-xs">
+                Add board materials in Libraries before saving units. Every row needs at least a carcass board for cutlists and pricing.
+              </Alert>
+            ) : null}
+
+            <TableContainer>
+              <Table className="min-w-[1120px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12">#</TableHead>
+                    <TableHead className="w-40">Type</TableHead>
+                    <TableHead className="w-28">Width</TableHead>
+                    <TableHead className="w-28">Height</TableHead>
+                    <TableHead className="w-28">Depth</TableHead>
+                    <TableHead className="w-56">Carcass</TableHead>
+                    <TableHead className="w-56">Door</TableHead>
+                    <TableHead className="w-32">Count</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {bulkUnitRows.map((row, index) => {
+                    const unitType = resolvedUnitType(row)
+                    const isDrawer = unitType.toLowerCase().includes('draw')
+                    return (
+                      <Fragment key={row.rowKey}>
+                        <TableRow>
+                          <TableCell>{index + 1}</TableCell>
+                          <TableCell>
+                            <Select
+                              aria-label={`Row ${index + 1} unit type`}
+                              onChange={(event) => handleBulkUnitTypeChange(row, event.target.value)}
+                              value={row.unit_type_key}
+                            >
+                              {unitPresets.map((unitTypeOption) => (
+                                <option key={unitTypeOption} value={unitTypeOption}>
+                                  {unitTypeOption}
+                                </option>
+                              ))}
+                              <option value={customUnitTypeValue}>Custom</option>
+                            </Select>
+                            {row.unit_type_key === customUnitTypeValue ? (
+                              <Input
+                                aria-label={`Row ${index + 1} custom unit type`}
+                                className="mt-2"
+                                onChange={(event) => updateBulkUnitRow(row.rowKey, { custom_unit_type_key: event.target.value })}
+                                value={row.custom_unit_type_key}
+                              />
+                            ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-label={`Row ${index + 1} width`}
+                              min={1}
+                              onChange={(event) => updateBulkUnitRow(row.rowKey, { width: event.target.value })}
+                              required
+                              type="number"
+                              value={row.width}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-label={`Row ${index + 1} height`}
+                              min={1}
+                              onChange={(event) => updateBulkUnitRow(row.rowKey, { height: event.target.value })}
+                              required
+                              type="number"
+                              value={row.height}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-label={`Row ${index + 1} depth`}
+                              min={1}
+                              onChange={(event) => updateBulkUnitRow(row.rowKey, { depth: event.target.value })}
+                              required
+                              type="number"
+                              value={row.depth}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              aria-label={`Row ${index + 1} carcass board`}
+                              onChange={(event) => updateBulkUnitRow(row.rowKey, { carcass_board_type_id: event.target.value })}
+                              required
+                              value={row.carcass_board_type_id}
+                            >
+                              <option value="">Carcass board</option>
+                              {boards.map((board) => (
+                                <option key={board.id} value={board.id}>
+                                  {`${board.brand} ${board.material} (${board.thickness}mm)`}
+                                </option>
+                              ))}
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Select
+                              aria-label={`Row ${index + 1} door board`}
+                              onChange={(event) => updateBulkUnitRow(row.rowKey, { door_board_type_id: event.target.value })}
+                              value={row.door_board_type_id}
+                            >
+                              <option value="">Door board</option>
+                              {boards.map((board) => (
+                                <option key={board.id} value={board.id}>
+                                  {`${board.brand} ${board.material} (${board.thickness}mm)`}
+                                </option>
+                              ))}
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-label={isDrawer ? `Row ${index + 1} drawers` : `Row ${index + 1} doors`}
+                              min={1}
+                              onChange={(event) =>
+                                updateBulkUnitRow(row.rowKey, isDrawer ? { num_drawers: event.target.value } : { num_doors: event.target.value })
+                              }
+                              required
+                              type="number"
+                              value={isDrawer ? row.num_drawers : row.num_doors}
+                            />
+                            {!isDrawer ? (
+                              <Input
+                                aria-label={`Row ${index + 1} shelves`}
+                                className="mt-2"
+                                min={0}
+                                onChange={(event) => updateBulkUnitRow(row.rowKey, { num_shelves: event.target.value })}
+                                required
+                                type="number"
+                                value={row.num_shelves}
+                              />
+                            ) : null}
+                          </TableCell>
+                        </TableRow>
+                        {bulkUnitErrors[row.rowKey] ? (
+                          <TableRow>
+                            <TableCell colSpan={8}>
+                              <Alert className="text-xs" variant="destructive">
+                                {bulkUnitErrors[row.rowKey]}
+                              </Alert>
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                      </Fragment>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <div className="flex flex-wrap justify-between gap-2">
+              <Button onClick={addBulkUnitRow} type="button" variant="outline">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Add row
+              </Button>
+              <div className="flex justify-end gap-2">
+                <Button onClick={() => setIsBulkUnitModalOpen(false)} type="button" variant="outline">
+                  Cancel
+                </Button>
+                <Button disabled={isSavingBulkUnits} type="submit">
+                  {isSavingBulkUnits ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+                  Save units
+                </Button>
+              </div>
             </div>
           </form>
         </ModalCard>

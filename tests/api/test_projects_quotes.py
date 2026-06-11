@@ -45,6 +45,7 @@ class FakeWorkspaceStore:
         self.deleted_quote: tuple[str, str] | None = None
         self.created_unit_payload: tuple[str, str, dict] | None = None
         self.duplicated_unit: tuple[str, str, str] | None = None
+        self.bulk_saved_units: tuple[str, str, list[dict]] | None = None
         self.reordered_units: tuple[str, str, list[str]] | None = None
         self.updated_unit_payload: tuple[str, str, str, dict] | None = None
         self.deleted_unit: tuple[str, str, str] | None = None
@@ -174,6 +175,30 @@ class FakeWorkspaceStore:
             door_board_type_id="board-2",
             extra_params={"num_doors": 2, "num_shelves": 1},
         )
+
+    def bulk_save_units(self, company_id: str, quote_id: str, payloads: list[dict]) -> list[dict]:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        if any(row.get("id") == "missing" for row in payloads):
+            raise WorkspaceNotFound("Unit not found")
+        if any(row.get("unit_type_key") == "Invalid setup" for row in payloads):
+            raise WorkspaceValidationError("units[1]: Carcass board is required")
+        self.bulk_saved_units = (company_id, quote_id, payloads)
+        return [
+            unit(
+                row.get("id") or f"unit-{index}",
+                quote_id=quote_id,
+                unit_number=index,
+                unit_type_key=row["unit_type_key"],
+                width=row["width"],
+                height=row["height"],
+                depth=row["depth"],
+                carcass_board_type_id=row.get("carcass_board_type_id"),
+                door_board_type_id=row.get("door_board_type_id"),
+                extra_params=row.get("extra_params", {}),
+            )
+            for index, row in enumerate(payloads, start=1)
+        ]
 
     def reorder_units(self, company_id: str, quote_id: str, unit_ids: list[str]) -> list[dict]:
         if quote_id == "missing":
@@ -555,6 +580,112 @@ def test_duplicate_unit_returns_404_if_unit_not_visible():
     assert response.status_code == 404
     assert response.json() == {"detail": "Unit not found"}
     assert store.duplicated_unit is None
+
+
+def test_bulk_save_units_accepts_create_and_edit_rows():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = {
+        "units": [
+            {"id": "unit-1", **unit_payload(unit_type_key="Base Door", width=600)},
+            {**unit_payload(unit_type_key="Base Draw", width=900), "extra_params": {"num_drawers": 3}},
+            {**unit_payload(unit_type_key="Wall Door", width=600), "extra_params": {"num_doors": 2, "num_shelves": 1}},
+        ]
+    }
+    try:
+        response = client.put("/api/v1/quotes/quote-1/units/bulk", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [(row["id"], row["unit_number"], row["unit_type_key"], row["width"]) for row in body] == [
+        ("unit-1", 1, "Base Door", 600),
+        ("unit-2", 2, "Base Draw", 900),
+        ("unit-3", 3, "Wall Door", 600),
+    ]
+    assert store.bulk_saved_units == (
+        "company-1",
+        "quote-1",
+        [
+            {"id": "unit-1", **unit_payload(unit_type_key="Base Door", width=600)},
+            {"id": None, **unit_payload(unit_type_key="Base Draw", width=900), "extra_params": {"num_drawers": 3}},
+            {"id": None, **unit_payload(unit_type_key="Wall Door", width=600), "extra_params": {"num_doors": 2, "num_shelves": 1}},
+        ],
+    )
+
+
+def test_bulk_save_units_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.put(
+            "/api/v1/quotes/quote-1/units/bulk",
+            json={"units": [unit_payload()]},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.bulk_saved_units is None
+
+
+def test_bulk_save_units_returns_422_for_invalid_row_dimensions():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    invalid_row = unit_payload()
+    invalid_row["width"] = 0
+    try:
+        response = client.put(
+            "/api/v1/quotes/quote-1/units/bulk",
+            json={"units": [invalid_row]},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert store.bulk_saved_units is None
+
+
+def test_bulk_save_units_returns_404_for_invalid_quote_or_unit_access():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = {"units": [{"id": "missing", **unit_payload()}]}
+    try:
+        response = client.put("/api/v1/quotes/quote-1/units/bulk", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Unit not found"}
+    assert store.bulk_saved_units is None
+
+
+def test_bulk_save_units_surfaces_row_specific_setup_errors():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = {
+        "units": [
+            unit_payload(unit_type_key="Base Door", width=600),
+            unit_payload(unit_type_key="Invalid setup", width=900),
+        ]
+    }
+    try:
+        response = client.put("/api/v1/quotes/quote-1/units/bulk", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "units[1]: Carcass board is required"}
+    assert store.bulk_saved_units is None
 
 
 def test_reorder_units_persists_requested_workshop_order():
