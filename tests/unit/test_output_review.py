@@ -60,12 +60,29 @@ def test_output_review_disables_actions_and_warns_for_incomplete_quote():
     assert review["internal_pricing"]["status"] == "needs_attention"
     assert actions["client_quote_pdf"]["enabled"] is False
     assert actions["client_quote_pdf"]["warning"] == "Resolve readiness warnings before generating the client quote."
-    assert actions["workshop_schedule"]["enabled"] is False
-    assert actions["workshop_schedule"]["warning"] == "Fix cutting-list warnings before generating the workshop schedule."
+    assert actions["workshop_schedule"]["enabled"] is True
+    assert actions["workshop_schedule"]["warning"] == "Cutting-list warnings will be included in the workshop schedule."
     assert actions["material_summary"]["enabled"] is False
     assert actions["material_summary"]["warning"] == "Resolve material summary warnings before generating the material summary."
     assert actions["hardware_pick_list"]["enabled"] is False
     assert actions["hardware_pick_list"]["warning"] == "Choose missing hardware before generating the hardware pick list."
+
+
+def test_output_review_blocks_workshop_export_when_no_rows_exist():
+    review = build_quote_output_review(
+        quote=quote(unit_count=0),
+        project={"id": "project-1", "name": "Main Kitchen"},
+        currency_code="USD",
+        readiness=readiness(is_ready=False, warning_count=1),
+        cutting_list=cutting_list(carcass=[], panels=[]),
+        pricing_summary=pricing_summary(),
+        active_price_list_id="price-list-1",
+    )
+
+    action = next(action for action in review["actions"] if action["id"] == "workshop_schedule")
+    assert review["workshop_schedule"]["status"] == "needs_attention"
+    assert action["enabled"] is False
+    assert action["warning"] == "Add cabinet units before generating the workshop schedule."
 
 
 def quote(*, unit_count: int) -> dict:
@@ -93,11 +110,16 @@ def readiness(*, is_ready: bool, warning_count: int = 0) -> dict:
     }
 
 
-def cutting_list(*, validation_warnings: list[dict] | None = None) -> dict:
+def cutting_list(
+    *,
+    carcass: list[dict] | None = None,
+    panels: list[dict] | None = None,
+    validation_warnings: list[dict] | None = None,
+) -> dict:
     warnings = validation_warnings or []
     return {
-        "carcass": [{"unit_number": 1, "desc": "Side", "length": 748, "width": 564, "qty": 2}],
-        "panels": [{"unit_number": 1, "desc": "Door", "length": 777, "width": 297, "qty": 2}],
+        "carcass": [{"unit_number": 1, "desc": "Side", "length": 748, "width": 564, "qty": 2}] if carcass is None else carcass,
+        "panels": [{"unit_number": 1, "desc": "Door", "length": 777, "width": 297, "qty": 2}] if panels is None else panels,
         "hardware": [],
         "extras": [],
         "validation_warnings": warnings,

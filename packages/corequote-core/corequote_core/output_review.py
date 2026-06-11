@@ -53,7 +53,8 @@ def build_quote_output_review(
         and missing_price_count == 0
         and _positive_int(pricing_summary.get("grand_total_cents")) > 0
     )
-    workshop_ready = cutlist_row_count > 0 and cutlist_warning_count == 0
+    workshop_export_enabled = cutlist_row_count > 0
+    workshop_ready = workshop_export_enabled and cutlist_warning_count == 0
     material_ready = bool(_list(material_summary.get("groups"))) and material_warning_count == 0
     hardware_ready = unit_count > 0 and hardware_warning_count == 0
 
@@ -144,7 +145,7 @@ def build_quote_output_review(
                 "group": "workshop",
                 "label": "Workshop schedule",
                 "description": "Cutting and production schedule for the workshop.",
-                "enabled": workshop_ready,
+                "enabled": workshop_export_enabled,
                 "warning": workshop_warning,
                 "hides_internal_costs": False,
                 "action_target": "cutting-lists",
@@ -217,7 +218,7 @@ def _pricing_warning(
 
 def _workshop_schedule_warning(*, row_count: int, warning_count: int) -> str | None:
     if warning_count:
-        return "Fix cutting-list warnings before generating the workshop schedule."
+        return "Cutting-list warnings will be included in the workshop schedule."
     if row_count == 0:
         return "Add cabinet units before generating the workshop schedule."
     return None
