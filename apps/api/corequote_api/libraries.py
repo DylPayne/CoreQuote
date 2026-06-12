@@ -2493,7 +2493,7 @@ def _price_bulk_updates(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("uom") is not None:
         uom = str(payload["uom"]).strip().lower()
         if not uom:
-            raise LibraryValidationError("UOM is required when changing price row units")
+            raise LibraryValidationError("Unit is required when changing price row units")
         updates["uom"] = uom
     if payload.get("cost_source") is not None:
         cost_source = str(payload["cost_source"]).strip().lower()
