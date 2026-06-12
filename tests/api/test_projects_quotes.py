@@ -37,10 +37,12 @@ class FakeWorkspaceStore:
         *,
         project_pricing_payload: dict | None = None,
         quote_output_review_payload: dict | None = None,
+        quote_production_handoff_payload: dict | None = None,
         quote_readiness_payload: dict | None = None,
     ):
         self.project_pricing_payload = project_pricing_payload
         self.quote_output_review_payload = quote_output_review_payload
+        self.quote_production_handoff_payload = quote_production_handoff_payload
         self.quote_readiness_payload = quote_readiness_payload
         self.created_project_payload: tuple[str, dict] | None = None
         self.updated_project_payload: tuple[str, str, dict] | None = None
@@ -63,6 +65,7 @@ class FakeWorkspaceStore:
         self.requested_cutting_list: tuple[str, str] | None = None
         self.requested_quote_readiness: tuple[str, str] | None = None
         self.requested_quote_output_review: tuple[str, str] | None = None
+        self.requested_quote_production_handoff: tuple[str, str] | None = None
         self.generated_customer_quote_pdf: tuple[str, str, dict] | None = None
         self.generated_workshop_schedule_pdf: tuple[str, str, dict] | None = None
         self.requested_quote_custom_panels: tuple[str, str] | None = None
@@ -312,6 +315,14 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Quote not found")
         self.requested_quote_output_review = (company_id, quote_id)
         return self.quote_output_review_payload or quote_output_review(quote_id)
+
+    def get_quote_production_handoff(self, company_id: str, quote_id: str, runtime_service=None) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        if quote_id == "invalid-production":
+            raise WorkspaceValidationError("Add cabinet units before building the production handoff.")
+        self.requested_quote_production_handoff = (company_id, quote_id)
+        return self.quote_production_handoff_payload or quote_production_handoff(quote_id)
 
     def generate_customer_quote_pdf(self, company_id: str, quote_id: str, *, company: dict, runtime_service=None) -> dict:
         if quote_id == "missing":
@@ -1116,6 +1127,58 @@ def test_get_quote_output_review_requires_pricing_read_permission():
     assert store.requested_quote_output_review is None
 
 
+def test_get_quote_production_handoff_returns_client_safe_grouped_packet():
+    payload = quote_production_handoff("quote-1")
+    payload["client_quote_total_cents"] = 999999
+    payload["material_summary"]["groups"][0]["cost_total_cents"] = 120000
+    store = FakeWorkspaceStore(quote_production_handoff_payload=payload)
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/quote-1/production-handoff", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["quote_id"] == "quote-1"
+    assert body["quote_number"] == "Q-001"
+    assert body["groups"][0]["board_name"] == "PG White (16mm)"
+    assert body["groups"][0]["rows"][0]["part_id"] == "Q-001-R1-U01-CAR-SIDE-748X564-01"
+    assert body["material_summary"]["groups"][0]["part_ids"] == ["Q-001-R1-U01-CAR-SIDE-748X564-01"]
+    assert body["hardware_pick_list"]["items"][0]["related_part_ids"] == ["Q-001-R1-U01-CAR-SIDE-748X564-01"]
+    assert "client_quote_total_cents" not in body
+    assert "cost_total_cents" not in body["material_summary"]["groups"][0]
+    assert store.requested_quote_production_handoff == ("company-1", "quote-1")
+
+
+def test_get_quote_production_handoff_requires_production_read_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/quote-1/production-handoff", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: production:read"}
+    assert store.requested_quote_production_handoff is None
+
+
+def test_get_quote_production_handoff_surfaces_cutlist_blockers():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/invalid-production/production-handoff", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Add cabinet units before building the production handoff."}
+
+
 def test_download_customer_quote_pdf_returns_pdf_attachment():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
@@ -1905,6 +1968,140 @@ def quote_output_review(quote_id: str, *, actions: list[dict] | None = None) -> 
                 "hides_internal_costs": False,
                 "action_target": "pricing",
             },
+        ],
+    }
+
+
+def quote_production_handoff(quote_id: str) -> dict:
+    part_id = "Q-001-R1-U01-CAR-SIDE-748X564-01"
+    row = {
+        "part_id": part_id,
+        "project_id": "project-1",
+        "project_name": "Main Kitchen",
+        "quote_id": quote_id,
+        "quote_name": "Kitchen Quote",
+        "quote_number": "Q-001",
+        "revision": 1,
+        "source_type": "unit",
+        "unit_number": 1,
+        "unit_label": "Unit 1",
+        "unit_type_key": "Base Door",
+        "section": "carcass",
+        "section_label": "Carcass",
+        "material_role": "carcass",
+        "role_label": "Carcass",
+        "board_type_id": "board-1",
+        "board_name": "PG White (16mm)",
+        "brand": "PG",
+        "material": "White",
+        "thickness": 16,
+        "sheet_length_mm": 2750,
+        "sheet_width_mm": 1830,
+        "desc": "Side",
+        "length": 748,
+        "width": 564,
+        "quantity": 2,
+        "warning_count": 0,
+        "warning_messages": [],
+    }
+    return {
+        "quote_id": quote_id,
+        "quote_name": "Kitchen Quote",
+        "quote_status": "ready",
+        "quote_number": "Q-001",
+        "revision": 1,
+        "project_id": "project-1",
+        "project_name": "Main Kitchen",
+        "row_count": 1,
+        "group_count": 1,
+        "label_count": 1,
+        "warning_count": 0,
+        "groups": [
+            {
+                "group_key": "board-1::16::White::carcass::1::carcass",
+                "board_type_id": "board-1",
+                "board_name": "PG White (16mm)",
+                "brand": "PG",
+                "material": "White",
+                "thickness": 16,
+                "sheet_length_mm": 2750,
+                "sheet_width_mm": 1830,
+                "material_role": "carcass",
+                "role_label": "Carcass",
+                "unit_number": 1,
+                "unit_label": "Unit 1",
+                "section": "carcass",
+                "section_label": "Carcass",
+                "row_count": 1,
+                "piece_count": 2,
+                "warning_count": 0,
+                "part_ids": [part_id],
+                "rows": [row],
+            }
+        ],
+        "rows": [row],
+        "material_summary": {
+            "groups": [
+                {
+                    "board_type_id": "board-1",
+                    "material_role": "carcass",
+                    "role_label": "Carcass",
+                    "board_name": "PG White (16mm)",
+                    "brand": "PG",
+                    "material": "White",
+                    "thickness": 16,
+                    "length_mm": 2750,
+                    "width_mm": 1830,
+                    "piece_count": 2,
+                    "area_m2": 0.84,
+                    "edge_m": 0,
+                    "estimated_sheets": 1,
+                    "part_ids": [part_id],
+                }
+            ],
+            "warnings": [],
+            "total_area_m2": 0.84,
+            "total_piece_count": 2,
+            "total_edge_m": 0,
+            "total_estimated_sheets": 1,
+        },
+        "hardware_pick_list": {
+            "items": [
+                {
+                    "part_id": "Q-001-R1-HW-HINGE-HINGE-1",
+                    "item_type": "hinge",
+                    "type_label": "Hinges",
+                    "item_key": "hinge::hinge-1",
+                    "item_ref_id": "hinge-1",
+                    "item_name": "Blum Clip top",
+                    "supplier": "Blum",
+                    "code": "H110",
+                    "quantity": 4,
+                    "uom": "pcs",
+                    "unit_numbers": [1],
+                    "used_in": ["Unit 1 doors"],
+                    "usage_label": "Unit 1 doors",
+                    "related_part_ids": [part_id],
+                }
+            ],
+            "warnings": [],
+            "total_item_count": 1,
+            "total_quantity": 4,
+        },
+        "labels": [
+            {
+                "part_id": part_id,
+                "label": f"{part_id} · Side · 748 x 564 mm",
+                "source_type": "unit",
+                "unit_number": 1,
+                "unit_label": "Unit 1",
+                "section": "carcass",
+                "desc": "Side",
+                "dimensions_label": "748 x 564 mm",
+                "material_label": "PG White (16mm)",
+                "quantity": 2,
+                "warning_count": 0,
+            }
         ],
     }
 

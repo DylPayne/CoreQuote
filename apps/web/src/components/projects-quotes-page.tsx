@@ -38,7 +38,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -668,6 +668,237 @@ function OutputReviewPanel({
   )
 }
 
+function formatProductionSheet(length: number | null, width: number | null) {
+  if (!length || !width) return 'No sheet size'
+  return `${length} x ${width} mm`
+}
+
+function formatPartIdList(partIds: string[], maxVisible = 3) {
+  if (partIds.length === 0) return '-'
+  if (partIds.length <= maxVisible) return partIds.join(', ')
+  return `${partIds.slice(0, maxVisible).join(', ')} +${partIds.length - maxVisible}`
+}
+
+function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }) {
+  const warningRows = handoff.rows.filter((row) => row.warning_count > 0)
+
+  return (
+    <div className="grid gap-5">
+      <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Hammer className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm font-semibold">{handoff.project_name}</p>
+              <Badge variant={quoteStatusBadgeVariant(handoff.quote_status)}>{quoteStatusLabels[handoff.quote_status]}</Badge>
+              <Badge variant="outline">{`${handoff.quote_number} rev ${handoff.revision}`}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{handoff.quote_name}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline">{`${handoff.group_count} ${handoff.group_count === 1 ? 'group' : 'groups'}`}</Badge>
+            <Badge variant="outline">{`${handoff.row_count} ${handoff.row_count === 1 ? 'row' : 'rows'}`}</Badge>
+            <Badge variant={handoff.warning_count > 0 ? 'warning' : 'outline'}>
+              {handoff.warning_count > 0 ? `${handoff.warning_count} warnings` : `${handoff.label_count} labels`}
+            </Badge>
+          </div>
+        </div>
+      </div>
+
+      {warningRows.length > 0 ? (
+        <Alert className="text-xs" variant="warning">
+          <div className="grid gap-1">
+            {warningRows.map((row) => (
+              <p key={row.part_id}>{`${row.part_id}: ${row.warning_messages.join(' ')}`}</p>
+            ))}
+          </div>
+        </Alert>
+      ) : null}
+
+      <section className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold uppercase text-muted-foreground">Grouped cutting schedule</p>
+          <Badge variant="outline">{`${handoff.material_summary.total_piece_count} pieces`}</Badge>
+          <Badge variant={handoff.material_summary.total_estimated_sheets === null ? 'warning' : 'outline'}>
+            {formatEstimatedSheets(handoff.material_summary.total_estimated_sheets)}
+          </Badge>
+        </div>
+
+        {handoff.groups.length > 0 ? (
+          <div className="grid gap-3">
+            {handoff.groups.map((group) => (
+              <div className="grid gap-2" key={group.group_key}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{group.board_name}</Badge>
+                    <Badge variant="outline">{group.role_label}</Badge>
+                    <Badge variant="outline">{group.unit_label}</Badge>
+                    <Badge variant="outline">{group.section_label}</Badge>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <span>{`${group.piece_count} ${group.piece_count === 1 ? 'piece' : 'pieces'}`}</span>
+                    <span>{formatProductionSheet(group.sheet_length_mm, group.sheet_width_mm)}</span>
+                  </div>
+                </div>
+                <TableContainer>
+                  <Table className="min-w-[980px] text-xs">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Part ID</TableHead>
+                        <TableHead>Unit</TableHead>
+                        <TableHead>Part</TableHead>
+                        <TableHead>Material</TableHead>
+                        <TableHead className="text-right">L</TableHead>
+                        <TableHead className="text-right">W</TableHead>
+                        <TableHead className="text-right">Qty</TableHead>
+                        <TableHead>State</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {group.rows.map((row) => (
+                        <TableRow key={row.part_id}>
+                          <TableCell className="font-mono text-[11px]">{row.part_id}</TableCell>
+                          <TableCell>{row.unit_label}</TableCell>
+                          <TableCell>
+                            <div className="grid gap-1">
+                              <span>{row.desc}</span>
+                              <span className="text-muted-foreground">{row.section_label}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>{row.board_name}</TableCell>
+                          <TableCell className="text-right">{row.length}</TableCell>
+                          <TableCell className="text-right">{row.width}</TableCell>
+                          <TableCell className="text-right">{row.quantity}</TableCell>
+                          <TableCell>
+                            <Badge variant={row.warning_count > 0 ? 'warning' : 'outline'}>
+                              {row.warning_count > 0 ? 'Review' : 'Ready'}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Alert className="text-xs">Production rows appear after the quote has a cutting schedule.</Alert>
+        )}
+      </section>
+
+      {handoff.material_summary.groups.length > 0 ? (
+        <section className="grid gap-3 border-t border-border pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Material summary</p>
+            <Badge variant="outline">{formatMaterialArea(handoff.material_summary.total_area_m2)}</Badge>
+            <Badge variant="outline">{`${handoff.material_summary.total_piece_count} pieces`}</Badge>
+          </div>
+          <TableContainer>
+            <Table className="min-w-[900px] text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Board</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Parts</TableHead>
+                  <TableHead>Sheet</TableHead>
+                  <TableHead className="text-right">Pieces</TableHead>
+                  <TableHead className="text-right">Area</TableHead>
+                  <TableHead className="text-right">Est. sheets</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {handoff.material_summary.groups.map((group) => (
+                  <TableRow key={`${group.board_type_id}:${group.material_role}`}>
+                    <TableCell>{group.board_name}</TableCell>
+                    <TableCell>{group.role_label}</TableCell>
+                    <TableCell className="font-mono text-[11px]">{formatPartIdList(group.part_ids)}</TableCell>
+                    <TableCell>{formatProductionSheet(group.length_mm, group.width_mm)}</TableCell>
+                    <TableCell className="text-right">{group.piece_count}</TableCell>
+                    <TableCell className="text-right">{formatMaterialArea(group.area_m2)}</TableCell>
+                    <TableCell className="text-right">{formatEstimatedSheets(group.estimated_sheets)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </section>
+      ) : null}
+
+      {handoff.hardware_pick_list.items.length > 0 ? (
+        <section className="grid gap-3 border-t border-border pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Hardware pick list</p>
+            <Badge variant="outline">{formatPickListCount(handoff.hardware_pick_list.total_item_count)}</Badge>
+            <Badge variant="outline">{`${handoff.hardware_pick_list.total_quantity} ${handoff.hardware_pick_list.total_quantity === 1 ? 'item' : 'items'}`}</Badge>
+          </div>
+          <TableContainer>
+            <Table className="min-w-[900px] text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Part ID</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Supplier / Code</TableHead>
+                  <TableHead>Used in</TableHead>
+                  <TableHead>Related parts</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {handoff.hardware_pick_list.items.map((item) => (
+                  <TableRow key={item.part_id}>
+                    <TableCell className="font-mono text-[11px]">{item.part_id}</TableCell>
+                    <TableCell>{item.type_label}</TableCell>
+                    <TableCell>{item.item_name}</TableCell>
+                    <TableCell>{formatSupplierCode(item.supplier, item.code)}</TableCell>
+                    <TableCell>{item.usage_label || '-'}</TableCell>
+                    <TableCell className="font-mono text-[11px]">{formatPartIdList(item.related_part_ids)}</TableCell>
+                    <TableCell className="text-right">{`${formatPricingQty(item.quantity)} ${item.uom}`}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </section>
+      ) : null}
+
+      {handoff.labels.length > 0 ? (
+        <section className="grid gap-3 border-t border-border pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Labels</p>
+            <Badge variant="outline">{`${handoff.label_count} ${handoff.label_count === 1 ? 'label' : 'labels'}`}</Badge>
+          </div>
+          <TableContainer>
+            <Table className="min-w-[760px] text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Part ID</TableHead>
+                  <TableHead>Part</TableHead>
+                  <TableHead>Material</TableHead>
+                  <TableHead>Dimensions</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {handoff.labels.map((label) => (
+                  <TableRow key={label.part_id}>
+                    <TableCell className="font-mono text-[11px]">{label.part_id}</TableCell>
+                    <TableCell>{label.desc}</TableCell>
+                    <TableCell>{label.material_label}</TableCell>
+                    <TableCell>{label.dimensions_label}</TableCell>
+                    <TableCell className="text-right">{label.quantity}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </section>
+      ) : null}
+    </div>
+  )
+}
+
 export function ProjectsQuotesPage({
   authToken,
   currencyCode,
@@ -690,6 +921,7 @@ export function ProjectsQuotesPage({
   const [quoteCuttingList, setQuoteCuttingList] = useState<QuoteCuttingList | null>(null)
   const [quoteReadiness, setQuoteReadiness] = useState<QuoteReadiness | null>(null)
   const [quoteOutputReview, setQuoteOutputReview] = useState<QuoteOutputReview | null>(null)
+  const [quoteProductionHandoff, setQuoteProductionHandoff] = useState<QuoteProductionHandoff | null>(null)
   const [quoteExtrasSelection, setQuoteExtrasSelection] = useState<Record<string, number>>({})
   const [quoteCustomPanels, setQuoteCustomPanels] = useState<QuoteCustomPanelsState | null>(null)
   const [quoteCustomPanelRows, setQuoteCustomPanelRows] = useState<QuoteCustomPanelComputedRow[]>([])
@@ -732,6 +964,7 @@ export function ProjectsQuotesPage({
   const [isLoadingCuttingList, setIsLoadingCuttingList] = useState(false)
   const [isLoadingQuoteReadiness, setIsLoadingQuoteReadiness] = useState(false)
   const [isLoadingQuoteOutputReview, setIsLoadingQuoteOutputReview] = useState(false)
+  const [isLoadingQuoteProductionHandoff, setIsLoadingQuoteProductionHandoff] = useState(false)
   const [isLoadingQuoteExtras, setIsLoadingQuoteExtras] = useState(false)
   const [isLoadingQuoteCustomPanels, setIsLoadingQuoteCustomPanels] = useState(false)
   const [isLoadingProjectPricing, setIsLoadingProjectPricing] = useState(false)
@@ -932,6 +1165,22 @@ export function ProjectsQuotesPage({
     [authToken],
   )
 
+  const loadQuoteProductionHandoff = useCallback(
+    async (quoteId: string) => {
+      setIsLoadingQuoteProductionHandoff(true)
+      setError(null)
+      try {
+        const payload = await apiRequest<QuoteProductionHandoff>(`/api/v1/quotes/${quoteId}/production-handoff`, { token: authToken })
+        setQuoteProductionHandoff(payload)
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : 'Could not build the production handoff.')
+      } finally {
+        setIsLoadingQuoteProductionHandoff(false)
+      }
+    },
+    [authToken],
+  )
+
   const downloadCustomerQuotePdf = useCallback(
     async (quoteId: string) => {
       setGeneratingOutputActionId('client_quote_pdf')
@@ -1088,6 +1337,7 @@ export function ProjectsQuotesPage({
         setQuoteCuttingList(null)
         setQuoteReadiness(null)
         setQuoteOutputReview(null)
+        setQuoteProductionHandoff(null)
         setQuoteExtrasSelection({})
         setQuoteCustomPanels(null)
         setQuoteCustomPanelRows([])
@@ -1112,6 +1362,15 @@ export function ProjectsQuotesPage({
     }, 0)
     return () => window.clearTimeout(handle)
   }, [activeProjectTab, activeQuoteTab, loadQuoteOutputReview, selectedQuoteId])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (selectedQuoteId && activeProjectTab === 'quotes' && activeQuoteTab === 'production') {
+        void loadQuoteProductionHandoff(selectedQuoteId)
+      }
+    }, 0)
+    return () => window.clearTimeout(handle)
+  }, [activeProjectTab, activeQuoteTab, loadQuoteProductionHandoff, selectedQuoteId])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -1165,6 +1424,14 @@ export function ProjectsQuotesPage({
     setActiveQuoteTab('outputs')
     if (selectedQuoteId) {
       void loadQuoteOutputReview(selectedQuoteId)
+    }
+  }
+
+  function openQuoteProductionTab() {
+    setActiveProjectTab('quotes')
+    setActiveQuoteTab('production')
+    if (selectedQuoteId) {
+      void loadQuoteProductionHandoff(selectedQuoteId)
     }
   }
 
@@ -1518,6 +1785,9 @@ export function ProjectsQuotesPage({
       if (activeQuoteTab === 'cutting-lists') {
         await loadQuoteCuttingList(selectedQuoteId)
       }
+      if (activeQuoteTab === 'production') {
+        await loadQuoteProductionHandoff(selectedQuoteId)
+      }
       if (selectedProjectId && activeProjectTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
@@ -1548,6 +1818,9 @@ export function ProjectsQuotesPage({
       setQuoteExtrasSelection(nextSelection)
       setIsQuoteExtrasDirty(false)
       await loadQuoteReadiness(selectedQuoteId)
+      if (activeQuoteTab === 'production') {
+        await loadQuoteProductionHandoff(selectedQuoteId)
+      }
       if (selectedProjectId && activeProjectTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
       }
@@ -1692,6 +1965,9 @@ export function ProjectsQuotesPage({
       await loadQuotes(selectedProjectId)
       if (quoteEditId) {
         await loadQuoteReadiness(quoteEditId)
+        if (activeQuoteTab === 'production') {
+          await loadQuoteProductionHandoff(quoteEditId)
+        }
       }
       if (activeQuoteTab === 'pricing') {
         await loadProjectPricing(selectedProjectId)
@@ -1715,6 +1991,9 @@ export function ProjectsQuotesPage({
     }
     if (activeQuoteTab === 'outputs') {
       await loadQuoteOutputReview(quoteId)
+    }
+    if (activeQuoteTab === 'production') {
+      await loadQuoteProductionHandoff(quoteId)
     }
     if (selectedProjectId) {
       await loadQuotes(selectedProjectId)
@@ -2314,9 +2593,11 @@ export function ProjectsQuotesPage({
                             ? 'Review this quote pricing override and priced line breakdown.'
                             : activeQuoteTab === 'outputs'
                               ? 'Review client and workshop outputs before generating.'
-                            : activeQuoteTab === 'readiness'
-                              ? 'Check whether this quote is complete enough to trust.'
-                            : 'Build this quote using units, panels, cutting lists, and extras.'
+                              : activeQuoteTab === 'production'
+                                ? 'Grouped workshop rows with stable part traceability.'
+                                : activeQuoteTab === 'readiness'
+                                  ? 'Check whether this quote is complete enough to trust.'
+                                  : 'Build this quote using units, panels, cutting lists, and extras.'
                           : 'Choose a quote from the left pane to begin.'}
                     </p>
                   </div>
@@ -2399,6 +2680,14 @@ export function ProjectsQuotesPage({
                         Review outputs
                       </button>
                       <button
+                        aria-pressed={activeQuoteTab === 'production'}
+                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'production' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                        onClick={openQuoteProductionTab}
+                        type="button"
+                      >
+                        Production
+                      </button>
+                      <button
                         aria-pressed={activeQuoteTab === 'units'}
                         className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'units' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                         onClick={() => setActiveQuoteTab('units')}
@@ -2468,6 +2757,19 @@ export function ProjectsQuotesPage({
                     onReviewAction={handleOutputReviewAction}
                     review={quoteOutputReview}
                   />
+                )
+              ) : activeQuoteTab === 'production' ? (
+                isLoadingQuoteProductionHandoff ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Building production handoff
+                  </div>
+                ) : !quoteProductionHandoff ? (
+                  <Alert className="text-xs">
+                    Production handoff appears after the quote has cutting-list rows and material selections.
+                  </Alert>
+                ) : (
+                  <ProductionHandoffPanel handoff={quoteProductionHandoff} />
                 )
               ) : activeQuoteTab === 'readiness' ? (
                 isLoadingQuoteReadiness ? (
