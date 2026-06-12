@@ -103,18 +103,18 @@ const recentFilterOptions: Array<{ label: string; value: RecentFilterValue }> = 
 ]
 
 const priceStatusOptions: Array<{ label: string; value: PriceStatusFilterValue }> = [
-  { label: 'All rows', value: 'all' },
-  { label: 'Current', value: 'current' },
-  { label: 'Future', value: 'future' },
-  { label: 'Retired', value: 'retired' },
+  { label: 'All price rows', value: 'all' },
+  { label: 'Used for new totals', value: 'current' },
+  { label: 'Starts later', value: 'future' },
+  { label: 'History only', value: 'retired' },
 ]
 
 const priceSourceOptions: Array<{ label: string; value: PriceSourceFilterValue }> = [
   { label: 'Any source', value: 'all' },
-  { label: 'Manual', value: 'manual' },
-  { label: 'Supplier', value: 'supplier' },
-  { label: 'Override', value: 'override' },
-  { label: 'Import', value: 'import' },
+  { label: 'Manual edit', value: 'manual' },
+  { label: 'From supplier cost', value: 'supplier' },
+  { label: 'Manual override', value: 'override' },
+  { label: 'Imported', value: 'import' },
 ]
 
 const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> = {
@@ -124,7 +124,7 @@ const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> 
       label: 'Costing mode',
       options: [
         { label: 'Sheet', value: 'sheet' },
-        { label: 'SQM', value: 'sqm' },
+        { label: 'Square metre', value: 'sqm' },
       ],
       value: 'costing_mode',
     },
@@ -164,8 +164,8 @@ const importExampleByResource: Record<LibraryImportResource, string> = {
   suppliers: 'Name,Code,Contact,Email,Default Discount\nGrass ZA,GRASS-ZA,Sales,sales@example.com,30%',
   extra_categories: 'Name\nAppliances',
   extras: 'Name,Category,Supplier,Code\nStove,Appliances,Defy,DFY-600',
-  supplier_item_costs: 'Item Type,Brand,Model,Code,Supplier,Order UOM,Unit Cost\nslide,Grass,Dynapro,DYN-500,Grass ZA,pairs,479.49',
-  price_list_items: 'Item Type,Name,Supplier,Code,Price Component,UOM,Price\nhandle,Slim Bar,Hafele,HB-160,unit,pcs,89.00',
+  supplier_item_costs: 'Item Type,Brand,Model,Code,Supplier,Order Unit,Unit Cost\nslide,Grass,Dynapro,DYN-500,Grass ZA,pairs,479.49',
+  price_list_items: 'Item Type,Name,Supplier,Code,Price Component,Unit,Price\nhandle,Slim Bar,Hafele,HB-160,unit,pcs,89.00',
 }
 
 function searchTextMatches(search: string, parts: Array<string | number | null | undefined>) {
@@ -257,8 +257,66 @@ function _itemExistsForType(
   return rows.extras.some((item) => item.id === itemId)
 }
 
+const setupStatusLabels: Record<LibrarySetupItemStatus, string> = {
+  action_needed: 'needs action',
+  complete: 'ready',
+  missing: 'missing',
+  warning: 'check',
+}
+
+const importStatusCopy: Record<LibraryImportRowStatus, { help: string; label: string }> = {
+  blocked: {
+    help: 'CoreQuote cannot save this row yet. Fix the row or column mapping, then preview again.',
+    label: 'Needs fixing',
+  },
+  create: {
+    help: 'This row will be added when the import is applied.',
+    label: 'Will add',
+  },
+  duplicate: {
+    help: 'This looks like a duplicate row in the same import. Keep one copy, then preview again.',
+    label: 'Duplicate',
+  },
+  skipped: {
+    help: 'CoreQuote already has this value, so applying the import leaves it alone.',
+    label: 'Already current',
+  },
+  update: {
+    help: 'This row will update the matching library item when the import is applied.',
+    label: 'Will update',
+  },
+}
+
+const importApplyStatusLabels: Record<LibraryImportApplyRowStatus, string> = {
+  created: 'Added',
+  failed: 'Needs fixing',
+  skipped: 'Already current',
+  updated: 'Updated',
+}
+
+const priceStatusLabels: Record<LibraryEffectiveStatus, string> = {
+  current: 'Used for new totals',
+  future: 'Starts later',
+  retired: 'History only',
+}
+
+const priceSourceLabels: Record<PriceListItemRow['cost_source'], string> = {
+  import: 'Imported',
+  manual: 'Manual',
+  override: 'Manual override',
+  supplier: 'Supplier cost',
+}
+
+const priceItemTypeLabels: Record<PriceItemType, string> = {
+  board: 'Board',
+  extra: 'Extra',
+  handle: 'Handle',
+  hinge: 'Hinge',
+  slide: 'Drawer slide',
+}
+
 function setupStatusLabel(status: LibrarySetupItemStatus) {
-  return status.replace('_', ' ')
+  return setupStatusLabels[status]
 }
 
 function setupStatusBadgeVariant(status: LibrarySetupItemStatus) {
@@ -276,8 +334,11 @@ function SetupStatusIcon({ status }: { status: LibrarySetupItemStatus }) {
 }
 
 function importStatusLabel(status: LibraryImportRowStatus) {
-  if (status === 'skipped') return 'skip'
-  return status
+  return importStatusCopy[status].label
+}
+
+function importStatusHelp(status: LibraryImportRowStatus) {
+  return importStatusCopy[status].help
 }
 
 function importStatusBadgeVariant(status: LibraryImportRowStatus) {
@@ -294,8 +355,61 @@ function importApplyStatusBadgeVariant(status: LibraryImportApplyRowStatus) {
   return 'default' as const
 }
 
+function importApplyStatusLabel(status: LibraryImportApplyRowStatus) {
+  return importApplyStatusLabels[status]
+}
+
 function importResourceLabel(resource: LibraryImportResource) {
   return importResourceOptions.find((option) => option.value === resource)?.label ?? resource
+}
+
+function importResourceHelp(resource: LibraryImportResource, priceListName?: string | null) {
+  if (resource === 'supplier_item_costs') {
+    return 'Supplier cost rows connect catalog items to the prices your suppliers charge. They do not change quote selling prices until you generate or import price list rows.'
+  }
+  if (resource === 'price_list_items') {
+    return `Price rows will be checked against ${priceListName ? `"${priceListName}"` : 'the selected price list'}. New quote pricing uses current rows from that list; saved quote evidence stays unchanged.`
+  }
+  if (resource === 'boards') {
+    return 'Board rows become the materials estimators choose for carcasses, doors, drawers, and visible panels.'
+  }
+  if (resource === 'slides' || resource === 'hinges' || resource === 'handles') {
+    return 'Hardware rows become quote defaults and can be priced after the catalog item exists.'
+  }
+  if (resource === 'extras' || resource === 'extra_categories') {
+    return 'Extra rows cover allowances such as site protection or appliances that can be added to quotes.'
+  }
+  return 'Supplier rows keep contact details and default discounts available for later cost imports.'
+}
+
+function catalogResourceLabel(resource: LibraryCatalogBulkResource) {
+  if (resource === 'boards') return 'boards'
+  if (resource === 'slides') return 'drawer slides'
+  if (resource === 'hinges') return 'hinges'
+  if (resource === 'handles') return 'handles'
+  if (resource === 'extras') return 'extras'
+  return 'suppliers'
+}
+
+function priceStatusLabel(status: LibraryEffectiveStatus) {
+  return priceStatusLabels[status]
+}
+
+function priceSourceLabel(source: PriceListItemRow['cost_source']) {
+  return priceSourceLabels[source]
+}
+
+function priceItemTypeLabel(itemType: PriceItemType) {
+  return priceItemTypeLabels[itemType]
+}
+
+function priceComponentLabel(component: string) {
+  if (component === 'edging_m') return 'Edging per metre'
+  if (component === 'labour_board') return 'Labour per board'
+  if (component === 'sheet') return 'Sheet'
+  if (component === 'sqm') return 'Square metre'
+  if (component === 'unit') return 'Unit'
+  return component.replaceAll('_', ' ')
 }
 
 function parseColumnMapping(text: string): Record<string, string> {
@@ -306,12 +420,12 @@ function parseColumnMapping(text: string): Record<string, string> {
     .reduce<Record<string, string>>((mapping, line, index) => {
       const separatorIndex = line.includes('=') ? line.indexOf('=') : line.indexOf(':')
       if (separatorIndex <= 0) {
-        throw new Error(`Column mapping line ${index + 1} needs field=Column.`)
+        throw new Error(`Column mapping line ${index + 1} needs a CoreQuote field and spreadsheet column, for example unit_cost_cents=Net Cost.`)
       }
       const field = line.slice(0, separatorIndex).trim()
       const column = line.slice(separatorIndex + 1).trim()
       if (!field || !column) {
-        throw new Error(`Column mapping line ${index + 1} needs both a field and column.`)
+        throw new Error(`Column mapping line ${index + 1} needs both a CoreQuote field and spreadsheet column.`)
       }
       mapping[field] = column
       return mapping
@@ -366,7 +480,7 @@ function MaintenanceToolbar({
 
 function FilteredEmptyNotice({ filteredCount, totalCount }: { filteredCount: number; totalCount: number }) {
   if (totalCount === 0 || filteredCount > 0) return null
-  return <Alert variant="warning">No rows match the current filters.</Alert>
+  return <Alert variant="warning">No visible rows match these filters. Clear the search or choose a wider date range.</Alert>
 }
 
 function BulkPreviewRows({ result }: { result: LibraryBulkUpdateResult | null }) {
@@ -378,12 +492,14 @@ function BulkPreviewRows({ result }: { result: LibraryBulkUpdateResult | null })
           {result.summary_message}
         </Badge>
         <Badge variant="outline">{result.matched_count} matched</Badge>
-        {result.failed_count > 0 ? <Badge variant="warning">{result.failed_count} failed</Badge> : null}
+        {result.failed_count > 0 ? <Badge variant="warning">{result.failed_count} need fixing</Badge> : null}
       </div>
       <div className="grid gap-1 text-xs text-muted-foreground">
         {result.rows.slice(0, 6).map((row) => (
           <div className="flex flex-wrap items-center gap-2" key={`${row.item_id}-${row.status}`}>
-            <Badge variant={row.status === 'failed' ? 'warning' : row.status === 'updated' ? 'success' : 'outline'}>{row.status}</Badge>
+            <Badge variant={row.status === 'failed' ? 'warning' : row.status === 'updated' ? 'success' : 'outline'}>
+              {row.status === 'failed' ? 'Needs fixing' : row.status === 'updated' ? 'Updated' : 'Preview'}
+            </Badge>
             <span className="font-medium text-foreground">{row.label}</span>
             <span>{row.message}</span>
           </div>
@@ -433,7 +549,7 @@ function CatalogBulkPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={selectedCount > 0 ? 'default' : 'outline'}>{selectedCount} selected</Badge>
-          <span className="text-sm font-medium">{resource.replace('-', ' ')}</span>
+          <span className="text-sm font-medium">Bulk change selected {catalogResourceLabel(resource)}</span>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button disabled={visibleCount === 0 || isSaving} onClick={onSelectVisible} size="sm" type="button" variant="outline">
@@ -473,14 +589,16 @@ function CatalogBulkPanel({
         </Label>
         <Button disabled={isSaving || selectedCount === 0 || valueDisabled} onClick={onPreview} type="button" variant="outline">
           {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
-          Preview
+          Preview changes
         </Button>
         <Button disabled={applyDisabled} onClick={onApply} type="button">
           {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-          Apply
+          Apply changes
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Only selected rows are changed after a successful preview.</p>
+      <Alert>
+        Preview first, then apply. Only the selected {catalogResourceLabel(resource)} are changed; pricing and quote totals stay untouched here.
+      </Alert>
       <BulkPreviewRows result={preview} />
     </div>
   )
@@ -523,7 +641,7 @@ function PriceBulkPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={selectedCount > 0 ? 'default' : 'outline'}>{selectedCount} selected</Badge>
-          <span className="text-sm font-medium">Price Bulk Edit</span>
+          <span className="text-sm font-medium">Bulk change current prices</span>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button disabled={visibleCurrentCount === 0 || isSaving} onClick={onSelectVisible} size="sm" type="button" variant="outline">
@@ -542,27 +660,29 @@ function PriceBulkPanel({
           <Input value={amount} onChange={(event) => onAmountChange(event.target.value)} />
         </Label>
         <Label className="grid gap-1.5">
-          UOM
+          Unit
           <Input value={uom} onChange={(event) => onUomChange(event.target.value)} />
         </Label>
         <Label className="grid gap-1.5">
           Source
           <Select value={source} onChange={(event) => onSourceChange(event.target.value as 'no-change' | 'manual' | 'override')}>
-            <option value="no-change">No change</option>
-            <option value="manual">Manual</option>
-            <option value="override">Override</option>
+            <option value="no-change">Leave source unchanged</option>
+            <option value="manual">Manual edit</option>
+            <option value="override">Manual override</option>
           </Select>
         </Label>
         <Button disabled={isSaving || selectedCount === 0} onClick={onPreview} type="button" variant="outline">
           {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
-          Preview
+          Preview changes
         </Button>
         <Button disabled={applyDisabled} onClick={onApply} type="button">
           {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-          Apply
+          Apply changes
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Applying a price bulk edit retires the selected current row and creates a replacement row.</p>
+      <Alert variant="warning">
+        Preview first, then apply. Applying a price change creates a new current price and keeps the old price in history, so past quote evidence stays explainable.
+      </Alert>
       <BulkPreviewRows result={preview} />
     </div>
   )
@@ -590,23 +710,25 @@ function MissingPricesPanel({
             <option value="all">All types</option>
             {priceItemTypes.map((itemType) => (
               <option key={itemType} value={itemType}>
-                {itemType}
+                {priceItemTypeLabel(itemType)}
               </option>
             ))}
           </Select>
         </Label>
       </div>
       {missingPriceRows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Current catalog rows have prices in this list.</p>
+        <p className="text-sm text-muted-foreground">Every visible library item has a current price in this list.</p>
       ) : (
         <div className="grid gap-2 md:grid-cols-2">
           {missingPriceRows.slice(0, 8).map((row) => (
             <div className="rounded-[var(--control-radius)] border border-border px-3 py-2 text-sm" key={`${row.item_type}-${row.id}`}>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">{row.item_type}</Badge>
+                <Badge variant="outline">{priceItemTypeLabel(row.item_type)}</Badge>
                 <span className="font-medium">{row.label}</span>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">{row.components.join(', ')}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Add {row.components.map(priceComponentLabel).join(', ')} using Quick Price Update, a price import, or supplier price generation.
+              </p>
             </div>
           ))}
         </div>
@@ -977,11 +1099,11 @@ export function LibrariesPage({
   const importSummaryItems = useMemo(() => {
     if (!importPreview) return []
     return [
-      { label: 'new', status: 'create' as const, value: importPreview.summary.create_count },
-      { label: 'updates', status: 'update' as const, value: importPreview.summary.update_count },
-      { label: 'skips', status: 'skipped' as const, value: importPreview.summary.skipped_count },
+      { label: 'will add', status: 'create' as const, value: importPreview.summary.create_count },
+      { label: 'will update', status: 'update' as const, value: importPreview.summary.update_count },
+      { label: 'already current', status: 'skipped' as const, value: importPreview.summary.skipped_count },
       { label: 'duplicates', status: 'duplicate' as const, value: importPreview.summary.duplicate_count },
-      { label: 'blocked', status: 'blocked' as const, value: importPreview.summary.blocked_count },
+      { label: 'need fixing', status: 'blocked' as const, value: importPreview.summary.blocked_count },
     ]
   }, [importPreview])
 
@@ -990,10 +1112,10 @@ export function LibrariesPage({
   const importApplySummaryItems = useMemo(() => {
     if (!importApplyResult) return []
     return [
-      { label: 'created', status: 'created' as const, value: importApplyResult.summary.created_count },
+      { label: 'added', status: 'created' as const, value: importApplyResult.summary.created_count },
       { label: 'updated', status: 'updated' as const, value: importApplyResult.summary.updated_count },
-      { label: 'skipped', status: 'skipped' as const, value: importApplyResult.summary.skipped_count },
-      { label: 'failed', status: 'failed' as const, value: importApplyResult.summary.failed_count },
+      { label: 'already current', status: 'skipped' as const, value: importApplyResult.summary.skipped_count },
+      { label: 'need fixing', status: 'failed' as const, value: importApplyResult.summary.failed_count },
     ]
   }, [importApplyResult])
 
@@ -1396,7 +1518,7 @@ export function LibrariesPage({
       return
     }
     if (!payload) {
-      setBulkError('Enter a price, UOM, or source change before previewing.')
+      setBulkError('Enter a price, unit, or source change before previewing.')
       return
     }
 
@@ -1693,7 +1815,7 @@ export function LibrariesPage({
         if (board.costing_mode === 'sqm') {
           const sqmPrice = amountStringToCents(sqmPriceAmount)
           if (sqmPrice === null) {
-            throw new Error('SQM price must be a valid number.')
+            throw new Error('Square metre price must be a valid number.')
           }
           await upsertPriceItem(authToken, selectedPriceListId, {
             item_type: 'board',
@@ -2255,6 +2377,14 @@ export function LibrariesPage({
   }
 
   const isLoading = isLoadingCatalog || isLoadingPricing
+  const nextSetupItem = setupChecklist?.items.find((item) => item.status !== 'complete') ?? null
+  const importPreviewProblemCount = importPreview
+    ? importPreview.summary.blocked_count + importPreview.summary.duplicate_count
+    : 0
+  const importPreviewSaveCount = importPreview
+    ? importPreview.summary.create_count + importPreview.summary.update_count
+    : 0
+  const importHasBlockedRows = (importPreview?.summary.blocked_count ?? 0) > 0
 
   return (
     <div className="grid gap-4">
@@ -2263,7 +2393,7 @@ export function LibrariesPage({
           <div>
             <CardTitle>Libraries and Pricing</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Manage inventory libraries and pricing in one place for your whole team.
+              Keep board, hardware, supplier cost, and sell-price libraries ready for quoting.
             </p>
           </div>
           <Button
@@ -2292,11 +2422,11 @@ export function LibrariesPage({
             ))}
           </ControlGroup>
 
-          {catalogError ? <Alert variant="destructive">{catalogError}</Alert> : null}
-          {pricingError ? <Alert variant="destructive">{pricingError}</Alert> : null}
-          {checklistError ? <Alert variant="destructive">{checklistError}</Alert> : null}
-          {actionError ? <Alert variant="destructive">{actionError}</Alert> : null}
-          {bulkError ? <Alert variant="destructive">{bulkError}</Alert> : null}
+          {catalogError ? <Alert variant="destructive">Could not load the library rows. Refresh and try again. {catalogError}</Alert> : null}
+          {pricingError ? <Alert variant="destructive">Could not load pricing rows. Refresh and try again. {pricingError}</Alert> : null}
+          {checklistError ? <Alert variant="destructive">Could not check library readiness. Refresh and try again. {checklistError}</Alert> : null}
+          {actionError ? <Alert variant="destructive">The change was not saved. Check the details and try again. {actionError}</Alert> : null}
+          {bulkError ? <Alert variant="destructive">The bulk edit was not saved. Preview the selected rows and try again. {bulkError}</Alert> : null}
           {actionSuccess ? <Alert>{actionSuccess}</Alert> : null}
         </CardContent>
       </Card>
@@ -2318,43 +2448,54 @@ export function LibrariesPage({
             </Badge>
           ) : null}
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-3">
           {isLoadingChecklist ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
               Loading setup checklist.
             </div>
           ) : setupChecklist ? (
-            <div className="grid gap-2 lg:grid-cols-3">
-              {setupChecklist.items.map((item) => (
-                <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3" key={item.id}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <SetupStatusIcon status={item.status} />
-                      <p className="truncate text-sm font-medium">{item.label}</p>
+            <>
+              {nextSetupItem ? (
+                <Alert variant="warning">
+                  Next best step: {nextSetupItem.label}. {nextSetupItem.message}
+                </Alert>
+              ) : (
+                <Alert>
+                  Setup is ready. New quotes can use the visible libraries and current prices.
+                </Alert>
+              )}
+              <div className="grid gap-2 lg:grid-cols-3">
+                {setupChecklist.items.map((item) => (
+                  <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3" key={item.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SetupStatusIcon status={item.status} />
+                        <p className="truncate text-sm font-medium">{item.label}</p>
+                      </div>
+                      <Badge variant={setupStatusBadgeVariant(item.status)}>{setupStatusLabel(item.status)}</Badge>
                     </div>
-                    <Badge variant={setupStatusBadgeVariant(item.status)}>{setupStatusLabel(item.status)}</Badge>
+                    <p className="text-sm leading-5 text-muted-foreground">{item.message}</p>
+                    <Button
+                      className="w-fit"
+                      onClick={() => handleChecklistAction(item.action_target)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      {item.action_target === 'projects' ? (
+                        <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                      )}
+                      {item.action_label}
+                    </Button>
                   </div>
-                  <p className="text-sm leading-5 text-muted-foreground">{item.message}</p>
-                  <Button
-                    className="w-fit"
-                    onClick={() => handleChecklistAction(item.action_target)}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    {item.action_target === 'projects' ? (
-                      <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                    ) : (
-                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                    )}
-                    {item.action_label}
-                  </Button>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           ) : (
-            <Alert variant="warning">The setup checklist is not available right now.</Alert>
+            <Alert variant="warning">The setup checklist is not available right now. Refresh Libraries, then sign in again if it keeps happening.</Alert>
           )}
         </CardContent>
       </Card>
@@ -2367,13 +2508,14 @@ export function LibrariesPage({
               Import Preview
             </CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Check library rows before the import is applied.
+              Preview shows exactly what will be added, changed, ignored, or needs fixing before anything is saved.
             </p>
           </div>
-          <Badge variant="outline">preview first</Badge>
+          <Badge variant="outline">preview before saving</Badge>
         </CardHeader>
         <CardContent className="grid gap-4">
-          {importError ? <Alert variant="destructive">{importError}</Alert> : null}
+          {importError ? <Alert variant="destructive">The import could not be previewed or saved. {importError}</Alert> : null}
+          <Alert>{importResourceHelp(importResource, selectedPriceList?.name)}</Alert>
           <form className="grid gap-3" onSubmit={previewLibraryImport}>
             <div className="grid gap-3 lg:grid-cols-4">
               <Label className="grid gap-1.5">
@@ -2434,7 +2576,6 @@ export function LibrariesPage({
                 />
               </Label>
             </div>
-
             <Label className="grid gap-1.5">
               Source reference
               <Input
@@ -2445,6 +2586,7 @@ export function LibrariesPage({
                   setImportApplyResult(null)
                 }}
               />
+              <span className="text-xs text-muted-foreground">Use a short note you will recognize later, such as the supplier price list month.</span>
             </Label>
 
             {importSourceFormat === 'xlsx' ? (
@@ -2477,6 +2619,9 @@ export function LibrariesPage({
                   clearImportResults()
                 }}
               />
+              <span className="text-xs text-muted-foreground">
+                Optional. Use this only when a supplier sheet uses different headings, for example unit_cost_cents=Net Cost.
+              </span>
             </Label>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -2492,7 +2637,7 @@ export function LibrariesPage({
                 Preview Import
               </Button>
               <Button
-                disabled={!importPreview || isPreviewingImport || isApplyingImport || (importSourceFormat === 'xlsx' && !importFilename)}
+                disabled={!importPreview || importHasBlockedRows || isPreviewingImport || isApplyingImport || (importSourceFormat === 'xlsx' && !importFilename)}
                 onClick={() => {
                   void applyLibraryImport()
                 }}
@@ -2511,6 +2656,21 @@ export function LibrariesPage({
                 <Badge variant="outline">{selectedPriceList.name}</Badge>
               ) : null}
             </div>
+            {importPreview ? (
+              importPreviewProblemCount > 0 ? (
+                <Alert variant="warning">
+                  Review before applying: {importPreviewProblemCount} rows need attention. Rows marked Needs fixing must be corrected before Apply Import is available; duplicate rows will be skipped.
+                </Alert>
+              ) : importPreviewSaveCount === 0 ? (
+                <Alert>
+                  Nothing new to save. Every row in this preview is already current in CoreQuote.
+                </Alert>
+              ) : (
+                <Alert>
+                  Safe to apply: CoreQuote will save {importPreviewSaveCount} rows marked Will add or Will update, and leave Already current rows alone.
+                </Alert>
+              )
+            ) : null}
           </form>
 
           {importPreview ? (
@@ -2547,9 +2707,9 @@ export function LibrariesPage({
                     <TableRow>
                       <TableHead>Row</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Identity</TableHead>
-                      <TableHead>Preview</TableHead>
-                      <TableHead>Messages</TableHead>
+                      <TableHead>Matched item</TableHead>
+                      <TableHead>What CoreQuote read</TableHead>
+                      <TableHead>What to do</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2564,9 +2724,12 @@ export function LibrariesPage({
                         <TableRow key={`${row.row_number}-${row.identity || row.status}`}>
                           <TableCell>{row.row_number}</TableCell>
                           <TableCell>
-                            <Badge variant={importStatusBadgeVariant(row.status)}>{importStatusLabel(row.status)}</Badge>
+                            <div className="grid gap-1">
+                              <Badge className="w-fit" variant={importStatusBadgeVariant(row.status)}>{importStatusLabel(row.status)}</Badge>
+                              <span className="max-w-56 text-xs text-muted-foreground">{importStatusHelp(row.status)}</span>
+                            </div>
                           </TableCell>
-                          <TableCell className="max-w-64 break-all text-xs">{row.identity || '-'}</TableCell>
+                          <TableCell className="max-w-64 break-words text-xs">{row.identity || 'New library row'}</TableCell>
                           <TableCell className="max-w-80 break-words text-xs">{payloadPreview(row.payload)}</TableCell>
                           <TableCell className="min-w-72">
                             <div className="grid gap-1 text-xs">
@@ -2595,8 +2758,13 @@ export function LibrariesPage({
 
           {importApplyResult ? (
             <div className="grid gap-4 rounded-[var(--control-radius)] border border-border p-3">
+              <Alert variant={importApplyResult.summary.failed_count > 0 ? 'warning' : undefined}>
+                {importApplyResult.summary.failed_count > 0
+                  ? 'Some rows were not saved. Fix rows marked Needs fixing, then preview the import again.'
+                  : 'Import applied. Added and updated rows are now available in Libraries and Pricing.'}
+              </Alert>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Batch {importApplyResult.batch_id}</Badge>
+                <Badge variant="outline">Import receipt {importApplyResult.batch_id}</Badge>
                 <Badge variant="outline">{importApplyResult.summary.total_rows} rows</Badge>
                 {importApplySummaryItems.map((item) => (
                   <Badge key={item.status} variant={importApplyStatusBadgeVariant(item.status)}>
@@ -2610,8 +2778,8 @@ export function LibrariesPage({
                     <TableRow>
                       <TableHead>Row</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Target</TableHead>
-                      <TableHead>Messages</TableHead>
+                      <TableHead>Saved item</TableHead>
+                      <TableHead>What happened</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2619,9 +2787,9 @@ export function LibrariesPage({
                       <TableRow key={`${row.row_number}-${row.status}-${row.target_id}`}>
                         <TableCell>{row.row_number}</TableCell>
                         <TableCell>
-                          <Badge variant={importApplyStatusBadgeVariant(row.status)}>{row.status}</Badge>
+                          <Badge variant={importApplyStatusBadgeVariant(row.status)}>{importApplyStatusLabel(row.status)}</Badge>
                         </TableCell>
-                        <TableCell className="max-w-64 break-all text-xs">{row.target_id || row.identity || '-'}</TableCell>
+                        <TableCell className="max-w-64 break-words text-xs">{row.identity || row.target_id || '-'}</TableCell>
                         <TableCell className="min-w-72">
                           <div className="grid gap-1 text-xs">
                             <span>{row.message}</span>
@@ -2699,7 +2867,7 @@ export function LibrariesPage({
                     <option value="">Select a price list</option>
                     {priceLists.map((row) => (
                       <option key={row.id} value={row.id}>
-                        {row.name} ({row.status})
+                        {row.name} ({row.status === 'active' ? 'active' : row.status})
                       </option>
                     ))}
                   </Select>
@@ -2708,6 +2876,7 @@ export function LibrariesPage({
                   <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                     <Badge variant={selectedPriceList.status === 'active' ? 'default' : 'outline'}>{selectedPriceList.status}</Badge>
                     <span>{selectedPriceList.name}</span>
+                    <span>New quote totals use prices from this list.</span>
                   </div>
                 ) : null}
                 {priceLists.length === 0 ? (
@@ -2744,19 +2913,22 @@ export function LibrariesPage({
                 </form>
                 <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3" onSubmit={generatePricesFromSupplierCosts}>
                   <p className="text-sm font-medium">Generate from supplier costs</p>
+                  <Alert variant="warning">
+                    Generating prices creates or updates current price rows from supplier costs. Existing quote evidence stays unchanged; new and recalculated totals use the new current prices.
+                  </Alert>
                   <Label className="grid gap-1.5">
                     Source selection
                     <Select
                       value={generationMode}
                       onChange={(event) => setGenerationMode(event.target.value as GeneratePriceListSummary['selection_mode'])}
                     >
-                      <option value="preferred_then_cheapest">preferred, then cheapest</option>
-                      <option value="preferred_only">preferred only</option>
-                      <option value="cheapest">cheapest active</option>
+                      <option value="preferred_then_cheapest">Preferred supplier, otherwise cheapest active cost</option>
+                      <option value="preferred_only">Preferred supplier only</option>
+                      <option value="cheapest">Cheapest active supplier cost</option>
                     </Select>
                   </Label>
                   <Label className="grid gap-1.5">
-                    Effective from
+                    Starts from
                     <Input
                       type="datetime-local"
                       value={generationEffectiveFrom}
@@ -2779,7 +2951,7 @@ export function LibrariesPage({
                       checked={preserveManualOverrides}
                       onChange={(event) => setPreserveManualOverrides(event.target.checked)}
                     />
-                    Preserve manual overrides
+                    Keep manual override prices
                   </Label>
                   <Button disabled={isSaving || isLoadingPriceItems || !selectedPriceListId} type="submit" variant="outline">
                     <RefreshCcw className="h-4 w-4" aria-hidden="true" />
@@ -2787,7 +2959,7 @@ export function LibrariesPage({
                   </Button>
                   {lastGenerationSummary ? (
                     <p className="text-xs text-muted-foreground">
-                      Created {lastGenerationSummary.created_count}, updated {lastGenerationSummary.updated_count}, unchanged {lastGenerationSummary.unchanged_count}, skipped {lastGenerationSummary.skipped_override_count}.
+                      Supplier cost generation finished: {lastGenerationSummary.created_count} added, {lastGenerationSummary.updated_count} replaced, {lastGenerationSummary.unchanged_count} already current, and {lastGenerationSummary.skipped_override_count} manual overrides left alone.
                     </p>
                   ) : null}
                 </form>
@@ -2798,7 +2970,10 @@ export function LibrariesPage({
               <CardHeader>
                 <CardTitle className="text-base">Quick Price Update</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="grid gap-3">
+                <Alert variant="warning">
+                  Saving a price replaces the current price for future quote totals and keeps the old price in history.
+                </Alert>
                 <form className="grid gap-3" onSubmit={handleSaveQuickPrice}>
                   <Label className="grid gap-1.5">
                     Item type
@@ -2806,11 +2981,11 @@ export function LibrariesPage({
                       value={pricingItemType}
                       onChange={(event) => setPricingItemType(event.target.value as PriceItemType)}
                     >
-                      <option value="slide">slide</option>
-                      <option value="hinge">hinge</option>
-                      <option value="handle">handle</option>
-                      <option value="extra">extra</option>
-                      <option value="board">board</option>
+                      {priceItemTypes.map((itemType) => (
+                        <option key={itemType} value={itemType}>
+                          {priceItemTypeLabel(itemType)}
+                        </option>
+                      ))}
                     </Select>
                   </Label>
                   <Label className="grid gap-1.5">
@@ -2847,42 +3022,45 @@ export function LibrariesPage({
 
                   {pricingItemType === 'board' && selectedBoardForPricing?.costing_mode === 'sqm' ? (
                     <Label className="grid gap-1.5">
-                      SQM price ({displayCurrencyCode})
+                      Square metre price ({displayCurrencyCode})
                       <Input value={sqmPriceAmount} onChange={(event) => setSqmPriceAmount(event.target.value)} />
                     </Label>
                   ) : null}
 
                   {pricingItemType !== 'board' ? (
                     <Label className="grid gap-1.5">
-                      Cost price ({displayCurrencyCode})
+                      Selling price ({displayCurrencyCode})
                       <Input value={unitPriceAmount} onChange={(event) => setUnitPriceAmount(event.target.value)} />
                     </Label>
                   ) : null}
 
                   {pricingItemOptions.length === 0 ? (
                     <Alert className="text-xs">
-                      Add at least one {pricingItemType} in the library before saving prices for this item type.
+                      Add at least one {priceItemTypeLabel(pricingItemType).toLowerCase()} in the library before saving prices for this item type.
                     </Alert>
                   ) : null}
 
                   <Button disabled={isSaving || isLoadingPriceItems} type="submit">
                     <Save className="h-4 w-4" aria-hidden="true" />
-                    Save Price
+                    Save price
                   </Button>
                 </form>
               </CardContent>
             </Card>
-              </section>
+          </section>
 
-              <Card>
-	            <CardHeader>
-	              <CardTitle className="text-base">Price History</CardTitle>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Price History</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Current prices are used for new or recalculated totals. Future prices wait until their start date. History-only prices remain for audit.
+              </p>
             </CardHeader>
             <CardContent>
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <Badge variant="default">{currentPriceRows.length} current</Badge>
-                <Badge variant="outline">{futurePriceRows.length} future</Badge>
-                <Badge variant="warning">{retiredPriceRows.length} retired</Badge>
+                <Badge variant="default">{currentPriceRows.length} used for new totals</Badge>
+                <Badge variant="outline">{futurePriceRows.length} start later</Badge>
+                <Badge variant="warning">{retiredPriceRows.length} history only</Badge>
               </div>
               <div className="mb-3 grid gap-3">
                 <MaintenanceToolbar
@@ -2907,7 +3085,7 @@ export function LibrariesPage({
                       <option value="all">All types</option>
                       {priceItemTypes.map((itemType) => (
                         <option key={itemType} value={itemType}>
-                          {itemType}
+                          {priceItemTypeLabel(itemType)}
                         </option>
                       ))}
                     </Select>
@@ -2973,11 +3151,11 @@ export function LibrariesPage({
                       <TableHead className="w-10">Select</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Item</TableHead>
-                      <TableHead>Component</TableHead>
-                      <TableHead>UOM</TableHead>
+                      <TableHead>Price part</TableHead>
+                      <TableHead>Unit</TableHead>
                       <TableHead>Source</TableHead>
-                      <TableHead>Effective</TableHead>
-                      <TableHead>Retires</TableHead>
+                      <TableHead>Starts</TableHead>
+                      <TableHead>Replaced on</TableHead>
                       <TableHead>Price</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -2986,9 +3164,11 @@ export function LibrariesPage({
                       <TableRow>
                         <TableCell colSpan={9}>
                           <div className="grid gap-1 py-3">
-                            <p className="font-medium">Build prices for the active list.</p>
+                            <p className="font-medium">{priceItems.length === 0 ? 'Build prices for the active list.' : 'No price rows match the filters.'}</p>
                             <p className="text-sm leading-5 text-muted-foreground">
-                              Add board, hardware, handle, and extra prices here so quote totals can be trusted.
+                              {priceItems.length === 0
+                                ? 'Add board, hardware, handle, and extra prices here so quote totals can be trusted.'
+                                : 'Clear the search or widen the filters to see the price rows in this list.'}
                             </p>
                           </div>
                         </TableCell>
@@ -3003,27 +3183,27 @@ export function LibrariesPage({
                               onChange={(event) => handlePriceSelection(row.id, event.target.checked)}
                             />
                           </TableCell>
-                          <TableCell>{row.item_type}</TableCell>
+                          <TableCell>{priceItemTypeLabel(row.item_type)}</TableCell>
                           <TableCell>
                             {row.item_ref_id
                               ? itemLabelByRef.get(`${row.item_type}:${row.item_ref_id}`) ?? row.item_key
                               : row.item_key}
                           </TableCell>
-                          <TableCell>{row.price_component}</TableCell>
+                          <TableCell>{priceComponentLabel(row.price_component)}</TableCell>
                           <TableCell>{row.uom}</TableCell>
                           <TableCell>
-                            <Badge variant={row.cost_source === 'supplier' ? 'default' : 'outline'}>{row.cost_source}</Badge>
+                            <Badge variant={row.cost_source === 'supplier' ? 'default' : 'outline'}>{priceSourceLabel(row.cost_source)}</Badge>
                           </TableCell>
                           <TableCell>
                             <div className="grid gap-1 text-xs">
                               <Badge variant={row.effective_status === 'current' ? 'success' : row.effective_status === 'retired' ? 'warning' : 'outline'}>
-                                {row.effective_status}
+                                {priceStatusLabel(row.effective_status)}
                               </Badge>
                               <span className="text-muted-foreground">{formatDateTime(row.effective_from)}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
-                            {row.effective_to ? formatDateTime(row.effective_to) : 'open'}
+                            {row.effective_to ? formatDateTime(row.effective_to) : 'Still current'}
                           </TableCell>
                           <TableCell>{formatCurrencyFromCents(row.unit_price_cents, displayCurrencyCode)}</TableCell>
                         </TableRow>
@@ -3371,7 +3551,7 @@ export function LibrariesPage({
                       <Input value={itemSupplierDraft.price_component} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, price_component: event.target.value }))} />
                     </Label>
                     <Label className="grid gap-1.5">
-                      Order UOM
+                      Order unit
                       <Input value={itemSupplierDraft.order_uom} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, order_uom: event.target.value }))} />
                     </Label>
                     <Label className="grid gap-1.5">
