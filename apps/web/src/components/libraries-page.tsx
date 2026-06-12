@@ -13,6 +13,7 @@ import {
   Plus,
   RefreshCcw,
   Save,
+  Upload,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 
@@ -42,7 +43,7 @@ import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, Li
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -149,6 +150,13 @@ function importStatusBadgeVariant(status: LibraryImportRowStatus) {
   return 'default' as const
 }
 
+function importApplyStatusBadgeVariant(status: LibraryImportApplyRowStatus) {
+  if (status === 'created') return 'success' as const
+  if (status === 'failed') return 'warning' as const
+  if (status === 'skipped') return 'outline' as const
+  return 'default' as const
+}
+
 function importResourceLabel(resource: LibraryImportResource) {
   return importResourceOptions.find((option) => option.value === resource)?.label ?? resource
 }
@@ -224,6 +232,7 @@ export function LibrariesPage({
   const [isLoadingPriceItems, setIsLoadingPriceItems] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isPreviewingImport, setIsPreviewingImport] = useState(false)
+  const [isApplyingImport, setIsApplyingImport] = useState(false)
 
   const [checklistError, setChecklistError] = useState<string | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
@@ -270,9 +279,11 @@ export function LibrariesPage({
   const [importSourceFormat, setImportSourceFormat] = useState<LibraryImportSourceFormat>('csv')
   const [importFilename, setImportFilename] = useState('')
   const [importSheetName, setImportSheetName] = useState('')
+  const [importSourceRef, setImportSourceRef] = useState('')
   const [importContent, setImportContent] = useState(importExampleByResource.boards)
   const [importColumnMapping, setImportColumnMapping] = useState('')
   const [importPreview, setImportPreview] = useState<LibraryImportPreview | null>(null)
+  const [importApplyResult, setImportApplyResult] = useState<LibraryImportApplyResult | null>(null)
   const displayCurrencyCode = normalizeCurrencyCode(currencyCode)
 
   const selectedPriceList = useMemo(
@@ -352,6 +363,18 @@ export function LibrariesPage({
   }, [importPreview])
 
   const visibleImportRows = useMemo(() => importPreview?.rows.slice(0, 50) ?? [], [importPreview])
+
+  const importApplySummaryItems = useMemo(() => {
+    if (!importApplyResult) return []
+    return [
+      { label: 'created', status: 'created' as const, value: importApplyResult.summary.created_count },
+      { label: 'updated', status: 'updated' as const, value: importApplyResult.summary.updated_count },
+      { label: 'skipped', status: 'skipped' as const, value: importApplyResult.summary.skipped_count },
+      { label: 'failed', status: 'failed' as const, value: importApplyResult.summary.failed_count },
+    ]
+  }, [importApplyResult])
+
+  const visibleImportApplyRows = useMemo(() => importApplyResult?.rows.slice(0, 50) ?? [], [importApplyResult])
 
   const itemLabelByRef = useMemo(() => {
     const labels = new Map<string, string>()
@@ -616,9 +639,26 @@ export function LibrariesPage({
     setActiveTab(actionTarget)
   }
 
+  function clearImportResults() {
+    setImportPreview(null)
+    setImportApplyResult(null)
+  }
+
+  function buildImportPreviewPayload(columnMapping: Record<string, string>): LibraryImportPreviewRequest {
+    return {
+      resource: importResource,
+      source_format: importSourceFormat,
+      filename: importFilename,
+      sheet_name: importSheetName.trim() || null,
+      content: importContent,
+      column_mapping: columnMapping,
+      price_list_id: importResource === 'price_list_items' ? selectedPriceListId || null : null,
+    }
+  }
+
   function handleImportResourceChange(nextResource: LibraryImportResource) {
     setImportResource(nextResource)
-    setImportPreview(null)
+    clearImportResults()
     setImportError(null)
     if (!importFilename) {
       setImportContent(importExampleByResource[nextResource])
@@ -636,7 +676,7 @@ export function LibrariesPage({
 
     setImportFilename(filename)
     setImportSourceFormat(nextFormat)
-    setImportPreview(null)
+    clearImportResults()
     setImportError(null)
 
     try {
@@ -653,7 +693,7 @@ export function LibrariesPage({
   async function previewLibraryImport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setImportError(null)
-    setImportPreview(null)
+    clearImportResults()
 
     let columnMapping: Record<string, string>
     try {
@@ -668,15 +708,7 @@ export function LibrariesPage({
       return
     }
 
-    const payload: LibraryImportPreviewRequest = {
-      resource: importResource,
-      source_format: importSourceFormat,
-      filename: importFilename,
-      sheet_name: importSheetName.trim() || null,
-      content: importContent,
-      column_mapping: columnMapping,
-      price_list_id: importResource === 'price_list_items' ? selectedPriceListId || null : null,
-    }
+    const payload = buildImportPreviewPayload(columnMapping)
 
     setIsPreviewingImport(true)
     try {
@@ -690,6 +722,46 @@ export function LibrariesPage({
       setImportError(error instanceof Error ? error.message : 'Import preview failed.')
     } finally {
       setIsPreviewingImport(false)
+    }
+  }
+
+  async function applyLibraryImport() {
+    setImportError(null)
+    setImportApplyResult(null)
+
+    if (!importPreview) {
+      setImportError('Preview the import before applying it.')
+      return
+    }
+
+    let columnMapping: Record<string, string>
+    try {
+      columnMapping = parseColumnMapping(importColumnMapping)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Column mapping is invalid.')
+      return
+    }
+
+    const payload: LibraryImportApplyRequest = {
+      ...buildImportPreviewPayload(columnMapping),
+      source_ref: importSourceRef.trim(),
+    }
+
+    setIsApplyingImport(true)
+    try {
+      const result = await apiRequest<LibraryImportApplyResult>('/api/v1/libraries/imports/apply', {
+        body: payload,
+        method: 'POST',
+        token: authToken,
+      })
+      setImportApplyResult(result)
+      await refreshSetupChecklist()
+      await refreshCatalog()
+      await refreshPricing()
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Import apply failed.')
+    } finally {
+      setIsApplyingImport(false)
     }
   }
 
@@ -1444,7 +1516,7 @@ export function LibrariesPage({
               Check library rows before the import is applied.
             </p>
           </div>
-          <Badge variant="outline">dry run</Badge>
+          <Badge variant="outline">preview first</Badge>
         </CardHeader>
         <CardContent className="grid gap-4">
           {importError ? <Alert variant="destructive">{importError}</Alert> : null}
@@ -1470,7 +1542,7 @@ export function LibrariesPage({
                   onChange={(event) => {
                     const nextFormat = event.target.value as LibraryImportSourceFormat
                     setImportSourceFormat(nextFormat)
-                    setImportPreview(null)
+                    clearImportResults()
                     setImportError(null)
                     if (nextFormat !== 'xlsx' && importSourceFormat === 'xlsx') {
                       setImportFilename('')
@@ -1491,7 +1563,10 @@ export function LibrariesPage({
                   disabled={importSourceFormat !== 'xlsx'}
                   placeholder="Sheet1"
                   value={importSheetName}
-                  onChange={(event) => setImportSheetName(event.target.value)}
+                  onChange={(event) => {
+                    setImportSheetName(event.target.value)
+                    clearImportResults()
+                  }}
                 />
               </Label>
               <Label className="grid gap-1.5">
@@ -1506,6 +1581,18 @@ export function LibrariesPage({
               </Label>
             </div>
 
+            <Label className="grid gap-1.5">
+              Source reference
+              <Input
+                placeholder="Supplier price list June"
+                value={importSourceRef}
+                onChange={(event) => {
+                  setImportSourceRef(event.target.value)
+                  setImportApplyResult(null)
+                }}
+              />
+            </Label>
+
             {importSourceFormat === 'xlsx' ? (
               <Alert>
                 {importFilename ? `${importFilename} is ready to preview.` : 'Choose an XLSX workbook before previewing.'}
@@ -1519,7 +1606,7 @@ export function LibrariesPage({
                   onChange={(event) => {
                     setImportContent(event.target.value)
                     setImportFilename('')
-                    setImportPreview(null)
+                    clearImportResults()
                   }}
                 />
               </Label>
@@ -1533,14 +1620,14 @@ export function LibrariesPage({
                 value={importColumnMapping}
                 onChange={(event) => {
                   setImportColumnMapping(event.target.value)
-                  setImportPreview(null)
+                  clearImportResults()
                 }}
               />
             </Label>
 
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                disabled={isPreviewingImport || (importSourceFormat === 'xlsx' && !importFilename)}
+                disabled={isPreviewingImport || isApplyingImport || (importSourceFormat === 'xlsx' && !importFilename)}
                 type="submit"
               >
                 {isPreviewingImport ? (
@@ -1549,6 +1636,21 @@ export function LibrariesPage({
                   <Eye className="h-4 w-4" aria-hidden="true" />
                 )}
                 Preview Import
+              </Button>
+              <Button
+                disabled={!importPreview || isPreviewingImport || isApplyingImport || (importSourceFormat === 'xlsx' && !importFilename)}
+                onClick={() => {
+                  void applyLibraryImport()
+                }}
+                type="button"
+                variant="outline"
+              >
+                {isApplyingImport ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Upload className="h-4 w-4" aria-hidden="true" />
+                )}
+                Apply Import
               </Button>
               {importFilename ? <Badge variant="outline">{importFilename}</Badge> : null}
               {importResource === 'price_list_items' && selectedPriceList ? (
@@ -1632,6 +1734,58 @@ export function LibrariesPage({
               {importPreview.rows.length > visibleImportRows.length ? (
                 <p className="text-xs text-muted-foreground">
                   Showing first {visibleImportRows.length} of {importPreview.rows.length} rows.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {importApplyResult ? (
+            <div className="grid gap-4 rounded-[var(--control-radius)] border border-border p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">Batch {importApplyResult.batch_id}</Badge>
+                <Badge variant="outline">{importApplyResult.summary.total_rows} rows</Badge>
+                {importApplySummaryItems.map((item) => (
+                  <Badge key={item.status} variant={importApplyStatusBadgeVariant(item.status)}>
+                    {item.value} {item.label}
+                  </Badge>
+                ))}
+              </div>
+              <TableContainer>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Row</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Target</TableHead>
+                      <TableHead>Messages</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {visibleImportApplyRows.map((row) => (
+                      <TableRow key={`${row.row_number}-${row.status}-${row.target_id}`}>
+                        <TableCell>{row.row_number}</TableCell>
+                        <TableCell>
+                          <Badge variant={importApplyStatusBadgeVariant(row.status)}>{row.status}</Badge>
+                        </TableCell>
+                        <TableCell className="max-w-64 break-all text-xs">{row.target_id || row.identity || '-'}</TableCell>
+                        <TableCell className="min-w-72">
+                          <div className="grid gap-1 text-xs">
+                            <span>{row.message}</span>
+                            {row.problems.map((problem) => (
+                              <span className="text-muted-foreground" key={`${row.row_number}-${problem.field}-${problem.code}`}>
+                                {problem.message} {problem.suggestion}
+                              </span>
+                            ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              {importApplyResult.rows.length > visibleImportApplyRows.length ? (
+                <p className="text-xs text-muted-foreground">
+                  Showing first {visibleImportApplyRows.length} of {importApplyResult.rows.length} rows.
                 </p>
               ) : null}
             </div>

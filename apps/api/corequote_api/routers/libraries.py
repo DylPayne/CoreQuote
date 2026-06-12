@@ -22,6 +22,8 @@ from corequote_api.schemas import (
     GeneratePriceListFromSupplierCostsResponse,
     ItemSupplierRequest,
     ItemSupplierResponse,
+    LibraryImportApplyRequest,
+    LibraryImportApplyResponse,
     LibraryImportPreviewRequest,
     LibraryImportPreviewResponse,
     PriceListItemRequest,
@@ -76,6 +78,29 @@ def preview_library_import(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     return LibraryImportPreviewResponse.model_validate(preview)
+
+
+@router.post(
+    "/imports/apply",
+    response_model=LibraryImportApplyResponse,
+    summary="Apply a validated library import",
+)
+def apply_library_import(
+    payload: LibraryImportApplyRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> LibraryImportApplyResponse:
+    try:
+        result = store.apply_library_import(current_user.company_id, current_user.id, _payload(payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except LibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except LibraryConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except LibraryNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library row not found") from exc
+    return LibraryImportApplyResponse.model_validate(result)
 
 
 @router.get("/boards", response_model=list[BoardTypeResponse], summary="List board types")

@@ -60,6 +60,9 @@ class FakeLibraryStore:
         self.setup_checklist_company_id: str | None = None
         self.import_preview_company_id: str | None = None
         self.import_preview_payload: dict | None = None
+        self.import_apply_company_id: str | None = None
+        self.import_apply_user_id: str | None = None
+        self.import_apply_payload: dict | None = None
 
     def list_boards(self, company_id: str):
         return [board("board-1")]
@@ -106,6 +109,49 @@ class FakeLibraryStore:
                 }
             ),
         )
+
+    def apply_library_import(self, company_id: str, user_id: str, payload: dict):
+        self.import_apply_company_id = company_id
+        self.import_apply_user_id = user_id
+        self.import_apply_payload = payload
+        preview = self.preview_library_import(company_id, payload)
+        rows = []
+        summary = {"total_rows": 0, "created_count": 0, "updated_count": 0, "skipped_count": 0, "failed_count": 0}
+        for row in preview["rows"]:
+            summary["total_rows"] += 1
+            if row["status"] == "create":
+                status = "created"
+                target_id = f"created-{row['row_number']}"
+                summary["created_count"] += 1
+            elif row["status"] == "update":
+                status = "updated"
+                target_id = f"updated-{row['row_number']}"
+                summary["updated_count"] += 1
+            elif row["status"] == "skipped":
+                status = "skipped"
+                target_id = ""
+                summary["skipped_count"] += 1
+            else:
+                status = "failed"
+                target_id = ""
+                summary["failed_count"] += 1
+            rows.append(
+                {
+                    "row_number": row["row_number"],
+                    "status": status,
+                    "identity": row["identity"],
+                    "message": row["message"],
+                    "target_id": target_id,
+                    "problems": row["problems"],
+                }
+            )
+        return {
+            "batch_id": "import-batch-1",
+            "resource": preview["resource"],
+            "source_format": preview["source_format"],
+            "summary": summary,
+            "rows": rows,
+        }
 
     def create_board(self, company_id: str, payload: dict):
         self.created_payload = ("boards", payload)
@@ -851,6 +897,98 @@ def test_import_preview_endpoint_uses_company_scope():
     assert response.json()["summary"]["create_count"] == 1
     assert store.import_preview_company_id == "company-1"
     assert store.import_preview_payload == {**payload, "filename": "", "sheet_name": None, "column_mapping": {}, "price_list_id": None}
+
+
+def test_import_apply_endpoint_commits_valid_rows_and_reports_failed_rows():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "resource": "boards",
+        "source_format": "csv",
+        "filename": "boards.csv",
+        "content": "\n".join(
+            [
+                "Brand,Material,Thickness,Length,Width,Costing Mode",
+                "PG Bison,MelaWood,16,2750,1830,sqm",
+                "PG Bison,MelaWood,16,2750,1830,sqm",
+                "Sonae,MDF,18,2440,1220,sheet",
+                "Bad Board,MDF,0,2440,1220,sheet",
+            ]
+        ),
+    }
+    try:
+        response = client.post("/api/v1/libraries/imports/apply", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["batch_id"] == "import-batch-1"
+    assert body["summary"] == {
+        "total_rows": 4,
+        "created_count": 1,
+        "updated_count": 1,
+        "skipped_count": 0,
+        "failed_count": 2,
+    }
+    assert [row["status"] for row in body["rows"]] == ["updated", "failed", "created", "failed"]
+    assert body["rows"][1]["problems"][0]["code"] == "duplicate_in_file"
+    assert body["rows"][3]["problems"][0]["code"] == "invalid_number"
+
+
+def test_import_apply_endpoint_requires_pricing_update_permission():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.post(
+            "/api/v1/libraries/imports/apply",
+            json={"resource": "boards", "source_format": "csv", "content": "Brand,Material,Thickness,Length,Width\nA,B,16,1,1\n"},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:update"}
+
+
+def test_import_apply_endpoint_uses_company_scope_and_user_audit():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {"resource": "boards", "source_format": "csv", "content": "Brand,Material,Thickness,Length,Width\nA,B,16,1,1\n"}
+    try:
+        response = client.post("/api/v1/libraries/imports/apply", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["created_count"] == 1
+    assert store.import_apply_company_id == "company-1"
+    assert store.import_apply_user_id == "user-1"
+    assert store.import_apply_payload == {**payload, "filename": "", "sheet_name": None, "column_mapping": {}, "price_list_id": None, "source_ref": ""}
+
+
+def test_import_apply_endpoint_rolls_back_on_store_conflict():
+    class FailingImportStore(FakeLibraryStore):
+        def apply_library_import(self, company_id: str, user_id: str, payload: dict):
+            raise LibraryConflict("Import failed; no rows were applied.")
+
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = FailingImportStore
+    try:
+        response = client.post(
+            "/api/v1/libraries/imports/apply",
+            json={"resource": "boards", "source_format": "csv", "content": "Brand,Material,Thickness,Length,Width\nA,B,16,1,1\n"},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Import failed; no rows were applied."}
 
 
 @pytest.mark.parametrize(("resource", "payload", "field", "value"), CATALOG_CASES)
