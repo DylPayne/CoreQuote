@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -11,6 +12,15 @@ import { Textarea } from '@/components/ui/textarea'
 
 import { formatHingeLabel, formatSlideLabel } from './helpers'
 import type { BoardTypeRow, ExtraCategoryRow, ExtraRow, HandleRow, HingeRow, SlideRow } from './types'
+
+type RowSelectionProps = {
+  onSelectionChange?: (itemId: string, checked: boolean) => void
+  selectedIds?: string[]
+}
+
+function isSelected(selectedIds: string[] | undefined, itemId: string) {
+  return selectedIds?.includes(itemId) ?? false
+}
 
 function EmptyTableMessage({ detail, title }: { detail: string; title: string }) {
   return (
@@ -28,7 +38,9 @@ export function LibraryBoardsTable({
   onDelete,
   onEdit,
   onEditChange,
+  onSelectionChange,
   onUpdate,
+  selectedIds,
 }: {
   boards: BoardTypeRow[]
   editingBoard: BoardTypeRow | null
@@ -37,7 +49,7 @@ export function LibraryBoardsTable({
   onEdit: (row: BoardTypeRow | null) => void
   onEditChange: (row: BoardTypeRow | null) => void
   onUpdate: (event: FormEvent<HTMLFormElement>) => Promise<void>
-}) {
+} & RowSelectionProps) {
   return (
     <Card>
       <CardHeader>
@@ -48,6 +60,7 @@ export function LibraryBoardsTable({
           <Table>
             <TableHeader>
               <TableRow>
+                {onSelectionChange ? <TableHead className="w-10">Select</TableHead> : null}
                 <TableHead>Brand</TableHead>
                 <TableHead>Material</TableHead>
                 <TableHead>Thickness</TableHead>
@@ -60,7 +73,7 @@ export function LibraryBoardsTable({
             <TableBody>
               {boards.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={onSelectionChange ? 8 : 7}>
                     <EmptyTableMessage
                       title="Add the boards you cut most often."
                       detail="Board sheets drive material takeoffs, quote defaults, and cutlist pricing. Start with your everyday carcass board, then add door and panel boards."
@@ -70,6 +83,14 @@ export function LibraryBoardsTable({
               ) : (
                 boards.map((row) => (
                   <TableRow key={row.id}>
+                    {onSelectionChange ? (
+                      <TableCell>
+                        <Checkbox
+                          checked={isSelected(selectedIds, row.id)}
+                          onChange={(event) => onSelectionChange(row.id, event.target.checked)}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell>{row.brand}</TableCell>
                     <TableCell>{row.material}</TableCell>
                     <TableCell>{row.thickness}</TableCell>
@@ -144,7 +165,9 @@ export function LibrarySlidesTable({
   onDelete,
   onEdit,
   onEditChange,
+  onSelectionChange,
   onUpdate,
+  selectedIds,
   slides,
 }: {
   editingSlide: SlideRow | null
@@ -154,7 +177,7 @@ export function LibrarySlidesTable({
   onEditChange: (row: SlideRow | null) => void
   onUpdate: (event: FormEvent<HTMLFormElement>) => Promise<void>
   slides: SlideRow[]
-}) {
+} & RowSelectionProps) {
   return (
     <Card>
       <CardHeader>
@@ -165,6 +188,7 @@ export function LibrarySlidesTable({
           <Table>
             <TableHeader>
               <TableRow>
+                {onSelectionChange ? <TableHead className="w-10">Select</TableHead> : null}
                 <TableHead>Slide</TableHead>
                 <TableHead>Length</TableHead>
                 <TableHead>Side length</TableHead>
@@ -176,7 +200,7 @@ export function LibrarySlidesTable({
             <TableBody>
               {slides.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6}>
+                  <TableCell colSpan={onSelectionChange ? 7 : 6}>
                     <EmptyTableMessage
                       title="Add drawer slides before quoting drawer units."
                       detail="Slides provide drawer clearances and hardware pricing. Start with the slide range you fit most often."
@@ -186,6 +210,14 @@ export function LibrarySlidesTable({
               ) : (
                 slides.map((row) => (
                   <TableRow key={row.id}>
+                    {onSelectionChange ? (
+                      <TableCell>
+                        <Checkbox
+                          checked={isSelected(selectedIds, row.id)}
+                          onChange={(event) => onSelectionChange(row.id, event.target.checked)}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell>{formatSlideLabel(row)}</TableCell>
                     <TableCell>{row.length}</TableCell>
                     <TableCell>{row.side_length}</TableCell>
@@ -261,7 +293,9 @@ export function LibraryHingesTable({
   onDelete,
   onEdit,
   onEditChange,
+  onSelectionChange,
   onUpdate,
+  selectedIds,
 }: {
   editingHinge: HingeRow | null
   hinges: HingeRow[]
@@ -270,7 +304,7 @@ export function LibraryHingesTable({
   onEdit: (row: HingeRow | null) => void
   onEditChange: (row: HingeRow | null) => void
   onUpdate: (event: FormEvent<HTMLFormElement>) => Promise<void>
-}) {
+} & RowSelectionProps) {
   return (
     <Card>
       <CardHeader>
@@ -281,6 +315,7 @@ export function LibraryHingesTable({
           <Table>
             <TableHeader>
               <TableRow>
+                {onSelectionChange ? <TableHead className="w-10">Select</TableHead> : null}
                 <TableHead>Hinge</TableHead>
                 <TableHead>Code</TableHead>
                 <TableHead>Opening</TableHead>
@@ -290,7 +325,7 @@ export function LibraryHingesTable({
             <TableBody>
               {hinges.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4}>
+                  <TableCell colSpan={onSelectionChange ? 5 : 4}>
                     <EmptyTableMessage
                       title="Add your standard hinge."
                       detail="Hinges complete door-unit defaults and hardware costing. Add the everyday hinge before building door quotes."
@@ -300,6 +335,14 @@ export function LibraryHingesTable({
               ) : (
                 hinges.map((row) => (
                   <TableRow key={row.id}>
+                    {onSelectionChange ? (
+                      <TableCell>
+                        <Checkbox
+                          checked={isSelected(selectedIds, row.id)}
+                          onChange={(event) => onSelectionChange(row.id, event.target.checked)}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell>{formatHingeLabel(row)}</TableCell>
                     <TableCell>{row.code || '-'}</TableCell>
                     <TableCell>{row.opening_angle_deg}°</TableCell>
@@ -361,7 +404,9 @@ export function LibraryHandlesTable({
   onDelete,
   onEdit,
   onEditChange,
+  onSelectionChange,
   onUpdate,
+  selectedIds,
 }: {
   editingHandle: HandleRow | null
   handles: HandleRow[]
@@ -370,7 +415,7 @@ export function LibraryHandlesTable({
   onEdit: (row: HandleRow | null) => void
   onEditChange: (row: HandleRow | null) => void
   onUpdate: (event: FormEvent<HTMLFormElement>) => Promise<void>
-}) {
+} & RowSelectionProps) {
   return (
     <Card>
       <CardHeader>
@@ -381,6 +426,7 @@ export function LibraryHandlesTable({
           <Table>
             <TableHeader>
               <TableRow>
+                {onSelectionChange ? <TableHead className="w-10">Select</TableHead> : null}
                 <TableHead>Handle</TableHead>
                 <TableHead>Supplier</TableHead>
                 <TableHead>Code</TableHead>
@@ -390,7 +436,7 @@ export function LibraryHandlesTable({
             <TableBody>
               {handles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4}>
+                  <TableCell colSpan={onSelectionChange ? 5 : 4}>
                     <EmptyTableMessage
                       title="Add handles when you want handle defaults."
                       detail="Handles can be selected on quote defaults and priced with the rest of the job. Add common ranges or leave this blank until handle costing matters."
@@ -400,6 +446,14 @@ export function LibraryHandlesTable({
               ) : (
                 handles.map((row) => (
                   <TableRow key={row.id}>
+                    {onSelectionChange ? (
+                      <TableCell>
+                        <Checkbox
+                          checked={isSelected(selectedIds, row.id)}
+                          onChange={(event) => onSelectionChange(row.id, event.target.checked)}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell>{row.name}</TableCell>
                     <TableCell>{row.supplier || '-'}</TableCell>
                     <TableCell>{row.code || '-'}</TableCell>
@@ -539,7 +593,9 @@ export function LibraryExtrasTable({
   onDelete,
   onEdit,
   onEditChange,
+  onSelectionChange,
   onUpdate,
+  selectedIds,
 }: {
   categories: ExtraCategoryRow[]
   editingExtra: ExtraRow | null
@@ -549,7 +605,7 @@ export function LibraryExtrasTable({
   onEdit: (row: ExtraRow | null) => void
   onEditChange: (row: ExtraRow | null) => void
   onUpdate: (event: FormEvent<HTMLFormElement>) => Promise<void>
-}) {
+} & RowSelectionProps) {
   return (
     <Card>
       <CardHeader>
@@ -560,6 +616,7 @@ export function LibraryExtrasTable({
           <Table>
             <TableHeader>
               <TableRow>
+                {onSelectionChange ? <TableHead className="w-10">Select</TableHead> : null}
                 <TableHead>Extra</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Supplier</TableHead>
@@ -570,7 +627,7 @@ export function LibraryExtrasTable({
             <TableBody>
               {extras.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={onSelectionChange ? 6 : 5}>
                     <EmptyTableMessage
                       title="Add optional charges and accessories."
                       detail="Extras cover items such as delivery, installation, lighting, bins, and other add-ons that should appear in quote pricing."
@@ -580,6 +637,14 @@ export function LibraryExtrasTable({
               ) : (
                 extras.map((row) => (
                   <TableRow key={row.id}>
+                    {onSelectionChange ? (
+                      <TableCell>
+                        <Checkbox
+                          checked={isSelected(selectedIds, row.id)}
+                          onChange={(event) => onSelectionChange(row.id, event.target.checked)}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell>{row.name}</TableCell>
                     <TableCell>{row.category_name}</TableCell>
                     <TableCell>{row.supplier || '-'}</TableCell>

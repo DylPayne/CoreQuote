@@ -39,6 +39,8 @@ LibraryImportRowStatus = Literal["create", "update", "skipped", "duplicate", "bl
 LibraryImportApplyRowStatus = Literal["created", "updated", "skipped", "failed"]
 LibraryImportProblemSeverity = Literal["error", "warning"]
 LibraryEffectiveStatus = Literal["current", "future", "retired"]
+LibraryCatalogBulkResource = Literal["boards", "slides", "hinges", "handles", "extras", "suppliers"]
+LibraryBulkRowStatus = Literal["preview", "updated", "failed"]
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
@@ -828,6 +830,44 @@ class LibraryImportApplyResponse(BaseModel):
     source_format: LibraryImportSourceFormat
     summary: LibraryImportApplySummaryResponse
     rows: list[LibraryImportApplyRowResponse] = Field(default_factory=list)
+
+
+class LibraryBulkUpdateRowResponse(BaseModel):
+    item_id: str
+    label: str
+    status: LibraryBulkRowStatus
+    message: str
+    changed_fields: list[str] = Field(default_factory=list)
+
+
+class LibraryBulkUpdateResponse(BaseModel):
+    resource: str
+    confirm: bool
+    requested_count: int = Field(ge=0)
+    matched_count: int = Field(ge=0)
+    updated_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+    summary_message: str
+    rows: list[LibraryBulkUpdateRowResponse] = Field(default_factory=list)
+
+
+class LibraryCatalogBulkUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource: LibraryCatalogBulkResource
+    item_ids: list[str] = Field(min_length=1, max_length=100)
+    updates: dict[str, Any] = Field(default_factory=dict)
+    confirm: bool = False
+
+
+class PriceListItemBulkUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_ids: list[str] = Field(min_length=1, max_length=100)
+    unit_price_cents: int | None = Field(default=None, ge=0)
+    uom: str | None = Field(default=None, min_length=1, max_length=40)
+    cost_source: Literal["manual", "override"] | None = None
+    confirm: bool = False
 
 
 class PricingSettingsFields(BaseModel):

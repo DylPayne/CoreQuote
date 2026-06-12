@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from corequote_api.authorization import require_permission
 from corequote_api.libraries import LibraryConflict, LibraryNotFound, LibraryStore, LibraryValidationError
@@ -27,7 +27,10 @@ from corequote_api.schemas import (
     LibraryImportApplyResponse,
     LibraryImportPreviewRequest,
     LibraryImportPreviewResponse,
+    LibraryBulkUpdateResponse,
+    LibraryCatalogBulkUpdateRequest,
     PriceListItemRequest,
+    PriceListItemBulkUpdateRequest,
     PriceListItemResponse,
     PriceListRequest,
     PriceListResponse,
@@ -105,8 +108,25 @@ def apply_library_import(
 
 
 @router.get("/boards", response_model=list[BoardTypeResponse], summary="List board types")
-def list_boards(current_user: CatalogReader, store: StoreDep) -> list[BoardTypeResponse]:
-    return [BoardTypeResponse.model_validate(row) for row in store.list_boards(current_user.company_id)]
+def list_boards(
+    current_user: CatalogReader,
+    store: StoreDep,
+    search: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
+) -> list[BoardTypeResponse]:
+    return [
+        BoardTypeResponse.model_validate(row)
+        for row in store.list_boards(current_user.company_id, search=search, recent_days=recent_days)
+    ]
+
+
+@router.patch("/catalog/bulk-update", response_model=LibraryBulkUpdateResponse, summary="Preview or apply a catalog bulk update")
+def bulk_update_catalog(
+    payload: LibraryCatalogBulkUpdateRequest,
+    current_user: CatalogWriter,
+    store: StoreDep,
+) -> LibraryBulkUpdateResponse:
+    return _create_response(LibraryBulkUpdateResponse, store.bulk_update_catalog, current_user.company_id, payload)
 
 
 @router.post("/boards", response_model=BoardTypeResponse, status_code=status.HTTP_201_CREATED, summary="Create a board type")
@@ -130,8 +150,16 @@ def delete_board(item_id: str, current_user: CatalogWriter, store: StoreDep) -> 
 
 
 @router.get("/slides", response_model=list[SlideResponse], summary="List slides")
-def list_slides(current_user: CatalogReader, store: StoreDep) -> list[SlideResponse]:
-    return [SlideResponse.model_validate(row) for row in store.list_slides(current_user.company_id)]
+def list_slides(
+    current_user: CatalogReader,
+    store: StoreDep,
+    search: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
+) -> list[SlideResponse]:
+    return [
+        SlideResponse.model_validate(row)
+        for row in store.list_slides(current_user.company_id, search=search, recent_days=recent_days)
+    ]
 
 
 @router.post("/slides", response_model=SlideResponse, status_code=status.HTTP_201_CREATED, summary="Create a slide")
@@ -155,8 +183,16 @@ def delete_slide(item_id: str, current_user: CatalogWriter, store: StoreDep) -> 
 
 
 @router.get("/hinges", response_model=list[HingeResponse], summary="List hinges")
-def list_hinges(current_user: CatalogReader, store: StoreDep) -> list[HingeResponse]:
-    return [HingeResponse.model_validate(row) for row in store.list_hinges(current_user.company_id)]
+def list_hinges(
+    current_user: CatalogReader,
+    store: StoreDep,
+    search: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
+) -> list[HingeResponse]:
+    return [
+        HingeResponse.model_validate(row)
+        for row in store.list_hinges(current_user.company_id, search=search, recent_days=recent_days)
+    ]
 
 
 @router.post("/hinges", response_model=HingeResponse, status_code=status.HTTP_201_CREATED, summary="Create a hinge")
@@ -180,8 +216,16 @@ def delete_hinge(item_id: str, current_user: CatalogWriter, store: StoreDep) -> 
 
 
 @router.get("/suppliers", response_model=list[SupplierResponse], summary="List suppliers")
-def list_suppliers(current_user: CatalogReader, store: StoreDep) -> list[SupplierResponse]:
-    return [SupplierResponse.model_validate(row) for row in store.list_suppliers(current_user.company_id)]
+def list_suppliers(
+    current_user: CatalogReader,
+    store: StoreDep,
+    search: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
+) -> list[SupplierResponse]:
+    return [
+        SupplierResponse.model_validate(row)
+        for row in store.list_suppliers(current_user.company_id, search=search, recent_days=recent_days)
+    ]
 
 
 @router.post("/suppliers", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED, summary="Create a supplier")
@@ -230,8 +274,16 @@ def delete_supplier(supplier_id: str, current_user: CatalogWriter, store: StoreD
 
 
 @router.get("/handles", response_model=list[HandleResponse], summary="List handles")
-def list_handles(current_user: CatalogReader, store: StoreDep) -> list[HandleResponse]:
-    return [HandleResponse.model_validate(row) for row in store.list_handles(current_user.company_id)]
+def list_handles(
+    current_user: CatalogReader,
+    store: StoreDep,
+    search: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
+) -> list[HandleResponse]:
+    return [
+        HandleResponse.model_validate(row)
+        for row in store.list_handles(current_user.company_id, search=search, recent_days=recent_days)
+    ]
 
 
 @router.post("/handles", response_model=HandleResponse, status_code=status.HTTP_201_CREATED, summary="Create a handle")
@@ -255,8 +307,16 @@ def delete_handle(item_id: str, current_user: CatalogWriter, store: StoreDep) ->
 
 
 @router.get("/extra-categories", response_model=list[ExtraCategoryResponse], summary="List extra categories")
-def list_extra_categories(current_user: CatalogReader, store: StoreDep) -> list[ExtraCategoryResponse]:
-    return [ExtraCategoryResponse.model_validate(row) for row in store.list_extra_categories(current_user.company_id)]
+def list_extra_categories(
+    current_user: CatalogReader,
+    store: StoreDep,
+    search: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
+) -> list[ExtraCategoryResponse]:
+    return [
+        ExtraCategoryResponse.model_validate(row)
+        for row in store.list_extra_categories(current_user.company_id, search=search, recent_days=recent_days)
+    ]
 
 
 @router.post(
@@ -294,8 +354,22 @@ def delete_extra_category(item_id: str, current_user: CatalogWriter, store: Stor
 
 
 @router.get("/extras", response_model=list[ExtraResponse], summary="List extras")
-def list_extras(current_user: CatalogReader, store: StoreDep) -> list[ExtraResponse]:
-    return [ExtraResponse.model_validate(row) for row in store.list_extras(current_user.company_id)]
+def list_extras(
+    current_user: CatalogReader,
+    store: StoreDep,
+    search: str | None = None,
+    category_id: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
+) -> list[ExtraResponse]:
+    return [
+        ExtraResponse.model_validate(row)
+        for row in store.list_extras(
+            current_user.company_id,
+            search=search,
+            category_id=category_id,
+            recent_days=recent_days,
+        )
+    ]
 
 
 @router.post("/extras", response_model=ExtraResponse, status_code=status.HTTP_201_CREATED, summary="Create an extra")
@@ -324,10 +398,22 @@ def list_item_suppliers(
     store: StoreDep,
     item_type: str | None = None,
     item_ref_id: str | None = None,
+    search: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
+    supplier_id: str | None = None,
+    has_active_cost: bool | None = None,
 ) -> list[ItemSupplierResponse]:
     return [
         ItemSupplierResponse.model_validate(row)
-        for row in store.list_item_suppliers(current_user.company_id, item_type=item_type, item_ref_id=item_ref_id)
+        for row in store.list_item_suppliers(
+            current_user.company_id,
+            item_type=item_type,
+            item_ref_id=item_ref_id,
+            search=search,
+            recent_days=recent_days,
+            supplier_id=supplier_id,
+            has_active_cost=has_active_cost,
+        )
     ]
 
 
@@ -540,16 +626,48 @@ def list_price_list_items(
     store: StoreDep,
     include_history: bool = False,
     as_of: datetime | None = None,
+    search: str | None = None,
+    item_type: str | None = None,
+    effective_status: str | None = None,
+    recent_days: int | None = Query(default=None, ge=1, le=365),
 ) -> list[PriceListItemResponse]:
-    return [
-        PriceListItemResponse.model_validate(row)
-        for row in store.list_price_list_items(
+    try:
+        rows = store.list_price_list_items(
             current_user.company_id,
             price_list_id,
             include_history=include_history,
             as_of=as_of,
+            search=search,
+            item_type=item_type,
+            effective_status=effective_status,
+            recent_days=recent_days,
         )
+    except LibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return [
+        PriceListItemResponse.model_validate(row)
+        for row in rows
     ]
+
+
+@router.patch(
+    "/price-lists/{price_list_id}/items/bulk-update",
+    response_model=LibraryBulkUpdateResponse,
+    summary="Preview or apply selected price row updates",
+)
+def bulk_update_price_list_items(
+    price_list_id: str,
+    payload: PriceListItemBulkUpdateRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> LibraryBulkUpdateResponse:
+    return _create_response(
+        LibraryBulkUpdateResponse,
+        store.bulk_update_price_list_items,
+        current_user.company_id,
+        price_list_id,
+        payload,
+    )
 
 
 @router.post(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import psycopg
@@ -35,6 +35,7 @@ class ResourceConfig:
     fields: tuple[str, ...]
     select_clause: str
     order_by: str
+    search_fields: tuple[str, ...] = ()
 
 
 BOARD_CONFIG = ResourceConfig(
@@ -45,6 +46,7 @@ BOARD_CONFIG = ResourceConfig(
         "created_at, updated_at"
     ),
     order_by="brand ASC, material ASC, thickness ASC",
+    search_fields=("brand", "material", "costing_mode"),
 )
 
 SLIDE_CONFIG = ResourceConfig(
@@ -55,6 +57,7 @@ SLIDE_CONFIG = ResourceConfig(
         "side_clearance_total, side_height_uplift, created_at, updated_at"
     ),
     order_by="brand ASC, model ASC, length ASC, code ASC",
+    search_fields=("brand", "model", "code"),
 )
 
 HINGE_CONFIG = ResourceConfig(
@@ -62,6 +65,7 @@ HINGE_CONFIG = ResourceConfig(
     fields=("brand", "model", "code", "opening_angle_deg"),
     select_clause="id::text, brand, model, code, opening_angle_deg, created_at, updated_at",
     order_by="brand ASC, model ASC, opening_angle_deg ASC, code ASC",
+    search_fields=("brand", "model", "code"),
 )
 
 HANDLE_CONFIG = ResourceConfig(
@@ -69,6 +73,7 @@ HANDLE_CONFIG = ResourceConfig(
     fields=("name", "supplier", "code"),
     select_clause="id::text, name, supplier, code, created_at, updated_at",
     order_by="name ASC, supplier ASC, code ASC",
+    search_fields=("name", "supplier", "code"),
 )
 
 EXTRA_CATEGORY_CONFIG = ResourceConfig(
@@ -76,6 +81,7 @@ EXTRA_CATEGORY_CONFIG = ResourceConfig(
     fields=("name",),
     select_clause="id::text, name, created_at, updated_at",
     order_by="name ASC",
+    search_fields=("name",),
 )
 
 PRICE_LIST_CONFIG = ResourceConfig(
@@ -83,6 +89,7 @@ PRICE_LIST_CONFIG = ResourceConfig(
     fields=("name", "status", "effective_from", "effective_to"),
     select_clause="id::text, name, status, effective_from, effective_to, created_at, updated_at",
     order_by="created_at DESC, id DESC",
+    search_fields=("name", "status"),
 )
 
 PRICE_LIST_ITEM_CONFIG = ResourceConfig(
@@ -95,6 +102,7 @@ PRICE_LIST_ITEM_CONFIG = ResourceConfig(
         "replaces_id::text, (effective_to IS NULL) AS is_active, created_at, updated_at"
     ),
     order_by="item_type ASC, item_key ASC, price_component ASC, effective_from DESC",
+    search_fields=("item_type", "item_key", "price_component", "uom", "cost_source"),
 )
 
 PRICE_ITEM_TYPE_TABLES: dict[str, str] = {
@@ -112,7 +120,25 @@ SUPPLIER_CONFIG = ResourceConfig(
     fields=("name", "code", "contact_name", "email", "phone", "notes", "default_discount_bps"),
     select_clause="id::text, name, code, contact_name, email, phone, notes, default_discount_bps, created_at, updated_at",
     order_by="name ASC, code ASC",
+    search_fields=("name", "code", "contact_name", "email", "phone", "notes"),
 )
+
+CATALOG_BULK_CONFIGS: dict[str, ResourceConfig] = {
+    "boards": BOARD_CONFIG,
+    "slides": SLIDE_CONFIG,
+    "hinges": HINGE_CONFIG,
+    "handles": HANDLE_CONFIG,
+    "suppliers": SUPPLIER_CONFIG,
+}
+
+CATALOG_BULK_ALLOWED_FIELDS: dict[str, set[str]] = {
+    "boards": {"costing_mode"},
+    "slides": {"brand", "code"},
+    "hinges": {"brand", "code"},
+    "handles": {"supplier", "code"},
+    "extras": {"category_id", "supplier", "code", "notes"},
+    "suppliers": {"contact_name", "email", "phone", "notes", "default_discount_bps"},
+}
 
 IMPORT_CATALOG_CONFIGS: dict[str, ResourceConfig] = {
     "boards": BOARD_CONFIG,
@@ -166,8 +192,8 @@ class LibraryStore:
     def __init__(self, database_url: str | None = None):
         self.database_url = database_url or os.environ.get("DATABASE_URL")
 
-    def list_boards(self, company_id: str) -> list[dict]:
-        return self._list(BOARD_CONFIG, company_id)
+    def list_boards(self, company_id: str, search: str | None = None, recent_days: int | None = None) -> list[dict]:
+        return self._list(BOARD_CONFIG, company_id, search=search, recent_days=recent_days)
 
     def create_board(self, company_id: str, payload: dict[str, Any]) -> dict:
         return self._create(BOARD_CONFIG, company_id, payload)
@@ -181,8 +207,8 @@ class LibraryStore:
     def delete_board(self, company_id: str, item_id: str) -> None:
         self._delete(BOARD_CONFIG, company_id, item_id)
 
-    def list_slides(self, company_id: str) -> list[dict]:
-        return self._list(SLIDE_CONFIG, company_id)
+    def list_slides(self, company_id: str, search: str | None = None, recent_days: int | None = None) -> list[dict]:
+        return self._list(SLIDE_CONFIG, company_id, search=search, recent_days=recent_days)
 
     def create_slide(self, company_id: str, payload: dict[str, Any]) -> dict:
         return self._create(SLIDE_CONFIG, company_id, payload)
@@ -196,8 +222,8 @@ class LibraryStore:
     def delete_slide(self, company_id: str, item_id: str) -> None:
         self._delete(SLIDE_CONFIG, company_id, item_id)
 
-    def list_hinges(self, company_id: str) -> list[dict]:
-        return self._list(HINGE_CONFIG, company_id)
+    def list_hinges(self, company_id: str, search: str | None = None, recent_days: int | None = None) -> list[dict]:
+        return self._list(HINGE_CONFIG, company_id, search=search, recent_days=recent_days)
 
     def create_hinge(self, company_id: str, payload: dict[str, Any]) -> dict:
         return self._create(HINGE_CONFIG, company_id, payload)
@@ -211,8 +237,8 @@ class LibraryStore:
     def delete_hinge(self, company_id: str, item_id: str) -> None:
         self._delete(HINGE_CONFIG, company_id, item_id)
 
-    def list_suppliers(self, company_id: str) -> list[dict]:
-        return self._list(SUPPLIER_CONFIG, company_id)
+    def list_suppliers(self, company_id: str, search: str | None = None, recent_days: int | None = None) -> list[dict]:
+        return self._list(SUPPLIER_CONFIG, company_id, search=search, recent_days=recent_days)
 
     def create_supplier(self, company_id: str, payload: dict[str, Any]) -> dict:
         return self._create(SUPPLIER_CONFIG, company_id, payload)
@@ -332,8 +358,8 @@ class LibraryStore:
             "skipped_without_active_cost_count": matched_count - active_count if apply_to_active_costs else 0,
         }
 
-    def list_handles(self, company_id: str) -> list[dict]:
-        return self._list(HANDLE_CONFIG, company_id)
+    def list_handles(self, company_id: str, search: str | None = None, recent_days: int | None = None) -> list[dict]:
+        return self._list(HANDLE_CONFIG, company_id, search=search, recent_days=recent_days)
 
     def create_handle(self, company_id: str, payload: dict[str, Any]) -> dict:
         return self._create(HANDLE_CONFIG, company_id, payload)
@@ -347,8 +373,8 @@ class LibraryStore:
     def delete_handle(self, company_id: str, item_id: str) -> None:
         self._delete(HANDLE_CONFIG, company_id, item_id)
 
-    def list_extra_categories(self, company_id: str) -> list[dict]:
-        return self._list(EXTRA_CATEGORY_CONFIG, company_id)
+    def list_extra_categories(self, company_id: str, search: str | None = None, recent_days: int | None = None) -> list[dict]:
+        return self._list(EXTRA_CATEGORY_CONFIG, company_id, search=search, recent_days=recent_days)
 
     def create_extra_category(self, company_id: str, payload: dict[str, Any]) -> dict:
         return self._create(EXTRA_CATEGORY_CONFIG, company_id, payload)
@@ -362,10 +388,32 @@ class LibraryStore:
     def delete_extra_category(self, company_id: str, item_id: str) -> None:
         self._delete(EXTRA_CATEGORY_CONFIG, company_id, item_id)
 
-    def list_extras(self, company_id: str) -> list[dict]:
+    def list_extras(
+        self,
+        company_id: str,
+        search: str | None = None,
+        category_id: str | None = None,
+        recent_days: int | None = None,
+    ) -> list[dict]:
+        filters = ["e.company_id = %s"]
+        values: list[Any] = [company_id]
+        search_value = _search_pattern(search)
+        if search_value:
+            filters.append(
+                "(e.name ILIKE %s OR c.name ILIKE %s OR e.supplier ILIKE %s OR e.code ILIKE %s OR e.notes ILIKE %s)"
+            )
+            values.extend([search_value] * 5)
+        if category_id:
+            filters.append("e.category_id = %s")
+            values.append(category_id)
+        recent_cutoff = _recent_cutoff(recent_days)
+        if recent_cutoff:
+            filters.append("e.updated_at >= %s")
+            values.append(recent_cutoff)
+        where_clause = " AND ".join(filters)
         with self._connect() as conn:
             return conn.execute(
-                """
+                f"""
                 SELECT
                     e.id::text,
                     e.name,
@@ -378,10 +426,10 @@ class LibraryStore:
                     e.updated_at
                 FROM extras e
                 JOIN extra_categories c ON c.id = e.category_id
-                WHERE e.company_id = %s
+                WHERE {where_clause}
                 ORDER BY c.name ASC, e.name ASC, e.supplier ASC, e.code ASC
                 """,
-                (company_id,),
+                values,
             ).fetchall()
 
     def create_extra(self, company_id: str, payload: dict[str, Any]) -> dict:
@@ -409,115 +457,108 @@ class LibraryStore:
 
     def get_extra(self, company_id: str, item_id: str) -> dict:
         with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT
-                    e.id::text,
-                    e.name,
-                    e.category_id::text,
-                    c.name AS category_name,
-                    e.supplier,
-                    e.code,
-                    e.notes,
-                    e.created_at,
-                    e.updated_at
-                FROM extras e
-                JOIN extra_categories c ON c.id = e.category_id
-                WHERE e.company_id = %s
-                  AND e.id = %s
-                """,
-                (company_id, item_id),
-            ).fetchone()
-        if not row:
-            raise LibraryNotFound("Library row not found")
-        return row
+            return self._get_extra_with_conn(conn, company_id, item_id)
 
     def update_extra(self, company_id: str, item_id: str, payload: dict[str, Any]) -> dict:
         self._ensure_extra_category(company_id, payload["category_id"])
         try:
             with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    UPDATE extras
-                    SET name = %s,
-                        category_id = %s,
-                        supplier = %s,
-                        code = %s,
-                        notes = %s
-                    WHERE company_id = %s
-                      AND id = %s
-                    RETURNING id::text
-                    """,
-                    (
-                        _clean(payload["name"]),
-                        payload["category_id"],
-                        _clean(payload.get("supplier", "")),
-                        _clean(payload.get("code", "")),
-                        _clean(payload.get("notes", "")),
-                        company_id,
-                        item_id,
-                    ),
-                ).fetchone()
+                row = self._update_extra_with_conn(conn, company_id, item_id, payload)
         except psycopg.errors.UniqueViolation as exc:
             raise LibraryConflict("Library row already exists") from exc
-        if not row:
-            raise LibraryNotFound("Library row not found")
-        return self.get_extra(company_id, row["id"])
+        return row
 
     def delete_extra(self, company_id: str, item_id: str) -> None:
         self._delete(ResourceConfig("extras", (), "", ""), company_id, item_id)
+
+    def bulk_update_catalog(self, company_id: str, payload: dict[str, Any]) -> dict:
+        resource = str(payload.get("resource") or "")
+        item_ids = [str(item_id).strip() for item_id in payload.get("item_ids", []) if str(item_id).strip()]
+        updates = _clean_payload(payload.get("updates") or {})
+        confirm = bool(payload.get("confirm"))
+        allowed_fields = CATALOG_BULK_ALLOWED_FIELDS.get(resource)
+        if not allowed_fields:
+            raise LibraryValidationError("Unsupported catalog bulk resource")
+        changed_fields = sorted(field for field in updates if field in allowed_fields)
+        rejected_fields = sorted(field for field in updates if field not in allowed_fields)
+        if rejected_fields:
+            raise LibraryValidationError(f"Bulk update does not support: {', '.join(rejected_fields)}")
+        if not changed_fields:
+            raise LibraryValidationError("Choose at least one supported field to update")
+        if not item_ids:
+            raise LibraryValidationError("Choose at least one row to update")
+        if resource == "extras" and "category_id" in changed_fields:
+            self._ensure_extra_category(company_id, str(updates["category_id"]))
+
+        rows: list[dict[str, Any]] = []
+        with self._connect() as conn:
+            for item_id in item_ids:
+                try:
+                    current = self._get_catalog_bulk_row_with_conn(conn, resource, company_id, item_id)
+                    label = _catalog_bulk_label(resource, current)
+                    next_payload = _catalog_bulk_payload(resource, current)
+                    for field in changed_fields:
+                        next_payload[field] = updates[field]
+                    if confirm:
+                        updated = self._update_catalog_bulk_row_with_conn(conn, resource, company_id, item_id, next_payload)
+                        rows.append(
+                            {
+                                "item_id": item_id,
+                                "label": _catalog_bulk_label(resource, updated),
+                                "status": "updated",
+                                "message": f"Updated {len(changed_fields)} field{'s' if len(changed_fields) != 1 else ''}.",
+                                "changed_fields": changed_fields,
+                            }
+                        )
+                    else:
+                        rows.append(
+                            {
+                                "item_id": item_id,
+                                "label": label,
+                                "status": "preview",
+                                "message": f"Will update {len(changed_fields)} field{'s' if len(changed_fields) != 1 else ''}.",
+                                "changed_fields": changed_fields,
+                            }
+                        )
+                except LibraryError as exc:
+                    rows.append(
+                        {
+                            "item_id": item_id,
+                            "label": item_id,
+                            "status": "failed",
+                            "message": str(exc) or "Could not update this row.",
+                            "changed_fields": [],
+                        }
+                    )
+
+        return _bulk_update_response(
+            resource=resource,
+            confirm=confirm,
+            requested_count=len(item_ids),
+            rows=rows,
+        )
 
     def list_item_suppliers(
         self,
         company_id: str,
         item_type: str | None = None,
         item_ref_id: str | None = None,
+        search: str | None = None,
+        recent_days: int | None = None,
+        supplier_id: str | None = None,
+        has_active_cost: bool | None = None,
     ) -> list[dict]:
-        filters = ["item.company_id = %s"]
-        values: list[Any] = [company_id]
-        if item_type:
-            filters.append("item.item_type = %s")
-            values.append(item_type)
-        if item_ref_id:
-            filters.append("item.item_ref_id = %s")
-            values.append(item_ref_id)
-        where_clause = " AND ".join(filters)
         with self._connect() as conn:
-            return conn.execute(
-                f"""
-                SELECT
-                    item.id::text,
-                    item.item_type,
-                    item.item_ref_id::text,
-                    item.supplier_id::text,
-                    supplier.name AS supplier_name,
-                    item.supplier_sku,
-                    item.supplier_description,
-                    item.price_component,
-                    item.order_uom,
-                    item.is_preferred,
-                    item.notes,
-                    cost.id::text AS active_supplier_item_cost_id,
-                    cost.list_price_cents AS active_list_price_cents,
-                    cost.discount_bps AS active_discount_bps,
-                    cost.unit_cost_cents AS active_unit_cost_cents,
-                    cost.currency_code AS active_currency_code,
-                    item.created_at,
-                    item.updated_at
-                FROM item_suppliers item
-                JOIN suppliers supplier
-                  ON supplier.company_id = item.company_id
-                 AND supplier.id = item.supplier_id
-                LEFT JOIN supplier_item_costs cost
-                  ON cost.company_id = item.company_id
-                 AND cost.item_supplier_id = item.id
-                 AND cost.effective_from <= now()
-                 AND (cost.effective_to IS NULL OR cost.effective_to > now())
-                WHERE {where_clause}
-                ORDER BY item.item_type ASC, supplier.name ASC, item.supplier_sku ASC, item.id ASC
-                """,
-                values,
-            ).fetchall()
+            return self._list_item_suppliers_with_conn(
+                conn,
+                company_id,
+                item_type=item_type,
+                item_ref_id=item_ref_id,
+                search=search,
+                recent_days=recent_days,
+                supplier_id=supplier_id,
+                has_active_cost=has_active_cost,
+            )
 
     def create_item_supplier(self, company_id: str, payload: dict[str, Any]) -> dict:
         data = self._normalize_item_supplier_payload(company_id, payload)
@@ -963,6 +1004,10 @@ class LibraryStore:
         price_list_id: str,
         include_history: bool = False,
         as_of: datetime | None = None,
+        search: str | None = None,
+        item_type: str | None = None,
+        effective_status: str | None = None,
+        recent_days: int | None = None,
     ) -> list[dict]:
         self._ensure_price_list(company_id, price_list_id)
         as_of_dt = _coerce_effective_datetime(as_of)
@@ -970,6 +1015,19 @@ class LibraryStore:
         values: list[Any] = [company_id, price_list_id]
         if not include_history:
             values.extend([as_of_dt, as_of_dt])
+        extra_filters: list[str] = []
+        if item_type:
+            extra_filters.append("item_type = %s")
+            values.append(item_type)
+        search_value = _search_pattern(search)
+        if search_value:
+            extra_filters.append("(item_type ILIKE %s OR item_key ILIKE %s OR price_component ILIKE %s OR uom ILIKE %s OR cost_source ILIKE %s)")
+            values.extend([search_value] * 5)
+        recent_cutoff = _recent_cutoff(recent_days)
+        if recent_cutoff:
+            extra_filters.append("updated_at >= %s")
+            values.append(recent_cutoff)
+        extra_where = f"AND {' AND '.join(extra_filters)}" if extra_filters else ""
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
@@ -978,11 +1036,17 @@ class LibraryStore:
                 WHERE company_id = %s
                   AND price_list_id = %s
                   {history_filter}
+                  {extra_where}
                 ORDER BY {PRICE_LIST_ITEM_CONFIG.order_by}
                 """,
                 values,
             ).fetchall()
-        return _with_effective_statuses(rows, as_of_dt)
+        rows = _with_effective_statuses(rows, as_of_dt)
+        if effective_status:
+            if effective_status not in PRICE_EFFECTIVE_STATUS_VALUES:
+                raise LibraryValidationError("Unsupported effective_status filter")
+            rows = [row for row in rows if row.get("effective_status") == effective_status]
+        return rows
 
     def create_price_list_item(self, company_id: str, price_list_id: str, payload: dict[str, Any]) -> dict:
         self._ensure_price_list(company_id, price_list_id)
@@ -1152,6 +1216,71 @@ class LibraryStore:
             ).fetchone()
         if not row:
             raise LibraryNotFound("Price list item not found")
+
+    def bulk_update_price_list_items(self, company_id: str, price_list_id: str, payload: dict[str, Any]) -> dict:
+        self._ensure_price_list(company_id, price_list_id)
+        item_ids = [str(item_id).strip() for item_id in payload.get("item_ids", []) if str(item_id).strip()]
+        updates = _price_bulk_updates(payload)
+        confirm = bool(payload.get("confirm"))
+        if not item_ids:
+            raise LibraryValidationError("Choose at least one price row to update")
+        if not updates:
+            raise LibraryValidationError("Choose at least one price field to update")
+
+        changed_fields = sorted(updates)
+        rows: list[dict[str, Any]] = []
+        with self._connect() as conn:
+            for item_id in item_ids:
+                current = _with_effective_status(
+                    self._get_price_list_item_with_conn(conn, company_id, price_list_id, item_id)
+                )
+                label = _price_bulk_label(current)
+                if current["effective_status"] != "current":
+                    rows.append(
+                        {
+                            "item_id": item_id,
+                            "label": label,
+                            "status": "failed",
+                            "message": "Only current price rows can be bulk edited.",
+                            "changed_fields": changed_fields,
+                        }
+                    )
+                    continue
+
+                next_payload = _price_bulk_payload(current)
+                next_payload.update(updates)
+                next_payload["price_list_id"] = price_list_id
+                if updates.get("cost_source") in {"manual", "override"}:
+                    next_payload["source_supplier_item_cost_id"] = None
+
+                if confirm:
+                    updated = self._update_price_list_item_with_conn(conn, company_id, item_id, next_payload)
+                    rows.append(
+                        {
+                            "item_id": item_id,
+                            "label": _price_bulk_label(updated),
+                            "status": "updated",
+                            "message": f"Updated {len(changed_fields)} field{'s' if len(changed_fields) != 1 else ''}.",
+                            "changed_fields": changed_fields,
+                        }
+                    )
+                else:
+                    rows.append(
+                        {
+                            "item_id": item_id,
+                            "label": label,
+                            "status": "preview",
+                            "message": f"Will create a replacement price row with {len(changed_fields)} changed field{'s' if len(changed_fields) != 1 else ''}.",
+                            "changed_fields": changed_fields,
+                        }
+                    )
+
+        return _bulk_update_response(
+            resource="price_list_items",
+            confirm=confirm,
+            requested_count=len(item_ids),
+            rows=rows,
+        )
 
     def get_setup_checklist(self, company_id: str) -> dict:
         with self._connect() as conn:
@@ -1432,19 +1561,43 @@ class LibraryStore:
 
         raise LibraryValidationError("Unsupported import type")
 
-    def _list(self, config: ResourceConfig, company_id: str) -> list[dict]:
+    def _list(
+        self,
+        config: ResourceConfig,
+        company_id: str,
+        search: str | None = None,
+        recent_days: int | None = None,
+    ) -> list[dict]:
         with self._connect() as conn:
-            return self._list_with_conn(conn, config, company_id)
+            return self._list_with_conn(conn, config, company_id, search=search, recent_days=recent_days)
 
-    def _list_with_conn(self, conn, config: ResourceConfig, company_id: str) -> list[dict]:
+    def _list_with_conn(
+        self,
+        conn,
+        config: ResourceConfig,
+        company_id: str,
+        search: str | None = None,
+        recent_days: int | None = None,
+    ) -> list[dict]:
+        filters = ["company_id = %s"]
+        values: list[Any] = [company_id]
+        search_value = _search_pattern(search)
+        if search_value and config.search_fields:
+            filters.append("(" + " OR ".join(f"{field}::text ILIKE %s" for field in config.search_fields) + ")")
+            values.extend([search_value] * len(config.search_fields))
+        recent_cutoff = _recent_cutoff(recent_days)
+        if recent_cutoff:
+            filters.append("updated_at >= %s")
+            values.append(recent_cutoff)
+        where_clause = " AND ".join(filters)
         return conn.execute(
             f"""
             SELECT {config.select_clause}
             FROM {config.table}
-            WHERE company_id = %s
+            WHERE {where_clause}
             ORDER BY {config.order_by}
             """,
-            (company_id,),
+            values,
         ).fetchall()
 
     def _list_extras_with_conn(self, conn, company_id: str) -> list[dict]:
@@ -1474,6 +1627,10 @@ class LibraryStore:
         company_id: str,
         item_type: str | None = None,
         item_ref_id: str | None = None,
+        search: str | None = None,
+        recent_days: int | None = None,
+        supplier_id: str | None = None,
+        has_active_cost: bool | None = None,
     ) -> list[dict]:
         filters = ["item.company_id = %s"]
         values: list[Any] = [company_id]
@@ -1483,6 +1640,25 @@ class LibraryStore:
         if item_ref_id:
             filters.append("item.item_ref_id = %s")
             values.append(item_ref_id)
+        if supplier_id:
+            filters.append("item.supplier_id = %s")
+            values.append(supplier_id)
+        search_value = _search_pattern(search)
+        if search_value:
+            filters.append(
+                "("
+                "item.item_type ILIKE %s OR item.supplier_sku ILIKE %s OR item.supplier_description ILIKE %s "
+                "OR item.price_component ILIKE %s OR item.order_uom ILIKE %s OR item.notes ILIKE %s "
+                "OR supplier.name ILIKE %s"
+                ")"
+            )
+            values.extend([search_value] * 7)
+        recent_cutoff = _recent_cutoff(recent_days)
+        if recent_cutoff:
+            filters.append("(item.updated_at >= %s OR cost.updated_at >= %s)")
+            values.extend([recent_cutoff, recent_cutoff])
+        if has_active_cost is not None:
+            filters.append("cost.id IS NOT NULL" if has_active_cost else "cost.id IS NULL")
         where_clause = " AND ".join(filters)
         return conn.execute(
             f"""
@@ -1601,15 +1777,18 @@ class LibraryStore:
 
     def _get(self, config: ResourceConfig, company_id: str, item_id: str) -> dict:
         with self._connect() as conn:
-            row = conn.execute(
-                f"""
-                SELECT {config.select_clause}
-                FROM {config.table}
-                WHERE company_id = %s
-                  AND id = %s
-                """,
-                (company_id, item_id),
-            ).fetchone()
+            return self._get_with_conn(conn, config, company_id, item_id)
+
+    def _get_with_conn(self, conn, config: ResourceConfig, company_id: str, item_id: str) -> dict:
+        row = conn.execute(
+            f"""
+            SELECT {config.select_clause}
+            FROM {config.table}
+            WHERE company_id = %s
+              AND id = %s
+            """,
+            (company_id, item_id),
+        ).fetchone()
         if not row:
             raise LibraryNotFound("Library row not found")
         return row
@@ -1718,6 +1897,29 @@ class LibraryStore:
         if not row:
             raise LibraryNotFound("Library row not found")
         return self._get_extra_with_conn(conn, company_id, row["id"])
+
+    def _get_catalog_bulk_row_with_conn(self, conn, resource: str, company_id: str, item_id: str) -> dict:
+        if resource == "extras":
+            return self._get_extra_with_conn(conn, company_id, item_id)
+        config = CATALOG_BULK_CONFIGS.get(resource)
+        if not config:
+            raise LibraryValidationError("Unsupported catalog bulk resource")
+        return self._get_with_conn(conn, config, company_id, item_id)
+
+    def _update_catalog_bulk_row_with_conn(
+        self,
+        conn,
+        resource: str,
+        company_id: str,
+        item_id: str,
+        payload: dict[str, Any],
+    ) -> dict:
+        if resource == "extras":
+            return self._update_extra_with_conn(conn, company_id, item_id, payload)
+        config = CATALOG_BULK_CONFIGS.get(resource)
+        if not config:
+            raise LibraryValidationError("Unsupported catalog bulk resource")
+        return self._update_with_conn(conn, config, company_id, item_id, payload)
 
     def _apply_supplier_item_cost_import(
         self,
@@ -2209,6 +2411,113 @@ def _with_effective_status(row: dict[str, Any], as_of: Any | None = None) -> dic
 
 def _with_effective_statuses(rows: list[dict[str, Any]], as_of: Any | None = None) -> list[dict[str, Any]]:
     return [_with_effective_status(row, as_of) for row in rows]
+
+
+def _search_pattern(search: str | None) -> str | None:
+    value = str(search or "").strip()
+    if not value:
+        return None
+    return f"%{value}%"
+
+
+def _recent_cutoff(recent_days: int | None) -> datetime | None:
+    if recent_days is None:
+        return None
+    return datetime.now(UTC) - timedelta(days=int(recent_days))
+
+
+def _bulk_update_response(
+    *,
+    resource: str,
+    confirm: bool,
+    requested_count: int,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    updated_count = sum(1 for row in rows if row["status"] == "updated")
+    failed_count = sum(1 for row in rows if row["status"] == "failed")
+    matched_count = len(rows) - failed_count
+    if failed_count:
+        summary_message = (
+            f"{updated_count} row{'s' if updated_count != 1 else ''} updated; "
+            f"{failed_count} row{'s' if failed_count != 1 else ''} need attention."
+            if confirm
+            else f"{matched_count} row{'s' if matched_count != 1 else ''} ready; {failed_count} cannot be edited."
+        )
+    elif confirm:
+        summary_message = f"Updated {updated_count} selected row{'s' if updated_count != 1 else ''}."
+    else:
+        summary_message = f"Preview ready for {matched_count} selected row{'s' if matched_count != 1 else ''}."
+    return {
+        "resource": resource,
+        "confirm": confirm,
+        "requested_count": requested_count,
+        "matched_count": matched_count,
+        "updated_count": updated_count,
+        "failed_count": failed_count,
+        "summary_message": summary_message,
+        "rows": rows,
+    }
+
+
+def _catalog_bulk_label(resource: str, row: dict[str, Any]) -> str:
+    if resource == "boards":
+        return f"{row['brand']} {row['material']} {row['thickness']}mm"
+    if resource == "slides":
+        return f"{row['brand']} {row['model']} {row['length']}mm"
+    if resource == "hinges":
+        return f"{row['brand']} {row['model']} {row['opening_angle_deg']}deg"
+    if resource == "handles":
+        return f"{row['name']} ({row.get('supplier') or 'No supplier'})"
+    if resource == "extras":
+        return f"{row['name']} ({row.get('category_name') or 'Extra'})"
+    if resource == "suppliers":
+        return str(row["name"])
+    return str(row.get("id") or "")
+
+
+def _catalog_bulk_payload(resource: str, row: dict[str, Any]) -> dict[str, Any]:
+    if resource == "extras":
+        fields = ("name", "category_id", "supplier", "code", "notes")
+    else:
+        config = CATALOG_BULK_CONFIGS.get(resource)
+        if not config:
+            raise LibraryValidationError("Unsupported catalog bulk resource")
+        fields = config.fields
+    return {field: row.get(field) for field in fields}
+
+
+def _price_bulk_updates(payload: dict[str, Any]) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    if payload.get("unit_price_cents") is not None:
+        updates["unit_price_cents"] = int(payload["unit_price_cents"])
+    if payload.get("uom") is not None:
+        uom = str(payload["uom"]).strip().lower()
+        if not uom:
+            raise LibraryValidationError("UOM is required when changing price row units")
+        updates["uom"] = uom
+    if payload.get("cost_source") is not None:
+        cost_source = str(payload["cost_source"]).strip().lower()
+        if cost_source not in {"manual", "override"}:
+            raise LibraryValidationError("Bulk price edits can only set manual or override cost sources")
+        updates["cost_source"] = cost_source
+    return updates
+
+
+def _price_bulk_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "item_type": row["item_type"],
+        "item_ref_id": row.get("item_ref_id"),
+        "item_key": row["item_key"],
+        "price_component": row["price_component"],
+        "uom": row["uom"],
+        "unit_price_cents": row["unit_price_cents"],
+        "source_supplier_item_cost_id": row.get("source_supplier_item_cost_id"),
+        "cost_source": row["cost_source"],
+    }
+
+
+def _price_bulk_label(row: dict[str, Any]) -> str:
+    return f"{row['item_key']} {row['price_component']} ({row['uom']})"
 
 
 def _build_setup_checklist(summary: dict[str, Any]) -> dict[str, Any]:
