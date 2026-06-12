@@ -163,6 +163,7 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("brand", "Brand", ("brand", "product brand")),
             ImportField("model", "Model", ("model", "material", "description", "name")),
             ImportField("code", "Code", ("code", "sku", "item code")),
+            ImportField("supplier_name", "Supplier", ("supplier", "supplier name", "vendor")),
             ImportField("thickness", "Board thickness", ("thickness", "thickness mm", "thickness_mm")),
             ImportField("length_mm", "Board length", ("length", "length mm", "length_mm", "sheet length")),
             ImportField("width_mm", "Board width", ("width", "width mm", "width_mm", "sheet width")),
