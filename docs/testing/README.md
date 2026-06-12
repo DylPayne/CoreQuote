@@ -11,3 +11,6 @@ real cabinetry acceptance evidence.
 - [Smith Kitchen Phase 3 Fast Entry](smith-kitchen-phase-3-fast-entry.md):
   shared Phase 3 scenario for duplicate quote, bulk unit entry, reorder, bulk
   apply, workflow-friction notes, and downstream output confidence.
+- [Smith Kitchen Phase 4 Library Refresh](smith-kitchen-phase-4-library-refresh.md):
+  shared Phase 4 import fixture and real-stack QA scenario for library refresh,
+  active prices, readiness, pricing, and quote outputs.

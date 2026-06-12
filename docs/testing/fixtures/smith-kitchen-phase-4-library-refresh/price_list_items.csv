@@ -1,0 +1,11 @@
+Item Type,Brand,Material,Name,Supplier,Code,Thickness,Length,Width,Category,Price Component,UOM,Price,Source
+board,CoreBoard,White melamine,,,,16,2750,1830,,sheet,sheet,1450.00,import
+board,CoreBoard,Matt white door board,,,,18,2750,1830,,sheet,sheet,1680.00,import
+board,CoreBoard,Matt white visible panel,,,,18,2750,1830,,sheet,sheet,1720.00,import
+slide,Grass,Dynapro soft close,Dynapro soft close,Core Hardware,S500,,,,,unit,pairs,185.00,import
+hinge,Blum,110 degree soft close,110 degree soft close,Core Hardware,H110,,,,,unit,pcs,36.00,import
+handle,,Base pull,Base pull,Core Hardware,B128,,,,,unit,pcs,92.00,import
+handle,,Wall pull,Wall pull,Core Hardware,W128,,,,,unit,pcs,88.00,import
+handle,,Tall pull,Tall pull,Core Hardware,T256,,,,,unit,pcs,112.00,import
+handle,,Drawer pull,Drawer pull,Core Hardware,D192,,,,,unit,pcs,98.00,import
+extra,,Site protection,Site protection,CoreQuote,SITE-PROTECT,,,,Site extras,unit,pcs,300.00,import

@@ -1,0 +1,11 @@
+Item Type,Brand,Material,Name,Supplier,Code,Thickness,Length,Width,Category,Supplier SKU,Supplier Description,Price Component,Order UOM,List Price,Discount,Unit Cost,Currency
+board,CoreBoard,White melamine,,CoreBoard Supply,,16,2750,1830,,CB-WM-16-2750,White melamine board,sheet,sheet,1450.00,0%,1450.00,ZAR
+board,CoreBoard,Matt white door board,,CoreBoard Supply,,18,2750,1830,,CB-MWD-18-2750,Matt white door board,sheet,sheet,1680.00,0%,1680.00,ZAR
+board,CoreBoard,Matt white visible panel,,CoreBoard Supply,,18,2750,1830,,CB-MVP-18-2750,Matt white visible panel,sheet,sheet,1720.00,0%,1720.00,ZAR
+slide,Grass,Dynapro soft close,Dynapro soft close,Core Hardware,S500,,,,,CH-S500,Dynapro soft close 500 mm drawer runner pair,unit,pairs,185.00,0%,185.00,ZAR
+hinge,Blum,110 degree soft close,110 degree soft close,Core Hardware,H110,,,,,CH-H110,110 degree concealed hinge,unit,pcs,36.00,0%,36.00,ZAR
+handle,,Base pull,Base pull,Core Hardware,B128,,,,,CH-B128,Base door pull handle,unit,pcs,92.00,0%,92.00,ZAR
+handle,,Wall pull,Wall pull,Core Hardware,W128,,,,,CH-W128,Wall door pull handle,unit,pcs,88.00,0%,88.00,ZAR
+handle,,Tall pull,Tall pull,Core Hardware,T256,,,,,CH-T256,Tall door pull handle,unit,pcs,112.00,0%,112.00,ZAR
+handle,,Drawer pull,Drawer pull,Core Hardware,D192,,,,,CH-D192,Drawer pull handle,unit,pcs,98.00,0%,98.00,ZAR
+extra,,Site protection,Site protection,CoreQuote,SITE-PROTECT,,,,Site extras,CQ-SITE-PROTECT,Site protection allowance,unit,pcs,300.00,0%,300.00,ZAR

@@ -125,6 +125,10 @@ Request:
 For `xlsx`, send `content` as base64-encoded workbook bytes and optionally set
 `sheet_name`. For `price_list_items`, `price_list_id` selects the price list to
 preview against; when omitted, the API uses the company's active price list.
+For `supplier_item_costs` and `price_list_items`, natural-key catalog matching
+can use `Brand`, `Material` or `Name`, `Code`, `Category`, and `Supplier`
+columns. Include `Supplier` for handle and extra rows when the catalog item uses
+supplier as part of its identity.
 
 Response:
 

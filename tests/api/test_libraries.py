@@ -12,8 +12,10 @@ from fastapi.testclient import TestClient
 from corequote_api.auth import AuthenticatedUser
 from corequote_api.library_imports import build_import_preview, build_reference_maps
 from corequote_api.libraries import (
+    BOARD_CONFIG,
     LibraryConflict,
     LibraryNotFound,
+    LibraryStore,
     LibraryValidationError,
     _build_setup_checklist,
     _calculate_discounted_cost_cents,
@@ -552,6 +554,25 @@ class FakeLibraryStore:
         self.price_item_deleted = (company_id, price_list_id, item_id)
 
 
+class _CaptureCursor:
+    def __init__(self, row: dict):
+        self.row = row
+
+    def fetchone(self):
+        return self.row
+
+
+class _BrandCaptureConnection:
+    def __init__(self):
+        self.write_params: tuple | list = ()
+
+    def execute(self, sql: str, params: tuple | list = ()):
+        if "INSERT INTO brands" in sql:
+            return _CaptureCursor({"id": "brand-uuid"})
+        self.write_params = params
+        return _CaptureCursor(board("board-1", brand="CoreBoard"))
+
+
 def board(item_id: str, *, brand: str = "PG Bison") -> dict:
     return {
         "id": item_id,
@@ -918,6 +939,28 @@ def test_import_preview_classifies_board_rows_from_csv():
     }
     assert [row["status"] for row in preview["rows"]] == ["update", "duplicate", "create", "blocked"]
     assert preview["rows"][3]["problems"][0]["code"] == "invalid_number"
+
+
+def test_brand_backed_catalog_writes_brand_id_not_brand_row():
+    store = LibraryStore(database_url="postgresql://unused")
+    payload = {
+        "brand": "CoreBoard",
+        "material": "White melamine",
+        "thickness": 16,
+        "length_mm": 2750,
+        "width_mm": 1830,
+        "costing_mode": "sheet",
+    }
+
+    create_conn = _BrandCaptureConnection()
+    store._create_with_conn(create_conn, BOARD_CONFIG, "company-1", payload)
+
+    assert create_conn.write_params[-1] == "brand-uuid"
+
+    update_conn = _BrandCaptureConnection()
+    store._update_with_conn(update_conn, BOARD_CONFIG, "company-1", "board-1", payload)
+
+    assert update_conn.write_params[-3] == "brand-uuid"
 
 
 def test_import_preview_blocks_supplier_cost_rows_with_missing_refs_and_bad_units():

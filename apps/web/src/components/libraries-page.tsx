@@ -165,7 +165,7 @@ const importExampleByResource: Record<LibraryImportResource, string> = {
   extra_categories: 'Name\nAppliances',
   extras: 'Name,Category,Supplier,Code\nStove,Appliances,Defy,DFY-600',
   supplier_item_costs: 'Item Type,Brand,Model,Code,Supplier,Order UOM,Unit Cost\nslide,Grass,Dynapro,DYN-500,Grass ZA,pairs,479.49',
-  price_list_items: 'Item Type,Brand,Model,Code,Price Component,UOM,Price\nslide,Grass,Dynapro,DYN-500,unit,pairs,899.00',
+  price_list_items: 'Item Type,Name,Supplier,Code,Price Component,UOM,Price\nhandle,Slim Bar,Hafele,HB-160,unit,pcs,89.00',
 }
 
 function searchTextMatches(search: string, parts: Array<string | number | null | undefined>) {

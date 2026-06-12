@@ -1760,7 +1760,7 @@ class LibraryStore:
         values = [company_id, *[data[field] for field in config.fields]]
         if config.table in BRAND_TABLES:
             columns = (*columns, "brand_id")
-            values.append(self._get_or_create_brand_with_conn(conn, company_id, data["brand"]))
+            values.append(self._get_or_create_brand_with_conn(conn, company_id, data["brand"])["id"])
         placeholders = ", ".join(["%s"] * len(columns))
         try:
             row = conn.execute(
@@ -1803,7 +1803,7 @@ class LibraryStore:
         values = [*[data[field] for field in config.fields], company_id, item_id]
         if config.table in BRAND_TABLES:
             assignments = f"{assignments}, brand_id = %s"
-            values = [*[data[field] for field in config.fields], self._get_or_create_brand_with_conn(conn, company_id, data["brand"]), company_id, item_id]
+            values = [*[data[field] for field in config.fields], self._get_or_create_brand_with_conn(conn, company_id, data["brand"])["id"], company_id, item_id]
         try:
             row = conn.execute(
                 f"""
