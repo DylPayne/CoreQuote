@@ -135,7 +135,15 @@ export type QuoteCuttingList = {
 
 export type QuoteReadinessSeverity = 'pass' | 'warning' | 'error'
 export type QuoteReadinessStatus = 'ready' | 'needs_attention'
-export type QuoteReadinessActionTarget = 'project' | 'quote' | 'units' | 'panels' | 'cutting-lists' | 'pricing' | 'outputs'
+export type QuoteReadinessActionTarget =
+  | 'project'
+  | 'quote'
+  | 'units'
+  | 'panels'
+  | 'cutting-lists'
+  | 'pricing'
+  | 'outputs'
+  | 'libraries-pricing'
 
 export type QuoteReadinessCheck = {
   id: string
@@ -385,6 +393,12 @@ export type MissingPrice = {
   library_area: string
   action_label: string
   message: string
+  library_target: 'pricing'
+  library_target_label: string
+  catalog_target: 'boards' | 'slides' | 'hinges' | 'handles' | 'extras' | null
+  catalog_target_label: string | null
+  guidance_action_label: string
+  guidance_message: string
 }
 
 export type QuotePricingSummary = {
@@ -398,6 +412,8 @@ export type QuotePricingSummary = {
   previous_revision_revision: number | null
   vat_rate_bps: number
   markup_bps: number
+  active_price_list_id: string | null
+  pricing_as_of: string | null
   pricing_settings: QuotePricingSettingsRow
   is_complete: boolean
   missing_items: string[]

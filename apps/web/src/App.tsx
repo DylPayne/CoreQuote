@@ -16,6 +16,7 @@ import { ProjectsQuotesPage } from '@/components/projects-quotes-page'
 import { SettingsPage } from '@/components/settings-page'
 import { apiRequest, AUTH_TOKEN_KEY, getStoredAuthToken } from '@/lib/api'
 import { colourThemes, createThemeVars, uiStyles } from '@/lib/theme'
+import type { LibraryTab } from '@/components/libraries/types'
 import type { AppPage } from '@/types/app'
 import type { AuthFormState, AuthMode, AuthStatus, AuthTokenResponse, AuthUser } from '@/types/auth'
 import type { ColourTheme, ThemeMode, UiStyle } from '@/types/theme'
@@ -35,6 +36,7 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [colourTheme, setColourTheme] = useState<ColourTheme>('neutral')
   const [currentPage, setCurrentPage] = useState<AppPage>('projects')
+  const [libraryInitialTab, setLibraryInitialTab] = useState<LibraryTab>('pricing')
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [themeMode, setThemeMode] = useState<ThemeMode>('light')
@@ -195,12 +197,16 @@ function App() {
           <ProjectsQuotesPage
             authToken={authToken}
             currencyCode={user.company_currency_code}
-            onOpenLibraries={() => setCurrentPage('libraries')}
+            onOpenLibraries={(target = 'pricing') => {
+              setLibraryInitialTab(target)
+              setCurrentPage('libraries')
+            }}
           />
         ) : currentPage === 'libraries' ? (
           <LibrariesPage
             authToken={authToken}
             currencyCode={user.company_currency_code}
+            initialTab={libraryInitialTab}
             onOpenProjects={() => setCurrentPage('projects')}
           />
         ) : currentPage === 'cutlist' ? (

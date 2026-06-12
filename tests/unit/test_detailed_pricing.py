@@ -146,6 +146,15 @@ def test_detailed_pricing_reports_missing_price_items():
             "library_area": "pricing",
             "action_label": "Add a price for PG White (16mm)",
             "message": "Add a price for PG White (16mm) using Square metre price in the pricing library.",
+            "library_target": "pricing",
+            "library_target_label": "Pricing",
+            "catalog_target": "boards",
+            "catalog_target_label": "Board library",
+            "guidance_action_label": "Open Pricing",
+            "guidance_message": (
+                "Board library already appears on the quote. Open Pricing and add Square metre price for PG White (16mm) "
+                "to the active price list. If this price comes from suppliers, add the supplier cost first and generate prices."
+            ),
         }
     ]
     assert any(line["missing"] for line in result["lines"])
@@ -201,6 +210,9 @@ def test_detailed_pricing_reports_grouped_missing_hardware_price():
     assert result["missing_prices"][0]["quantity"] == 5.0
     assert result["missing_prices"][0]["used_in"] == ["Handle"]
     assert result["missing_prices"][0]["action_label"] == "Add a price for Bar · Core"
+    assert result["missing_prices"][0]["library_target"] == "pricing"
+    assert result["missing_prices"][0]["catalog_target"] == "handles"
+    assert "supplier cost first" in result["missing_prices"][0]["guidance_message"]
 
 
 def test_detailed_pricing_includes_hardware_pick_list_without_prices():

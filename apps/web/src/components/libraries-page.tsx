@@ -203,13 +203,15 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
 export function LibrariesPage({
   authToken,
   currencyCode,
+  initialTab = 'pricing',
   onOpenProjects,
 }: {
   authToken: string
   currencyCode: string
+  initialTab?: LibraryTab
   onOpenProjects: () => void
 }) {
-  const [activeTab, setActiveTab] = useState<LibraryTab>('pricing')
+  const [activeTab, setActiveTab] = useState<LibraryTab>(initialTab)
 
   const [setupChecklist, setSetupChecklist] = useState<LibrarySetupChecklist | null>(null)
   const [boards, setBoards] = useState<BoardTypeRow[]>([])

@@ -65,7 +65,28 @@ def test_readiness_warns_for_missing_prices():
     assert check["severity"] == "warning"
     assert check["title"] == "Add missing prices"
     assert "1 required price missing" in check["message"]
-    assert check["action_target"] == "pricing"
+    assert "active price list" in check["message"]
+    assert check["action_label"] == "Open price list"
+    assert check["action_target"] == "libraries-pricing"
+
+
+def test_readiness_links_missing_active_price_list_to_libraries_pricing():
+    readiness = evaluate_quote_readiness(
+        quote=quote(),
+        project=project(),
+        units=[unit()],
+        cutting_list=cutting_list(),
+        pricing_summary=pricing_summary(),
+        active_price_list_id=None,
+    )
+
+    check = check_by_id(readiness, "missing_prices")
+
+    assert check["severity"] == "warning"
+    assert check["title"] == "Activate a price list"
+    assert "Libraries > Pricing" in check["message"]
+    assert check["action_label"] == "Open price lists"
+    assert check["action_target"] == "libraries-pricing"
 
 
 def test_readiness_counts_legacy_missing_items_when_structured_rows_are_empty():

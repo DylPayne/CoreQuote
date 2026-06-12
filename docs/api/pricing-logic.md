@@ -78,8 +78,12 @@ Each quote calculation produces grouped pricing lines with:
 Each quote calculation also produces `missing_prices`, a grouped guidance list
 derived from missing pricing lines. Rows include the item type, item name, price
 component, unit of measure, affected quote, usage labels, and copy beginning
-with "Add a price for..." so estimators can navigate to the pricing library
-without reading raw item keys.
+with "Add a price for..." so estimators can navigate without reading raw item
+keys. `library_target` points to Libraries > Pricing for the missing active
+price row, while `catalog_target` points to the related board, slide, hinge,
+handle, or extra library when the catalog item already exists but lacks an
+active price. Use `guidance_message` for user-facing copy that distinguishes a
+missing price from missing catalog data.
 
 Each quote calculation also produces `material_summary` for internal review and
 production handoff. It is aggregated from the same runtime cutlist rows used by

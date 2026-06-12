@@ -844,6 +844,7 @@ def _missing_price_summaries(*, lines: list[dict[str, Any]], quote: dict[str, An
         item_name = _missing_item_name(line)
         component = _price_component_label(price_component)
         usage = _missing_usage_label(line)
+        guidance = _missing_price_guidance(item_type=item_type, item_name=item_name, component=component)
 
         summary = summaries.get(key)
         if summary is None:
@@ -865,6 +866,7 @@ def _missing_price_summaries(*, lines: list[dict[str, Any]], quote: dict[str, An
                 "library_area": "pricing",
                 "action_label": f"Add a price for {item_name}",
                 "message": f"Add a price for {item_name} using {component} in the pricing library.",
+                **guidance,
             }
             summaries[key] = summary
 
@@ -881,6 +883,38 @@ def _missing_price_summaries(*, lines: list[dict[str, Any]], quote: dict[str, An
         summaries.values(),
         key=lambda row: (_bucket_sort(str(row.get("bucket") or "")), str(row.get("item_name") or "")),
     )
+
+
+def _missing_price_guidance(*, item_type: str, item_name: str, component: str) -> dict[str, Any]:
+    catalog_target, catalog_label = _catalog_guidance_target(item_type)
+    if catalog_label:
+        guidance_message = (
+            f"{catalog_label} already appears on the quote. Open Pricing and add {component} for {item_name} "
+            "to the active price list. If this price comes from suppliers, add the supplier cost first and generate prices."
+        )
+    else:
+        guidance_message = (
+            f"Open Pricing and add {component} for {item_name} to the active price list before reviewing totals."
+        )
+    return {
+        "library_target": "pricing",
+        "library_target_label": "Pricing",
+        "catalog_target": catalog_target,
+        "catalog_target_label": catalog_label,
+        "guidance_action_label": "Open Pricing",
+        "guidance_message": guidance_message,
+    }
+
+
+def _catalog_guidance_target(item_type: str) -> tuple[str | None, str | None]:
+    targets = {
+        "board": ("boards", "Board library"),
+        "slide": ("slides", "Slide library"),
+        "hinge": ("hinges", "Hinge library"),
+        "handle": ("handles", "Handle library"),
+        "extra": ("extras", "Extra library"),
+    }
+    return targets.get(item_type, (None, None))
 
 
 def _missing_item_name(line: dict[str, Any]) -> str:
