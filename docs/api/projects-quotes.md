@@ -24,6 +24,7 @@ All rows are scoped to `current_user.company_id`.
 - Quote and unit create/update/delete: `quotes:write`
 - Quote readiness read: `quotes:read`
 - Workshop schedule PDF export: `quotes:read`
+- Production handoff read: `production:read`
 - Project pricing summary read: `pricing:read`
 - Project and quote pricing settings read: `pricing:read`
 - Project and quote pricing settings update: `pricing:update`
@@ -597,6 +598,150 @@ Frontend integration notes:
   not show cost, profit, or internal margin beside that action.
 - Use `actions[].action_target` for navigation to the source area that can fix a
   warning or inspect the output detail.
+
+## Production Handoff
+
+```http
+GET /api/v1/quotes/{quote_id}/production-handoff
+```
+
+Permission: `production:read`
+
+This endpoint builds the workshop production packet from the live quote review
+context. It reuses the current cutting-list rows, cutlist warnings, material
+summary, hardware pick list, quote metadata, project metadata, and board library
+lookup. It does not return customer quote totals, internal cost, sell price,
+profit, margin, or markup fields.
+
+Rows are grouped for board-first workshop flow by board/material, thickness,
+material role, unit, and cutlist section. Quote-level custom panel rows are
+included with `source_type: "quote_panel"` and `unit_number: 0`.
+
+Response excerpt:
+
+```json
+{
+  "quote_id": "quote-uuid",
+  "quote_name": "Workshop Handoff",
+  "quote_status": "ready",
+  "quote_number": "Q-001",
+  "revision": 1,
+  "project_id": "project-uuid",
+  "project_name": "Smith Kitchen Phase 5 Workshop Handoff",
+  "row_count": 3,
+  "group_count": 2,
+  "label_count": 3,
+  "warning_count": 0,
+  "groups": [
+    {
+      "group_key": "board-uuid::16::White::carcass::1::carcass",
+      "board_type_id": "board-uuid",
+      "board_name": "PG White (16mm)",
+      "brand": "PG",
+      "material": "White",
+      "thickness": 16,
+      "sheet_length_mm": 2750,
+      "sheet_width_mm": 1830,
+      "material_role": "carcass",
+      "role_label": "Carcass",
+      "unit_number": 1,
+      "unit_label": "Unit 1",
+      "section": "carcass",
+      "section_label": "Carcass",
+      "row_count": 1,
+      "piece_count": 2,
+      "warning_count": 0,
+      "part_ids": ["Q-001-R1-U01-CAR-SIDE-748X564-01"],
+      "rows": [
+        {
+          "part_id": "Q-001-R1-U01-CAR-SIDE-748X564-01",
+          "source_type": "unit",
+          "unit_number": 1,
+          "unit_label": "Unit 1",
+          "section": "carcass",
+          "material_role": "carcass",
+          "board_type_id": "board-uuid",
+          "board_name": "PG White (16mm)",
+          "desc": "Side",
+          "length": 748,
+          "width": 564,
+          "quantity": 2,
+          "warning_count": 0,
+          "warning_messages": []
+        }
+      ]
+    }
+  ],
+  "material_summary": {
+    "groups": [
+      {
+        "board_type_id": "board-uuid",
+        "material_role": "carcass",
+        "board_name": "PG White (16mm)",
+        "piece_count": 2,
+        "area_m2": 0.84,
+        "estimated_sheets": 1,
+        "part_ids": ["Q-001-R1-U01-CAR-SIDE-748X564-01"]
+      }
+    ],
+    "warnings": [],
+    "total_area_m2": 0.84,
+    "total_piece_count": 2,
+    "total_edge_m": 0,
+    "total_estimated_sheets": 1
+  },
+  "hardware_pick_list": {
+    "items": [
+      {
+        "part_id": "Q-001-R1-HW-HINGE-HINGE-1",
+        "item_type": "hinge",
+        "item_name": "Blum Clip top",
+        "quantity": 4,
+        "uom": "pcs",
+        "unit_numbers": [1],
+        "related_part_ids": ["Q-001-R1-U01-CAR-SIDE-748X564-01"]
+      }
+    ],
+    "warnings": [],
+    "total_item_count": 1,
+    "total_quantity": 4
+  },
+  "labels": [
+    {
+      "part_id": "Q-001-R1-U01-CAR-SIDE-748X564-01",
+      "label": "Q-001-R1-U01-CAR-SIDE-748X564-01 · Side · 748 x 564 mm",
+      "source_type": "unit",
+      "unit_number": 1,
+      "section": "carcass",
+      "desc": "Side",
+      "dimensions_label": "748 x 564 mm",
+      "material_label": "PG White (16mm)",
+      "quantity": 2,
+      "warning_count": 0
+    }
+  ]
+}
+```
+
+Stable part identifiers are deterministic from quote number, revision, source
+type, unit/quote-panel source, section, description, dimensions, and a repeat
+index. The same `part_id` appears in grouped cutting rows, material summary
+`part_ids`, related hardware rows, and labels.
+
+Errors:
+
+- `401` for missing/invalid bearer sessions.
+- `403` for roles without `production:read`.
+- `404` when the quote is not visible to the current company.
+- `422` when the cutting-list context cannot be built.
+
+Frontend integration notes:
+
+- Load this endpoint when a workshop user opens the quote `Production` tab.
+- Refresh it after changes to quote board defaults, units, custom panels, or
+  selected extras.
+- Treat the response as production-safe. Do not add pricing, customer totals,
+  cost, profit, margin, or markup fields to this view.
 
 ## Customer Quote PDF
 

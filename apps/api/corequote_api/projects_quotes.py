@@ -17,6 +17,7 @@ from corequote_core.customer_quote_pdf import (
 )
 from corequote_core.hardware_pick_list import build_hardware_pick_list, canonical_unit_type
 from corequote_core.output_review import build_quote_output_review
+from corequote_core.production_handoff import build_production_handoff
 from corequote_core.quote_readiness import evaluate_quote_readiness
 from corequote_core.workshop_schedule_pdf import (
     build_workshop_schedule_document,
@@ -1250,6 +1251,33 @@ class WorkspaceStore:
             pricing_summary=context["pricing_summary"],
             active_price_list_id=context["active_price_list_id"],
             hardware_pick_list=context["hardware_pick_list"],
+        )
+
+    def get_quote_production_handoff(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict:
+        context = self._build_quote_review_context(
+            company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+        if context["cutting_error"]:
+            raise WorkspaceValidationError(context["cutting_error"])
+        if not context["cutting_list"]:
+            raise WorkspaceValidationError("Add cabinet units before building the production handoff.")
+
+        return build_production_handoff(
+            quote=context["quote"],
+            project=context["project"],
+            units=context["units"],
+            cutting_list=context["cutting_list"],
+            material_summary=(context["pricing_summary"] or {}).get("material_summary") if context["pricing_summary"] else {},
+            hardware_pick_list=context["hardware_pick_list"],
+            board_lookup=context["board_lookup"],
         )
 
     def generate_customer_quote_pdf(

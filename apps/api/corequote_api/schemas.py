@@ -639,6 +639,146 @@ class HardwarePickListResponse(BaseModel):
     total_quantity: int = Field(default=0, ge=0)
 
 
+ProductionSourceType = Literal["unit", "quote_panel"]
+ProductionSection = Literal["carcass", "panel", "extra_panel"]
+
+
+class ProductionHandoffRowResponse(BaseModel):
+    part_id: str
+    project_id: str
+    project_name: str
+    quote_id: str
+    quote_name: str
+    quote_number: str
+    revision: int = Field(ge=1)
+    source_type: ProductionSourceType
+    unit_number: int = Field(ge=0)
+    unit_label: str
+    unit_type_key: str = ""
+    section: ProductionSection
+    section_label: str
+    material_role: MaterialRole
+    role_label: str
+    board_type_id: str | None = None
+    board_name: str
+    brand: str = ""
+    material: str = ""
+    thickness: int | None = Field(default=None, ge=0)
+    sheet_length_mm: int | None = Field(default=None, ge=0)
+    sheet_width_mm: int | None = Field(default=None, ge=0)
+    desc: str
+    length: int = Field(ge=0)
+    width: int = Field(ge=0)
+    quantity: int = Field(ge=0)
+    warning_count: int = Field(default=0, ge=0)
+    warning_messages: list[str] = Field(default_factory=list)
+
+
+class ProductionHandoffGroupResponse(BaseModel):
+    group_key: str
+    board_type_id: str | None = None
+    board_name: str
+    brand: str = ""
+    material: str = ""
+    thickness: int | None = Field(default=None, ge=0)
+    sheet_length_mm: int | None = Field(default=None, ge=0)
+    sheet_width_mm: int | None = Field(default=None, ge=0)
+    material_role: MaterialRole
+    role_label: str
+    unit_number: int = Field(ge=0)
+    unit_label: str
+    section: ProductionSection
+    section_label: str
+    row_count: int = Field(default=0, ge=0)
+    piece_count: int = Field(default=0, ge=0)
+    warning_count: int = Field(default=0, ge=0)
+    part_ids: list[str] = Field(default_factory=list)
+    rows: list[ProductionHandoffRowResponse] = Field(default_factory=list)
+
+
+class ProductionHandoffMaterialGroupResponse(BaseModel):
+    board_type_id: str
+    material_role: MaterialRole
+    role_label: str
+    board_name: str
+    brand: str = ""
+    material: str = ""
+    thickness: int | None = Field(default=None, ge=0)
+    length_mm: int | None = Field(default=None, ge=0)
+    width_mm: int | None = Field(default=None, ge=0)
+    piece_count: int = Field(default=0, ge=0)
+    area_m2: float = Field(default=0, ge=0)
+    edge_m: float = Field(default=0, ge=0)
+    estimated_sheets: int | None = Field(default=None, ge=0)
+    part_ids: list[str] = Field(default_factory=list)
+
+
+class ProductionHandoffMaterialSummaryResponse(BaseModel):
+    groups: list[ProductionHandoffMaterialGroupResponse] = Field(default_factory=list)
+    warnings: list[MaterialSummaryWarningResponse] = Field(default_factory=list)
+    total_area_m2: float = Field(default=0, ge=0)
+    total_piece_count: int = Field(default=0, ge=0)
+    total_edge_m: float = Field(default=0, ge=0)
+    total_estimated_sheets: int | None = Field(default=None, ge=0)
+
+
+class ProductionHandoffHardwareItemResponse(BaseModel):
+    part_id: str
+    item_type: HardwarePickListItemType
+    type_label: str
+    item_key: str
+    item_ref_id: str
+    item_name: str
+    supplier: str = ""
+    code: str = ""
+    quantity: int = Field(ge=0)
+    uom: str
+    unit_numbers: list[int] = Field(default_factory=list)
+    used_in: list[str] = Field(default_factory=list)
+    usage_label: str = ""
+    related_part_ids: list[str] = Field(default_factory=list)
+
+
+class ProductionHandoffHardwarePickListResponse(BaseModel):
+    items: list[ProductionHandoffHardwareItemResponse] = Field(default_factory=list)
+    warnings: list[HardwarePickListWarningResponse] = Field(default_factory=list)
+    total_item_count: int = Field(default=0, ge=0)
+    total_quantity: int = Field(default=0, ge=0)
+
+
+class ProductionHandoffLabelResponse(BaseModel):
+    part_id: str
+    label: str
+    source_type: ProductionSourceType
+    unit_number: int = Field(ge=0)
+    unit_label: str
+    section: ProductionSection
+    desc: str
+    dimensions_label: str
+    material_label: str
+    quantity: int = Field(ge=0)
+    warning_count: int = Field(default=0, ge=0)
+
+
+class QuoteProductionHandoffResponse(BaseModel):
+    quote_id: str
+    quote_name: str
+    quote_status: QuoteStatus = "draft"
+    quote_number: str
+    revision: int = Field(ge=1)
+    project_id: str
+    project_name: str
+    row_count: int = Field(default=0, ge=0)
+    group_count: int = Field(default=0, ge=0)
+    label_count: int = Field(default=0, ge=0)
+    warning_count: int = Field(default=0, ge=0)
+    groups: list[ProductionHandoffGroupResponse] = Field(default_factory=list)
+    rows: list[ProductionHandoffRowResponse] = Field(default_factory=list)
+    material_summary: ProductionHandoffMaterialSummaryResponse = Field(default_factory=ProductionHandoffMaterialSummaryResponse)
+    hardware_pick_list: ProductionHandoffHardwarePickListResponse = Field(default_factory=ProductionHandoffHardwarePickListResponse)
+    labels: list[ProductionHandoffLabelResponse] = Field(default_factory=list)
+
+
 class QuoteOutputReviewResponse(BaseModel):
     quote_id: str
     quote_name: str

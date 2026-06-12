@@ -375,6 +375,145 @@ export type HardwarePickList = {
   total_quantity: number
 }
 
+export type ProductionSourceType = 'unit' | 'quote_panel'
+export type ProductionSection = 'carcass' | 'panel' | 'extra_panel'
+
+export type ProductionHandoffRow = {
+  part_id: string
+  project_id: string
+  project_name: string
+  quote_id: string
+  quote_name: string
+  quote_number: string
+  revision: number
+  source_type: ProductionSourceType
+  unit_number: number
+  unit_label: string
+  unit_type_key: string
+  section: ProductionSection
+  section_label: string
+  material_role: MaterialRole
+  role_label: string
+  board_type_id: string | null
+  board_name: string
+  brand: string
+  material: string
+  thickness: number | null
+  sheet_length_mm: number | null
+  sheet_width_mm: number | null
+  desc: string
+  length: number
+  width: number
+  quantity: number
+  warning_count: number
+  warning_messages: string[]
+}
+
+export type ProductionHandoffGroup = {
+  group_key: string
+  board_type_id: string | null
+  board_name: string
+  brand: string
+  material: string
+  thickness: number | null
+  sheet_length_mm: number | null
+  sheet_width_mm: number | null
+  material_role: MaterialRole
+  role_label: string
+  unit_number: number
+  unit_label: string
+  section: ProductionSection
+  section_label: string
+  row_count: number
+  piece_count: number
+  warning_count: number
+  part_ids: string[]
+  rows: ProductionHandoffRow[]
+}
+
+export type ProductionHandoffMaterialGroup = {
+  board_type_id: string
+  material_role: MaterialRole
+  role_label: string
+  board_name: string
+  brand: string
+  material: string
+  thickness: number | null
+  length_mm: number | null
+  width_mm: number | null
+  piece_count: number
+  area_m2: number
+  edge_m: number
+  estimated_sheets: number | null
+  part_ids: string[]
+}
+
+export type ProductionHandoffMaterialSummary = {
+  groups: ProductionHandoffMaterialGroup[]
+  warnings: MaterialSummaryWarning[]
+  total_area_m2: number
+  total_piece_count: number
+  total_edge_m: number
+  total_estimated_sheets: number | null
+}
+
+export type ProductionHandoffHardwareItem = {
+  part_id: string
+  item_type: HardwarePickListItemType
+  type_label: string
+  item_key: string
+  item_ref_id: string
+  item_name: string
+  supplier: string
+  code: string
+  quantity: number
+  uom: string
+  unit_numbers: number[]
+  used_in: string[]
+  usage_label: string
+  related_part_ids: string[]
+}
+
+export type ProductionHandoffHardwarePickList = {
+  items: ProductionHandoffHardwareItem[]
+  warnings: HardwarePickListWarning[]
+  total_item_count: number
+  total_quantity: number
+}
+
+export type ProductionHandoffLabel = {
+  part_id: string
+  label: string
+  source_type: ProductionSourceType
+  unit_number: number
+  unit_label: string
+  section: ProductionSection
+  desc: string
+  dimensions_label: string
+  material_label: string
+  quantity: number
+  warning_count: number
+}
+
+export type QuoteProductionHandoff = {
+  quote_id: string
+  quote_name: string
+  quote_status: QuoteStatus
+  quote_number: string
+  revision: number
+  project_id: string
+  project_name: string
+  row_count: number
+  group_count: number
+  label_count: number
+  warning_count: number
+  groups: ProductionHandoffGroup[]
+  rows: ProductionHandoffRow[]
+  material_summary: ProductionHandoffMaterialSummary
+  hardware_pick_list: ProductionHandoffHardwarePickList
+  labels: ProductionHandoffLabel[]
+}
+
 export type MissingPrice = {
   item_type: 'board' | 'slide' | 'hinge' | 'handle' | 'extra' | 'labour' | 'consumable' | 'installation' | 'delivery' | 'adjustment'
   item_type_label: string
@@ -455,7 +594,7 @@ export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
 export type ProjectWorkspaceTab = 'quotes' | 'pricing'
 export type PricingWorkspaceTab = 'overview' | 'settings' | 'quotes'
-export type QuoteWorkspaceTab = 'readiness' | 'outputs' | 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
+export type QuoteWorkspaceTab = 'readiness' | 'outputs' | 'production' | 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
 export type CuttingListViewTab = 'carcass' | 'panels' | 'extras'
 
 export type ProjectDraft = {

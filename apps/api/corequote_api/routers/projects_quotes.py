@@ -26,6 +26,7 @@ from corequote_api.schemas import (
     QuoteExtrasResponse,
     QuoteOutputReviewResponse,
     QuotePricingSettingsResponse,
+    QuoteProductionHandoffResponse,
     QuoteReadinessResponse,
     QuoteRequest,
     QuoteResponse,
@@ -55,6 +56,7 @@ QuotesReader = Annotated[AuthUserResponse, Depends(require_permission("quotes:re
 QuotesWriter = Annotated[AuthUserResponse, Depends(require_permission("quotes:write"))]
 PricingReader = Annotated[AuthUserResponse, Depends(require_permission("pricing:read"))]
 PricingWriter = Annotated[AuthUserResponse, Depends(require_permission("pricing:update"))]
+ProductionReader = Annotated[AuthUserResponse, Depends(require_permission("production:read"))]
 StoreDep = Annotated[WorkspaceStore, Depends(get_workspace_store)]
 CutlistRuntimeDep = Annotated[CutlistRuntimeService, Depends(get_cutlist_runtime_service)]
 
@@ -465,6 +467,30 @@ def get_quote_output_review(
     except WorkspaceValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     return QuoteOutputReviewResponse.model_validate(payload)
+
+
+@router.get(
+    "/quotes/{quote_id}/production-handoff",
+    response_model=QuoteProductionHandoffResponse,
+    summary="Build quote production handoff",
+)
+def get_quote_production_handoff(
+    quote_id: str,
+    current_user: ProductionReader,
+    store: StoreDep,
+    runtime_service: CutlistRuntimeDep,
+) -> QuoteProductionHandoffResponse:
+    try:
+        payload = store.get_quote_production_handoff(
+            current_user.company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return QuoteProductionHandoffResponse.model_validate(payload)
 
 
 @router.get(
