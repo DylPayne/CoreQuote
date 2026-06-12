@@ -131,6 +131,8 @@ PRICING_SETTINGS_COLUMNS: tuple[str, ...] = (
     "minimum_delivery_trips_bps",
 )
 PRICING_SETTINGS_SELECT = ", ".join(PRICING_SETTINGS_COLUMNS)
+DEFAULT_VAT_RATE_BPS = 1500
+DEFAULT_MARKUP_BPS = 2500
 
 
 class LibraryStore:
@@ -1089,6 +1091,80 @@ class LibraryStore:
         if not row:
             raise LibraryNotFound("Price list item not found")
 
+    def get_setup_checklist(self, company_id: str) -> dict:
+        with self._connect() as conn:
+            summary = conn.execute(
+                """
+                SELECT
+                    (SELECT count(*)::int FROM board_types WHERE company_id = %(company_id)s) AS board_count,
+                    (SELECT count(*)::int FROM slides WHERE company_id = %(company_id)s) AS slide_count,
+                    (SELECT count(*)::int FROM hinges WHERE company_id = %(company_id)s) AS hinge_count,
+                    (SELECT count(*)::int FROM handles WHERE company_id = %(company_id)s) AS handle_count,
+                    (SELECT count(*)::int FROM extra_categories WHERE company_id = %(company_id)s) AS extra_category_count,
+                    (SELECT count(*)::int FROM extras WHERE company_id = %(company_id)s) AS extra_count,
+                    (SELECT count(*)::int FROM suppliers WHERE company_id = %(company_id)s) AS supplier_count,
+                    (
+                        SELECT count(*)::int
+                        FROM item_suppliers item
+                        JOIN supplier_item_costs cost
+                          ON cost.company_id = item.company_id
+                         AND cost.item_supplier_id = item.id
+                         AND cost.effective_to IS NULL
+                        WHERE item.company_id = %(company_id)s
+                    ) AS active_supplier_cost_count,
+                    (
+                        SELECT count(*)::int
+                        FROM price_lists
+                        WHERE company_id = %(company_id)s
+                          AND status = 'active'
+                    ) AS active_price_list_count,
+                    (
+                        SELECT count(*)::int
+                        FROM price_lists list
+                        JOIN price_list_items item
+                          ON item.company_id = list.company_id
+                         AND item.price_list_id = list.id
+                         AND item.effective_to IS NULL
+                        WHERE list.company_id = %(company_id)s
+                          AND list.status = 'active'
+                    ) AS active_price_count,
+                    (
+                        SELECT count(*)::int
+                        FROM pricing_settings
+                        WHERE company_id = %(company_id)s
+                    ) AS pricing_settings_count,
+                    (
+                        SELECT vat_rate_bps
+                        FROM pricing_settings
+                        WHERE company_id = %(company_id)s
+                        LIMIT 1
+                    ) AS vat_rate_bps,
+                    (
+                        SELECT default_markup_bps
+                        FROM pricing_settings
+                        WHERE company_id = %(company_id)s
+                        LIMIT 1
+                    ) AS default_markup_bps,
+                    (SELECT count(*)::int FROM quotes WHERE company_id = %(company_id)s) AS quote_count,
+                    (
+                        SELECT count(*)::int
+                        FROM quotes
+                        WHERE company_id = %(company_id)s
+                          AND default_carcass_board_type_id IS NOT NULL
+                          AND default_door_board_type_id IS NOT NULL
+                          AND default_panel_board_type_id IS NOT NULL
+                          AND default_slide_id IS NOT NULL
+                          AND default_hinge_id IS NOT NULL
+                          AND default_base_handle_id IS NOT NULL
+                          AND default_wall_handle_id IS NOT NULL
+                          AND default_tall_handle_id IS NOT NULL
+                          AND default_drawer_handle_id IS NOT NULL
+                    ) AS quote_with_defaults_count
+                """,
+                {"company_id": company_id},
+            ).fetchone()
+        return _build_setup_checklist(summary)
+
     def _list(self, config: ResourceConfig, company_id: str) -> list[dict]:
         with self._connect() as conn:
             return conn.execute(
@@ -1356,6 +1432,248 @@ class LibraryStore:
                 (company_id, clean_name),
             ).fetchone()
         return row["id"]
+
+
+def _build_setup_checklist(summary: dict[str, Any]) -> dict[str, Any]:
+    board_count = _summary_count(summary, "board_count")
+    slide_count = _summary_count(summary, "slide_count")
+    hinge_count = _summary_count(summary, "hinge_count")
+    handle_count = _summary_count(summary, "handle_count")
+    extra_category_count = _summary_count(summary, "extra_category_count")
+    extra_count = _summary_count(summary, "extra_count")
+    supplier_count = _summary_count(summary, "supplier_count")
+    active_supplier_cost_count = _summary_count(summary, "active_supplier_cost_count")
+    active_price_list_count = _summary_count(summary, "active_price_list_count")
+    active_price_count = _summary_count(summary, "active_price_count")
+    pricing_settings_count = _summary_count(summary, "pricing_settings_count")
+    quote_count = _summary_count(summary, "quote_count")
+    quote_with_defaults_count = _summary_count(summary, "quote_with_defaults_count")
+    vat_rate_bps = int(summary.get("vat_rate_bps") or DEFAULT_VAT_RATE_BPS)
+    default_markup_bps = int(summary.get("default_markup_bps") or DEFAULT_MARKUP_BPS)
+
+    items: list[dict[str, Any]] = []
+
+    if board_count == 0:
+        items.append(
+            _setup_item(
+                "boards",
+                "Boards",
+                "missing",
+                board_count,
+                "Add carcass, door, and visible panel boards before quoting real jobs.",
+                "Add boards",
+                "boards",
+            )
+        )
+    elif board_count < 3:
+        items.append(
+            _setup_item(
+                "boards",
+                "Boards",
+                "warning",
+                board_count,
+                "You have some boards, but the Smith Kitchen setup needs separate carcass, door, and visible panel choices.",
+                "Review boards",
+                "boards",
+            )
+        )
+    else:
+        items.append(
+            _setup_item(
+                "boards",
+                "Boards",
+                "complete",
+                board_count,
+                "Board choices are available for carcasses, doors, and panels.",
+                "Review boards",
+                "boards",
+            )
+        )
+
+    items.append(
+        _setup_item(
+            "slides",
+            "Drawer slides",
+            "complete" if slide_count > 0 else "missing",
+            slide_count,
+            "Drawer slide choices are ready." if slide_count > 0 else "Add at least one drawer slide pair for drawer units.",
+            "Review slides" if slide_count > 0 else "Add slides",
+            "slides",
+        )
+    )
+    items.append(
+        _setup_item(
+            "hinges",
+            "Hinges",
+            "complete" if hinge_count > 0 else "missing",
+            hinge_count,
+            "Hinge choices are ready." if hinge_count > 0 else "Add at least one concealed hinge for door units.",
+            "Review hinges" if hinge_count > 0 else "Add hinges",
+            "hinges",
+        )
+    )
+
+    if handle_count == 0:
+        handle_status = "missing"
+        handle_message = "Add handles before setting base, wall, tall, and drawer handle defaults."
+        handle_action = "Add handles"
+    elif handle_count < 4:
+        handle_status = "warning"
+        handle_message = "You have handles, but the Smith Kitchen setup expects base, wall, tall, and drawer handle choices."
+        handle_action = "Review handles"
+    else:
+        handle_status = "complete"
+        handle_message = "Handle choices are available for the main cabinet types."
+        handle_action = "Review handles"
+    items.append(_setup_item("handles", "Handles", handle_status, handle_count, handle_message, handle_action, "handles"))
+
+    if extra_count > 0:
+        extra_status = "complete"
+        extra_message = "Extras are available for delivery, installation, appliances, or other job charges."
+        extra_action = "Review extras"
+        extra_target = "extras"
+    elif extra_category_count > 0:
+        extra_status = "warning"
+        extra_message = "Extra categories exist, but no extras are ready to add to a quote yet."
+        extra_action = "Add extras"
+        extra_target = "extras"
+    else:
+        extra_status = "missing"
+        extra_message = "Add an extra category and at least one extra for delivery, installation, or other job charges."
+        extra_action = "Add extra categories"
+        extra_target = "extra-categories"
+    items.append(_setup_item("extras", "Extras", extra_status, extra_count, extra_message, extra_action, extra_target))
+
+    if supplier_count == 0:
+        supplier_status = "missing"
+        supplier_message = "Add suppliers so price refreshes can show where costs came from."
+        supplier_action = "Add suppliers"
+    elif active_supplier_cost_count == 0:
+        supplier_status = "warning"
+        supplier_message = "Suppliers exist, but no active supplier costs are linked to catalog items yet."
+        supplier_action = "Add supplier costs"
+    else:
+        supplier_status = "complete"
+        supplier_message = "Supplier costs are linked and ready to feed price lists."
+        supplier_action = "Review suppliers"
+    items.append(
+        _setup_item(
+            "supplier-costs",
+            "Supplier cost sources",
+            supplier_status,
+            active_supplier_cost_count,
+            supplier_message,
+            supplier_action,
+            "suppliers",
+        )
+    )
+
+    if active_price_list_count == 0:
+        price_status = "missing"
+        price_message = "Create one active price list before relying on quote totals."
+        price_action = "Create price list"
+    elif active_price_count == 0:
+        price_status = "warning"
+        price_message = "An active price list exists, but it does not have active prices yet."
+        price_action = "Add prices"
+    else:
+        price_status = "complete"
+        price_message = "An active price list has prices available for new and recalculated quotes."
+        price_action = "Review prices"
+    items.append(
+        _setup_item(
+            "active-price-list",
+            "Active price list",
+            price_status,
+            active_price_count,
+            price_message,
+            price_action,
+            "pricing",
+        )
+    )
+
+    pricing_status = "complete" if pricing_settings_count > 0 else "warning"
+    pricing_message = (
+        f"Company pricing settings are saved with {vat_rate_bps / 100:.2f}% VAT and {default_markup_bps / 100:.2f}% default markup."
+        if pricing_settings_count > 0
+        else f"CoreQuote can use defaults ({DEFAULT_VAT_RATE_BPS / 100:.2f}% VAT and {DEFAULT_MARKUP_BPS / 100:.2f}% markup), but review them before a real quote."
+    )
+    items.append(
+        _setup_item(
+            "pricing-settings",
+            "VAT and markups",
+            pricing_status,
+            pricing_settings_count,
+            pricing_message,
+            "Review pricing settings",
+            "pricing",
+        )
+    )
+
+    if quote_with_defaults_count > 0:
+        quote_status = "complete"
+        quote_message = "At least one quote has board, slide, hinge, and handle defaults selected."
+        quote_action = "Review quotes"
+    elif quote_count > 0:
+        quote_status = "warning"
+        quote_message = "Quotes exist, but none has all the main board and hardware defaults selected yet."
+        quote_action = "Set quote defaults"
+    else:
+        quote_status = "action_needed"
+        quote_message = "Create a quote and choose default boards, slides, hinges, and handles before the first real job."
+        quote_action = "Open projects"
+    items.append(
+        _setup_item(
+            "quote-defaults",
+            "Quote defaults",
+            quote_status,
+            quote_with_defaults_count,
+            quote_message,
+            quote_action,
+            "projects",
+        )
+    )
+
+    complete_count = sum(1 for item in items if item["status"] == "complete")
+    total_count = len(items)
+    status = "ready" if complete_count == total_count else "needs_attention"
+    remaining_count = total_count - complete_count
+    return {
+        "status": status,
+        "summary_title": "Library setup is ready" if status == "ready" else "Library setup needs attention",
+        "summary_message": (
+            "Boards, hardware, supplier costs, prices, settings, and quote defaults are ready for real quoting."
+            if status == "ready"
+            else f"{remaining_count} setup item{'s' if remaining_count != 1 else ''} still need attention before the Smith Kitchen library refresh is fully ready."
+        ),
+        "complete_count": complete_count,
+        "total_count": total_count,
+        "items": items,
+    }
+
+
+def _setup_item(
+    item_id: str,
+    label: str,
+    status: str,
+    count: int,
+    message: str,
+    action_label: str,
+    action_target: str,
+) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "label": label,
+        "status": status,
+        "count": count,
+        "message": message,
+        "action_label": action_label,
+        "action_target": action_target,
+    }
+
+
+def _summary_count(summary: dict[str, Any], key: str) -> int:
+    return int(summary.get(key) or 0)
 
 
 def _clean(value: Any) -> Any:

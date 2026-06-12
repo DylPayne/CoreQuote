@@ -28,6 +28,60 @@ Pricing endpoints use:
 
 The API returns `401` for missing or invalid tokens, `403` for missing permissions, `404` when a row is not visible to the user's company, and `409` for duplicate rows or rows still referenced by other data.
 
+## Setup Checklist
+
+```http
+GET /api/v1/libraries/setup-checklist
+```
+
+Permission: `pricing:read`.
+
+This endpoint returns a company-scoped checklist for the Libraries first-run and
+maintenance flow. It does not create or update any setup data; it only reads the
+current company's catalog counts, supplier-cost links, active price list, saved
+pricing settings, and quote defaults.
+
+Example response:
+
+```json
+{
+  "status": "needs_attention",
+  "summary_title": "Library setup needs attention",
+  "summary_message": "3 setup items still need attention before the Smith Kitchen library refresh is fully ready.",
+  "complete_count": 6,
+  "total_count": 9,
+  "items": [
+    {
+      "id": "boards",
+      "label": "Boards",
+      "status": "complete",
+      "count": 3,
+      "message": "Board choices are available for carcasses, doors, and panels.",
+      "action_label": "Review boards",
+      "action_target": "boards"
+    },
+    {
+      "id": "active-price-list",
+      "label": "Active price list",
+      "status": "warning",
+      "count": 0,
+      "message": "An active price list exists, but it does not have active prices yet.",
+      "action_label": "Add prices",
+      "action_target": "pricing"
+    }
+  ]
+}
+```
+
+Checklist item `status` is one of `complete`, `missing`, `warning`, or
+`action_needed`. `action_target` points the React app to the setup area that can
+fix or review the item: `pricing`, `boards`, `slides`, `hinges`, `suppliers`,
+`handles`, `extra-categories`, `extras`, or `projects`.
+
+The checklist is intentionally business-facing. For example, it explains that
+quote defaults live on quotes rather than asking the user to understand database
+tables.
+
 ## Catalog Libraries
 
 Each catalog library supports:
