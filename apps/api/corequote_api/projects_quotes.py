@@ -46,6 +46,7 @@ from corequote_api.projects_quotes_pricing import (
     _custom_panel_row_response,
     _price_quote,
 )
+from corequote_api.libraries import _coerce_effective_date, _coerce_effective_datetime
 
 
 PROJECT_SELECT = """
@@ -155,6 +156,10 @@ def _sum_bucket_totals(quote_summaries: list[dict[str, Any]]) -> list[dict[str, 
         }
         for name, values in sorted(totals.items())
     ]
+
+
+def _quote_pricing_as_of(quote: dict[str, Any]) -> datetime:
+    return _coerce_effective_datetime(quote.get("updated_at") or quote.get("created_at"))
 
 
 def _default_pricing_settings() -> dict[str, int]:
@@ -1349,8 +1354,9 @@ class WorkspaceStore:
         with self._connect() as conn:
             currency_code = self._get_company_currency_code(conn, company_id)
             quote_settings = self._get_quote_pricing_settings_response(conn, company_id, quote_id, quote)
-            active_price_list_id = self._get_active_price_list_id(conn, company_id)
-            price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id)
+            pricing_as_of = _quote_pricing_as_of(quote)
+            active_price_list_id = self._get_active_price_list_id(conn, company_id, pricing_as_of)
+            price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id, pricing_as_of)
             lookups = self._load_company_item_lookups(conn, company_id)
             try:
                 quote_extras = conn.execute(
@@ -1411,6 +1417,8 @@ class WorkspaceStore:
                     active_price_list_id=active_price_list_id,
                     pricing_settings=quote_settings,
                 )
+                pricing_summary["active_price_list_id"] = active_price_list_id
+                pricing_summary["pricing_as_of"] = pricing_as_of
             except WorkspaceValidationError as exc:
                 pricing_error = str(exc)
         else:
@@ -1433,6 +1441,7 @@ class WorkspaceStore:
             "currency_code": currency_code,
             "units": units,
             "active_price_list_id": active_price_list_id,
+            "pricing_as_of": pricing_as_of,
             "hardware_pick_list": hardware_pick_list,
             "cutting_list": cutting_list,
             "cutting_error": cutting_error,
@@ -1547,6 +1556,9 @@ class WorkspaceStore:
 
         units_by_quote: dict[str, list[dict]] = {quote_id: [] for quote_id in quote_ids}
         extras_by_quote: dict[str, list[dict]] = {quote_id: [] for quote_id in quote_ids}
+        quote_price_list_ids: dict[str, str | None] = {}
+        quote_price_lookups: dict[str, dict[tuple[str, str, str], dict]] = {}
+        quote_pricing_as_of: dict[str, datetime] = {}
 
         with self._connect() as conn:
             currency_code = self._get_company_currency_code(conn, company_id)
@@ -1558,7 +1570,12 @@ class WorkspaceStore:
                 project_pricing_settings,
             )
             active_price_list_id = self._get_active_price_list_id(conn, company_id)
-            price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id)
+            for quote in quotes:
+                pricing_as_of = _quote_pricing_as_of(quote)
+                quote_pricing_as_of[quote["id"]] = pricing_as_of
+                quote_price_list_id = self._get_active_price_list_id(conn, company_id, pricing_as_of)
+                quote_price_list_ids[quote["id"]] = quote_price_list_id
+                quote_price_lookups[quote["id"]] = self._get_price_lookup(conn, company_id, quote_price_list_id, pricing_as_of)
             lookups = self._load_company_item_lookups(conn, company_id)
 
             if quote_ids:
@@ -1593,6 +1610,7 @@ class WorkspaceStore:
         quote_summaries = []
         for quote in quotes:
             quote_settings = quote_pricing_settings[quote["id"]]
+            quote_price_list_id = quote_price_list_ids.get(quote["id"])
             summary = _price_quote(
                 quote=quote,
                 units=units_by_quote.get(quote["id"], []),
@@ -1600,15 +1618,17 @@ class WorkspaceStore:
                 runtime_service=runtime_service,
                 company_id=company_id,
                 use_rulesets=use_rulesets,
-                price_lookup=price_lookup,
+                price_lookup=quote_price_lookups.get(quote["id"], {}),
                 board_lookup=lookups["boards"],
                 slide_lookup=lookups["slides"],
                 hinge_lookup=lookups["hinges"],
                 handle_lookup=lookups["handles"],
                 extra_lookup=lookups["extras"],
-                active_price_list_id=active_price_list_id,
+                active_price_list_id=quote_price_list_id,
                 pricing_settings=quote_settings,
             )
+            summary["active_price_list_id"] = quote_price_list_id
+            summary["pricing_as_of"] = quote_pricing_as_of[quote["id"]]
             summary["vat_rate_bps"] = int(quote_settings["vat_rate_bps"])
             summary["markup_bps"] = int(quote_settings["default_markup_bps"])
             summary["pricing_settings"] = quote_settings
@@ -1635,7 +1655,10 @@ class WorkspaceStore:
             for quote_summary in quote_summaries
             for missing_price in quote_summary.get("missing_prices", []) or []
         ]
-        is_complete = bool(active_price_list_id) and all(bool(row["is_complete"]) for row in quote_summaries)
+        is_complete = bool(active_price_list_id) and all(
+            bool(row.get("active_price_list_id")) and bool(row["is_complete"])
+            for row in quote_summaries
+        )
 
         return {
             "project_id": project["id"],
@@ -1886,33 +1909,54 @@ class WorkspaceStore:
             (company_id, quote_id, *[settings[column] for column in PRICING_SETTINGS_COLUMNS]),
         ).fetchone()
 
-    def _get_active_price_list_id(self, conn, company_id: str) -> str | None:
+    def _get_active_price_list_id(self, conn, company_id: str, as_of: datetime | None = None) -> str | None:
+        as_of_date = _coerce_effective_date(as_of)
         row = conn.execute(
             """
             SELECT id::text
             FROM price_lists
             WHERE company_id = %s
               AND status = 'active'
+              AND (effective_from IS NULL OR effective_from <= %s)
+              AND (effective_to IS NULL OR effective_to >= %s)
             ORDER BY updated_at DESC, id DESC
             LIMIT 1
             """,
-            (company_id,),
+            (company_id, as_of_date, as_of_date),
         ).fetchone()
         return row["id"] if row else None
 
-    def _get_price_lookup(self, conn, company_id: str, price_list_id: str | None) -> dict[tuple[str, str, str], dict]:
+    def _get_price_lookup(
+        self,
+        conn,
+        company_id: str,
+        price_list_id: str | None,
+        as_of: datetime | None = None,
+    ) -> dict[tuple[str, str, str], dict]:
         if not price_list_id:
             return {}
+        as_of_dt = _coerce_effective_datetime(as_of)
         rows = conn.execute(
             """
-            SELECT item_type, item_key, price_component, uom, unit_price_cents
+            SELECT
+                item_type,
+                item_key,
+                price_component,
+                uom,
+                unit_price_cents,
+                id::text AS price_list_item_id,
+                source_supplier_item_cost_id::text,
+                cost_source,
+                effective_from,
+                effective_to
             FROM price_list_items
             WHERE company_id = %s
               AND price_list_id = %s
-              AND effective_to IS NULL
-            ORDER BY item_type ASC, item_key ASC, price_component ASC
+              AND effective_from <= %s
+              AND (effective_to IS NULL OR effective_to > %s)
+            ORDER BY item_type ASC, item_key ASC, price_component ASC, effective_from ASC
             """,
-            (company_id, price_list_id),
+            (company_id, price_list_id, as_of_dt, as_of_dt),
         ).fetchall()
         return {
             (str(row["item_type"]), str(row["item_key"]), str(row["price_component"])): row

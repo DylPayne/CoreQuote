@@ -274,6 +274,7 @@ export function LibrariesPage({
   const [generationMode, setGenerationMode] = useState<GeneratePriceListSummary['selection_mode']>('preferred_then_cheapest')
   const [generationItemTypes, setGenerationItemTypes] = useState<PriceItemType[]>(['slide', 'hinge'])
   const [preserveManualOverrides, setPreserveManualOverrides] = useState(true)
+  const [generationEffectiveFrom, setGenerationEffectiveFrom] = useState('')
   const [lastGenerationSummary, setLastGenerationSummary] = useState<GeneratePriceListSummary | null>(null)
   const [importResource, setImportResource] = useState<LibraryImportResource>('boards')
   const [importSourceFormat, setImportSourceFormat] = useState<LibraryImportSourceFormat>('csv')
@@ -346,8 +347,16 @@ export function LibrariesPage({
     return extras.map((item) => ({ id: item.id, label: formatExtraLabel(item) }))
   }, [boards, extras, handles, hinges, itemSupplierDraft.item_type, slides])
 
-  const activePriceRows = useMemo(
-    () => priceItems.filter((item) => item.effective_to === null),
+  const currentPriceRows = useMemo(
+    () => priceItems.filter((item) => item.is_current),
+    [priceItems],
+  )
+  const futurePriceRows = useMemo(
+    () => priceItems.filter((item) => item.effective_status === 'future'),
+    [priceItems],
+  )
+  const retiredPriceRows = useMemo(
+    () => priceItems.filter((item) => item.effective_status === 'retired'),
     [priceItems],
   )
 
@@ -480,7 +489,7 @@ export function LibrariesPage({
       setPricingError(null)
 
       try {
-        const rows = await apiRequest<PriceListItemRow[]>(`/api/v1/libraries/price-lists/${priceListId}/items`, {
+        const rows = await apiRequest<PriceListItemRow[]>(`/api/v1/libraries/price-lists/${priceListId}/items?include_history=true`, {
           token: authToken,
         })
         setPriceItems(rows)
@@ -572,7 +581,7 @@ export function LibrariesPage({
   const lookupPriceCents = useCallback(
     (itemType: PriceItemType, itemRefId: string, priceComponent: string) => {
       const canonicalKey = `${itemType}::${itemRefId}`
-      const row = activePriceRows.find(
+      const row = currentPriceRows.find(
         (item) =>
           item.item_type === itemType &&
           item.price_component === priceComponent &&
@@ -580,7 +589,7 @@ export function LibrariesPage({
       )
       return row?.unit_price_cents ?? 0
     },
-    [activePriceRows],
+    [currentPriceRows],
   )
 
   useEffect(() => {
@@ -814,6 +823,9 @@ export function LibrariesPage({
 
   async function handleSelectPriceList(nextPriceListId: string) {
     setSelectedPriceListId(nextPriceListId)
+    if (importResource === 'price_list_items') {
+      clearImportResults()
+    }
     if (nextPriceListId) {
       await refreshPriceItems(nextPriceListId)
     } else {
@@ -1245,6 +1257,7 @@ export function LibrariesPage({
             selection_mode: generationMode,
             item_types: generationItemTypes,
             preserve_manual_overrides: preserveManualOverrides,
+            effective_from: generationEffectiveFrom ? new Date(generationEffectiveFrom).toISOString() : null,
           },
           method: 'POST',
           token: authToken,
@@ -1901,6 +1914,14 @@ export function LibrariesPage({
                       <option value="cheapest">cheapest active</option>
                     </Select>
                   </Label>
+                  <Label className="grid gap-1.5">
+                    Effective from
+                    <Input
+                      type="datetime-local"
+                      value={generationEffectiveFrom}
+                      onChange={(event) => setGenerationEffectiveFrom(event.target.value)}
+                    />
+                  </Label>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {generationTypeOptions.map((option) => (
                       <Label className="flex items-center gap-2 text-sm font-normal" key={option.value}>
@@ -2014,9 +2035,14 @@ export function LibrariesPage({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Current Active Prices</CardTitle>
+              <CardTitle className="text-base">Price History</CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Badge variant="default">{currentPriceRows.length} current</Badge>
+                <Badge variant="outline">{futurePriceRows.length} future</Badge>
+                <Badge variant="warning">{retiredPriceRows.length} retired</Badge>
+              </div>
               <TableContainer>
                 <Table>
                   <TableHeader>
@@ -2026,13 +2052,15 @@ export function LibrariesPage({
                       <TableHead>Component</TableHead>
                       <TableHead>UOM</TableHead>
                       <TableHead>Source</TableHead>
+                      <TableHead>Effective</TableHead>
+                      <TableHead>Retires</TableHead>
                       <TableHead>Price</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {activePriceRows.length === 0 ? (
+                    {priceItems.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6}>
+                        <TableCell colSpan={8}>
                           <div className="grid gap-1 py-3">
                             <p className="font-medium">Build prices for the active list.</p>
                             <p className="text-sm leading-5 text-muted-foreground">
@@ -2042,7 +2070,7 @@ export function LibrariesPage({
                         </TableCell>
                       </TableRow>
                     ) : (
-                      activePriceRows.map((row) => (
+                      priceItems.map((row) => (
                         <TableRow key={row.id}>
                           <TableCell>{row.item_type}</TableCell>
                           <TableCell>
@@ -2054,6 +2082,17 @@ export function LibrariesPage({
                           <TableCell>{row.uom}</TableCell>
                           <TableCell>
                             <Badge variant={row.cost_source === 'supplier' ? 'default' : 'outline'}>{row.cost_source}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="grid gap-1 text-xs">
+                              <Badge variant={row.effective_status === 'current' ? 'success' : row.effective_status === 'retired' ? 'warning' : 'outline'}>
+                                {row.effective_status}
+                              </Badge>
+                              <span className="text-muted-foreground">{formatDateTime(row.effective_from)}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {row.effective_to ? formatDateTime(row.effective_to) : 'open'}
                           </TableCell>
                           <TableCell>{formatCurrencyFromCents(row.unit_price_cents, displayCurrencyCode)}</TableCell>
                         </TableRow>

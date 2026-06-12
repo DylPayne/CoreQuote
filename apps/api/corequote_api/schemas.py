@@ -38,6 +38,7 @@ LibraryImportSourceFormat = Literal["csv", "tsv", "xlsx"]
 LibraryImportRowStatus = Literal["create", "update", "skipped", "duplicate", "blocked"]
 LibraryImportApplyRowStatus = Literal["created", "updated", "skipped", "failed"]
 LibraryImportProblemSeverity = Literal["error", "warning"]
+LibraryEffectiveStatus = Literal["current", "future", "retired"]
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
@@ -865,6 +866,8 @@ class QuotePricingSummaryResponse(BaseModel):
     previous_revision_revision: int | None = Field(default=None, ge=1)
     vat_rate_bps: int = Field(ge=0)
     markup_bps: int = Field(ge=0)
+    active_price_list_id: str | None = None
+    pricing_as_of: datetime | None = None
     pricing_settings: QuotePricingSettingsResponse
     is_complete: bool
     missing_items: list[str] = Field(default_factory=list)
@@ -1226,6 +1229,8 @@ class PriceListItemResponse(PriceListItemRequest):
     effective_to: datetime | None
     replaces_id: str | None = None
     is_active: bool
+    is_current: bool
+    effective_status: LibraryEffectiveStatus
     created_at: datetime
     updated_at: datetime
 
@@ -1284,6 +1289,8 @@ class SupplierItemCostResponse(SupplierItemCostRequest):
     effective_to: datetime | None
     replaces_id: str | None = None
     is_active: bool
+    is_current: bool
+    effective_status: LibraryEffectiveStatus
     created_at: datetime
     updated_at: datetime
 
@@ -1294,6 +1301,10 @@ class GeneratePriceListFromSupplierCostsRequest(BaseModel):
     selection_mode: Literal["preferred_then_cheapest", "preferred_only", "cheapest"] = "preferred_then_cheapest"
     item_types: list[Literal["board", "slide", "hinge", "handle", "extra"]] = Field(default_factory=list)
     preserve_manual_overrides: bool = True
+    effective_from: datetime | None = Field(
+        default=None,
+        description="Optional UTC timestamp for when refreshed price rows become current. Defaults to now.",
+    )
 
 
 class GeneratePriceListFromSupplierCostsResponse(BaseModel):

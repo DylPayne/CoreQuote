@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from corequote_api.auth import AuthenticatedUser
 from corequote_api.main import app
-from corequote_api.projects_quotes import WorkspaceNotFound, WorkspaceValidationError
+from corequote_api.projects_quotes import WorkspaceNotFound, WorkspaceStore, WorkspaceValidationError, _quote_pricing_as_of
 from corequote_api.routers import auth, projects_quotes
 
 
@@ -1506,6 +1506,71 @@ def test_quote_pricing_settings_partial_patch_only_sends_changed_fields():
 
     assert response.status_code == 200
     assert store.updated_quote_pricing_settings_payload == ("company-1", "quote-1", {"delivery_base_cents": 125000})
+
+
+class RecordingPricingConn:
+    def __init__(self):
+        self.calls: list[tuple[str, tuple]] = []
+
+    def execute(self, sql: str, params: tuple):
+        self.calls.append((sql, params))
+        return self
+
+    def fetchone(self):
+        return {"id": "price-list-1"}
+
+    def fetchall(self):
+        return [
+            {
+                "item_type": "handle",
+                "item_key": "handle::handle-1",
+                "price_component": "unit",
+                "uom": "pcs",
+                "unit_price_cents": 12000,
+                "price_list_item_id": "price-item-1",
+                "source_supplier_item_cost_id": None,
+                "cost_source": "manual",
+                "effective_from": datetime(2026, 5, 1, tzinfo=UTC),
+                "effective_to": None,
+            }
+        ]
+
+
+def test_quote_pricing_as_of_prefers_quote_updated_at():
+    created_at = datetime(2026, 5, 1, 9, 0, tzinfo=UTC)
+    updated_at = datetime(2026, 6, 1, 10, 30, tzinfo=UTC)
+
+    assert _quote_pricing_as_of({"created_at": created_at, "updated_at": updated_at}) == updated_at
+
+
+def test_workspace_price_lookup_respects_effective_date_and_company_scope():
+    store = WorkspaceStore(database_url="postgresql://unused")
+    conn = RecordingPricingConn()
+    as_of = datetime(2026, 6, 12, 8, 0, tzinfo=UTC)
+
+    lookup = store._get_price_lookup(conn, "company-1", "price-list-1", as_of)
+
+    sql, params = conn.calls[0]
+    assert "company_id = %s" in sql
+    assert "effective_from <= %s" in sql
+    assert "(effective_to IS NULL OR effective_to > %s)" in sql
+    assert params == ("company-1", "price-list-1", as_of, as_of)
+    assert lookup[("handle", "handle::handle-1", "unit")]["unit_price_cents"] == 12000
+
+
+def test_workspace_active_price_list_respects_effective_date_and_company_scope():
+    store = WorkspaceStore(database_url="postgresql://unused")
+    conn = RecordingPricingConn()
+    as_of = datetime(2026, 6, 12, 8, 0, tzinfo=UTC)
+
+    assert store._get_active_price_list_id(conn, "company-1", as_of) == "price-list-1"
+
+    sql, params = conn.calls[0]
+    assert "company_id = %s" in sql
+    assert "status = 'active'" in sql
+    assert "(effective_from IS NULL OR effective_from <= %s)" in sql
+    assert "(effective_to IS NULL OR effective_to >= %s)" in sql
+    assert params == ("company-1", as_of.date(), as_of.date())
 
 
 def project(item_id: str, *, name: str = "Main Kitchen", quote_count: int = 0) -> dict:

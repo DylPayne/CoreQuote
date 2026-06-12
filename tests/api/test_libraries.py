@@ -17,6 +17,7 @@ from corequote_api.libraries import (
     LibraryValidationError,
     _build_setup_checklist,
     _calculate_discounted_cost_cents,
+    _effective_status,
 )
 from corequote_api.main import app
 from corequote_api.routers import auth, libraries
@@ -55,8 +56,10 @@ class FakeLibraryStore:
         self.price_item_payload: tuple[str, dict] | None = None
         self.item_supplier_payload: dict | None = None
         self.supplier_cost_payload: tuple[str, dict] | None = None
+        self.supplier_cost_list_payload: tuple[str, str, bool, datetime | None] | None = None
         self.supplier_discount_payload: tuple[str, dict] | None = None
         self.generation_payload: tuple[str, dict] | None = None
+        self.price_item_list_payload: tuple[str, str, bool, datetime | None] | None = None
         self.setup_checklist_company_id: str | None = None
         self.import_preview_company_id: str | None = None
         self.import_preview_payload: dict | None = None
@@ -304,10 +307,18 @@ class FakeLibraryStore:
     def delete_item_supplier(self, company_id: str, item_supplier_id: str):
         self.deleted.append(("item-suppliers", item_supplier_id))
 
-    def list_supplier_item_costs(self, company_id: str, item_supplier_id: str, include_history: bool = False):
+    def list_supplier_item_costs(
+        self,
+        company_id: str,
+        item_supplier_id: str,
+        include_history: bool = False,
+        as_of: datetime | None = None,
+    ):
+        self.supplier_cost_list_payload = (company_id, item_supplier_id, include_history, as_of)
         rows = [supplier_cost("supplier-cost-1", item_supplier_id)]
         if include_history:
             rows.append(supplier_cost("supplier-cost-old", item_supplier_id, effective_to=NOW))
+            rows.append(supplier_cost("supplier-cost-future", item_supplier_id, effective_from=datetime(2026, 6, 30, 8, 0, tzinfo=UTC)))
         return rows
 
     def create_supplier_item_cost(self, company_id: str, item_supplier_id: str, payload: dict):
@@ -342,7 +353,7 @@ class FakeLibraryStore:
     def list_price_lists(self, company_id: str):
         return [price_list("price-list-1")]
 
-    def get_active_price_list(self, company_id: str):
+    def get_active_price_list(self, company_id: str, as_of: datetime | None = None):
         self.active_price_list_requested = True
         return price_list("price-list-1")
 
@@ -373,10 +384,18 @@ class FakeLibraryStore:
             "missing_price_count": 0,
         }
 
-    def list_price_list_items(self, company_id: str, price_list_id: str, include_history: bool = False):
+    def list_price_list_items(
+        self,
+        company_id: str,
+        price_list_id: str,
+        include_history: bool = False,
+        as_of: datetime | None = None,
+    ):
+        self.price_item_list_payload = (company_id, price_list_id, include_history, as_of)
         rows = [price_item("price-item-1", price_list_id)]
         if include_history:
             rows.append(price_item("price-item-old", price_list_id, effective_to=NOW))
+            rows.append(price_item("price-item-future", price_list_id, effective_from=datetime(2026, 6, 30, 8, 0, tzinfo=UTC)))
         return rows
 
     def create_price_list_item(self, company_id: str, price_list_id: str, payload: dict):
@@ -549,10 +568,12 @@ def price_item(
     uom: str = "pairs",
     unit_price_cents: int = 12500,
     effective_to: datetime | None = None,
+    effective_from: datetime | None = None,
     replaces_id: str | None = None,
     source_supplier_item_cost_id: str | None = None,
     cost_source: str = "manual",
 ) -> dict:
+    effective_from = effective_from or NOW
     return {
         "id": item_id,
         "price_list_id": price_list_id,
@@ -564,10 +585,12 @@ def price_item(
         "unit_price_cents": unit_price_cents,
         "source_supplier_item_cost_id": source_supplier_item_cost_id,
         "cost_source": cost_source,
-        "effective_from": NOW,
+        "effective_from": effective_from,
         "effective_to": effective_to,
         "replaces_id": replaces_id,
         "is_active": effective_to is None,
+        "is_current": _effective_status(effective_from, effective_to, NOW) == "current",
+        "effective_status": _effective_status(effective_from, effective_to, NOW),
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -621,6 +644,8 @@ def supplier_cost(
     effective_from: datetime | None = None,
     effective_to: datetime | None = None,
 ) -> dict:
+    effective_from = effective_from or NOW
+    effective_status = _effective_status(effective_from, effective_to, NOW)
     return {
         "id": item_id,
         "item_supplier_id": item_supplier_id,
@@ -630,10 +655,12 @@ def supplier_cost(
         "currency_code": currency_code,
         "source": source,
         "source_ref": source_ref,
-        "effective_from": effective_from or NOW,
+        "effective_from": effective_from,
         "effective_to": effective_to,
         "replaces_id": None,
         "is_active": effective_to is None,
+        "is_current": effective_status == "current",
+        "effective_status": effective_status,
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -1132,7 +1159,7 @@ def test_supplier_item_cost_create_upsert_and_history():
     try:
         list_response = client.get("/api/v1/libraries/item-suppliers/item-supplier-1/costs", headers=auth_header())
         history_response = client.get(
-            "/api/v1/libraries/item-suppliers/item-supplier-1/costs?include_history=true",
+            "/api/v1/libraries/item-suppliers/item-supplier-1/costs?include_history=true&as_of=2026-06-12T12:00:00Z",
             headers=auth_header(),
         )
         create_response = client.post(
@@ -1154,12 +1181,19 @@ def test_supplier_item_cost_create_upsert_and_history():
 
     assert list_response.status_code == 200
     assert [row["is_active"] for row in list_response.json()] == [True]
-    assert len(history_response.json()) == 2
+    assert [row["effective_status"] for row in history_response.json()] == ["current", "retired", "future"]
+    assert [row["is_current"] for row in history_response.json()] == [True, False, False]
     assert create_response.status_code == 201
     assert create_response.json()["source_ref"] == "DRAWSLIDES!A19:D19"
     assert upsert_response.status_code == 200
     assert upsert_response.json()["unit_cost_cents"] == 48000
     assert get_response.status_code == 200
+    assert store.supplier_cost_list_payload == (
+        "company-1",
+        "item-supplier-1",
+        True,
+        datetime(2026, 6, 12, 12, 0, tzinfo=UTC),
+    )
     assert store.supplier_cost_payload == ("item-supplier-1", {**payload, "unit_cost_cents": 48000, "effective_from": None})
 
 
@@ -1211,6 +1245,13 @@ def test_calculate_discounted_supplier_cost_rounds_to_cents():
     assert _calculate_discounted_cost_cents(68498, 10000) == 0
 
 
+def test_effective_status_distinguishes_current_future_and_retired_prices():
+    assert _effective_status(datetime(2026, 5, 1, tzinfo=UTC), None, NOW) == "current"
+    assert _effective_status(datetime(2026, 6, 30, tzinfo=UTC), None, NOW) == "future"
+    assert _effective_status(datetime(2026, 5, 1, tzinfo=UTC), datetime(2026, 5, 20, tzinfo=UTC), NOW) == "retired"
+    assert _effective_status(datetime(2026, 5, 1, tzinfo=UTC), datetime(2026, 6, 30, tzinfo=UTC), NOW) == "current"
+
+
 def test_generate_price_list_from_supplier_costs():
     store = FakeLibraryStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
@@ -1232,7 +1273,38 @@ def test_generate_price_list_from_supplier_costs():
     assert response.status_code == 200
     assert response.json()["created_count"] == 1
     assert response.json()["updated_count"] == 1
-    assert store.generation_payload == ("price-list-1", payload)
+    assert store.generation_payload == ("price-list-1", {**payload, "effective_from": None})
+
+
+def test_generate_price_list_from_supplier_costs_accepts_refresh_effective_date():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "selection_mode": "preferred_only",
+        "item_types": ["slide"],
+        "preserve_manual_overrides": True,
+        "effective_from": "2026-07-01T08:00:00Z",
+    }
+    try:
+        response = client.post(
+            "/api/v1/libraries/price-lists/price-list-1/generate-from-supplier-costs",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.generation_payload == (
+        "price-list-1",
+        {
+            "selection_mode": "preferred_only",
+            "item_types": ["slide"],
+            "preserve_manual_overrides": True,
+            "effective_from": datetime(2026, 7, 1, 8, 0, tzinfo=UTC),
+        },
+    )
 
 
 def test_get_active_price_list():
@@ -1322,7 +1394,7 @@ def test_price_list_item_crud():
     try:
         list_response = client.get("/api/v1/libraries/price-lists/price-list-1/items", headers=auth_header())
         history_response = client.get(
-            "/api/v1/libraries/price-lists/price-list-1/items?include_history=true",
+            "/api/v1/libraries/price-lists/price-list-1/items?include_history=true&as_of=2026-06-12T12:00:00Z",
             headers=auth_header(),
         )
         create_response = client.post(
@@ -1346,7 +1418,8 @@ def test_price_list_item_crud():
 
     assert list_response.status_code == 200
     assert [row["is_active"] for row in list_response.json()] == [True]
-    assert len(history_response.json()) == 2
+    assert [row["effective_status"] for row in history_response.json()] == ["current", "retired", "future"]
+    assert [row["is_current"] for row in history_response.json()] == [True, False, False]
     assert create_response.status_code == 201
     assert get_response.status_code == 200
     assert patch_response.status_code == 200
@@ -1354,7 +1427,14 @@ def test_price_list_item_crud():
     assert patch_response.json()["id"] != item_id
     assert patch_response.json()["replaces_id"] == item_id
     assert patch_response.json()["is_active"] is True
+    assert patch_response.json()["effective_status"] == "current"
     assert delete_response.status_code == 204
+    assert store.price_item_list_payload == (
+        "company-1",
+        "price-list-1",
+        True,
+        datetime(2026, 6, 12, 12, 0, tzinfo=UTC),
+    )
     assert store.price_item_deleted == ("company-1", "price-list-1", item_id)
 
 

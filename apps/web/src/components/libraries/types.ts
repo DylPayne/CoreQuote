@@ -11,6 +11,7 @@ export type LibraryTab =
   | 'extras'
 
 export type PriceItemType = 'board' | 'slide' | 'hinge' | 'handle' | 'extra'
+export type LibraryEffectiveStatus = 'current' | 'future' | 'retired'
 export type LibrarySetupStatus = 'ready' | 'needs_attention'
 export type LibrarySetupItemStatus = 'complete' | 'missing' | 'warning' | 'action_needed'
 export type LibrarySetupActionTarget = LibraryTab | 'projects'
@@ -233,6 +234,8 @@ export type PriceListItemRow = {
   effective_to: string | null
   replaces_id: string | null
   is_active: boolean
+  is_current: boolean
+  effective_status: LibraryEffectiveStatus
   created_at: string
   updated_at: string
 }

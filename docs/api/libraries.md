@@ -384,10 +384,10 @@ Response:
 }
 ```
 
-When `apply_to_active_costs` is `true`, existing active supplier costs are
-versioned. The old active cost receives `effective_to`, and the replacement cost
-keeps the same list price and currency while recalculating `unit_cost_cents`
-from the new discount.
+When `apply_to_active_costs` is `true`, existing supplier costs current at
+`effective_from` are versioned. The old current cost receives `effective_to`,
+and the replacement cost keeps the same list price and currency while
+recalculating `unit_cost_cents` from the new discount.
 
 ### Handles
 
@@ -478,7 +478,7 @@ Supplier item costs are versioned buying costs. They do not directly change
 quote totals until they are generated into price-list items.
 
 ```http
-GET  /api/v1/libraries/item-suppliers/{item_supplier_id}/costs?include_history=false
+GET  /api/v1/libraries/item-suppliers/{item_supplier_id}/costs?include_history=false&as_of=2026-06-12T08:00:00Z
 POST /api/v1/libraries/item-suppliers/{item_supplier_id}/costs
 POST /api/v1/libraries/item-suppliers/{item_supplier_id}/costs/upsert
 GET  /api/v1/libraries/item-suppliers/{item_supplier_id}/costs/{cost_id}
@@ -500,6 +500,24 @@ Payload:
 
 `discount_bps` is stored in basis points. `3000` means 30.00%. `unit_cost_cents`
 is the net cost used when generating a price list row.
+
+By default, list endpoints return supplier costs current at `now()`, where
+`effective_from <= as_of` and `effective_to` is either null or later than
+`as_of`. Pass `as_of` to inspect the cost that was or will be current at a
+specific timestamp. Pass `include_history=true` to include current, future, and
+retired costs. Responses include:
+
+```json
+{
+  "is_active": true,
+  "is_current": true,
+  "effective_status": "current"
+}
+```
+
+`is_active` means the row has no scheduled end (`effective_to` is null).
+`is_current` means the row applies at the requested `as_of` timestamp.
+`effective_status` is `current`, `future`, or `retired`.
 
 ### Pricing Settings
 
@@ -578,12 +596,16 @@ Payload:
 
 `status` is `draft`, `active`, or `archived`.
 
-Only one price list may be `active` per company. Use `GET /api/v1/libraries/price-lists/active` when quoting screens need the currently active list.
+Only one price list may be `active` per company. Use
+`GET /api/v1/libraries/price-lists/active` when quoting screens need the
+currently active list. Add `as_of=2026-06-12T08:00:00Z` to resolve the active
+list for a quote or audit timestamp; `effective_from` and `effective_to` are
+checked alongside `status`.
 
 ### Price List Items
 
 ```http
-GET    /api/v1/libraries/price-lists/{price_list_id}/items?include_history=false
+GET    /api/v1/libraries/price-lists/{price_list_id}/items?include_history=false&as_of=2026-06-12T08:00:00Z
 POST   /api/v1/libraries/price-lists/{price_list_id}/items
 POST   /api/v1/libraries/price-lists/{price_list_id}/items/upsert
 GET    /api/v1/libraries/price-lists/{price_list_id}/items/{item_id}
@@ -619,9 +641,14 @@ At least one of `item_ref_id` or `item_key` is required.
 - `unit` for slides, hinges, handles, and extras.
 - `sheet`, `sqm`, `edging_m`, and `labour_board` for boards.
 
-By default, list endpoints return only active prices, where `effective_to` is `null`. Pass `include_history=true` to include replaced or retired prices.
+By default, list endpoints return only prices current at `now()`, where
+`effective_from <= as_of` and `effective_to` is either null or later than
+`as_of`. Pass `as_of` to inspect another timestamp. Pass
+`include_history=true` to include current, future, and retired prices.
 
-Updating a price item does not overwrite the old price. The API closes the old row by setting `effective_to`, inserts a new active row, and returns the new row. The response includes:
+Updating a price item does not overwrite the old price. The API closes the row
+current at the replacement timestamp by setting `effective_to`, inserts a new
+row, and returns the replacement. The response includes:
 
 ```json
 {
@@ -629,11 +656,18 @@ Updating a price item does not overwrite the old price. The API closes the old r
   "replaces_id": "old-price-row-uuid",
   "effective_from": "2026-05-28T12:00:00Z",
   "effective_to": null,
-  "is_active": true
+  "is_active": true,
+  "is_current": true,
+  "effective_status": "current"
 }
 ```
 
-Deleting a price item retires the active row by setting `effective_to`; it does not remove historical pricing.
+`is_active` means the row has no scheduled end (`effective_to` is null).
+`is_current` means the row applies at the requested `as_of` timestamp.
+`effective_status` is `current`, `future`, or `retired`.
+
+Deleting a price item retires the current or future row by setting
+`effective_to`; it does not remove historical pricing.
 
 ### Generate Price List From Supplier Costs
 
@@ -647,12 +681,15 @@ Payload:
 {
   "selection_mode": "preferred_then_cheapest",
   "item_types": ["slide", "hinge"],
-  "preserve_manual_overrides": true
+  "preserve_manual_overrides": true,
+  "effective_from": null
 }
 ```
 
-`selection_mode` controls which active supplier cost is copied into the price
-list when multiple supplier costs exist for one item:
+`effective_from` is the timestamp when generated price rows become current. If
+omitted or null, the refresh applies immediately. `selection_mode` controls
+which supplier cost current at `effective_from` is copied into the price list
+when multiple supplier costs exist for one item:
 
 - `preferred_then_cheapest`: use a preferred supplier cost if present, otherwise the cheapest active cost.
 - `preferred_only`: generate only items with a preferred supplier cost.
@@ -665,7 +702,8 @@ Generated rows use:
 - `cost_source` set to `supplier`;
 - `unit_price_cents` copied from the supplier cost `unit_cost_cents`.
 
-When `preserve_manual_overrides` is true, existing active rows whose
+When `preserve_manual_overrides` is true, existing rows current at
+`effective_from` whose
 `cost_source` is not `supplier` are left unchanged.
 
 Response:
@@ -687,8 +725,8 @@ Response:
 
 Use `POST /api/v1/libraries/price-lists/{price_list_id}/items/upsert` when the UI should save a price without checking first whether an active row already exists.
 
-- If an active row exists for the same `(item_type, item_key, price_component)`, the API versions it and returns the replacement row.
-- If no active row exists, the API creates a new row.
+- If a row current at `effective_from` exists for the same `(item_type, item_key, price_component)`, the API versions it and returns the replacement row.
+- If no current row exists, the API creates a new row.
 
 ## Response Shape
 
