@@ -198,7 +198,11 @@ function App() {
             onOpenLibraries={() => setCurrentPage('libraries')}
           />
         ) : currentPage === 'libraries' ? (
-          <LibrariesPage authToken={authToken} currencyCode={user.company_currency_code} />
+          <LibrariesPage
+            authToken={authToken}
+            currencyCode={user.company_currency_code}
+            onOpenProjects={() => setCurrentPage('projects')}
+          />
         ) : currentPage === 'cutlist' ? (
           <CuttingRulesetsPage authToken={authToken} companyId={user.company_id} />
         ) : currentPage === 'cutlist-tester' ? (

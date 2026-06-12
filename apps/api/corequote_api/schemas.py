@@ -10,6 +10,19 @@ from corequote_api.authorization import Role
 
 
 UnitType = str
+LibrarySetupStatus = Literal["ready", "needs_attention"]
+LibrarySetupItemStatus = Literal["complete", "missing", "warning", "action_needed"]
+LibrarySetupActionTarget = Literal[
+    "pricing",
+    "boards",
+    "slides",
+    "hinges",
+    "suppliers",
+    "handles",
+    "extra-categories",
+    "extras",
+    "projects",
+]
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
@@ -654,6 +667,25 @@ class MissingPriceResponse(BaseModel):
     library_area: str = "pricing"
     action_label: str
     message: str
+
+
+class LibrarySetupChecklistItemResponse(BaseModel):
+    id: str
+    label: str
+    status: LibrarySetupItemStatus
+    count: int = Field(default=0, ge=0)
+    message: str
+    action_label: str
+    action_target: LibrarySetupActionTarget
+
+
+class LibrarySetupChecklistResponse(BaseModel):
+    status: LibrarySetupStatus
+    summary_title: str
+    summary_message: str
+    complete_count: int = Field(ge=0)
+    total_count: int = Field(ge=0)
+    items: list[LibrarySetupChecklistItemResponse] = Field(default_factory=list)
 
 
 class PricingSettingsFields(BaseModel):

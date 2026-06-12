@@ -28,6 +28,7 @@ from corequote_api.schemas import (
     PriceListResponse,
     PricingSettingsRequest,
     PricingSettingsResponse,
+    LibrarySetupChecklistResponse,
     SlideRequest,
     SlideResponse,
     SupplierItemCostRequest,
@@ -51,6 +52,11 @@ CatalogWriter = Annotated[AuthUserResponse, Depends(require_permission("catalog:
 PricingReader = Annotated[AuthUserResponse, Depends(require_permission("pricing:read"))]
 PricingWriter = Annotated[AuthUserResponse, Depends(require_permission("pricing:update"))]
 StoreDep = Annotated[LibraryStore, Depends(get_library_store)]
+
+
+@router.get("/setup-checklist", response_model=LibrarySetupChecklistResponse, summary="Get library setup checklist")
+def get_setup_checklist(current_user: PricingReader, store: StoreDep) -> LibrarySetupChecklistResponse:
+    return LibrarySetupChecklistResponse.model_validate(store.get_setup_checklist(current_user.company_id))
 
 
 @router.get("/boards", response_model=list[BoardTypeResponse], summary="List board types")

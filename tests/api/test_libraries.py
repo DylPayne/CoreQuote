@@ -6,7 +6,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from corequote_api.auth import AuthenticatedUser
-from corequote_api.libraries import LibraryConflict, LibraryNotFound, LibraryValidationError, _calculate_discounted_cost_cents
+from corequote_api.libraries import (
+    LibraryConflict,
+    LibraryNotFound,
+    LibraryValidationError,
+    _build_setup_checklist,
+    _calculate_discounted_cost_cents,
+)
 from corequote_api.main import app
 from corequote_api.routers import auth, libraries
 
@@ -46,9 +52,32 @@ class FakeLibraryStore:
         self.supplier_cost_payload: tuple[str, dict] | None = None
         self.supplier_discount_payload: tuple[str, dict] | None = None
         self.generation_payload: tuple[str, dict] | None = None
+        self.setup_checklist_company_id: str | None = None
 
     def list_boards(self, company_id: str):
         return [board("board-1")]
+
+    def get_setup_checklist(self, company_id: str):
+        self.setup_checklist_company_id = company_id
+        return _build_setup_checklist(
+            {
+                "board_count": 3,
+                "slide_count": 1,
+                "hinge_count": 1,
+                "handle_count": 4,
+                "extra_category_count": 1,
+                "extra_count": 1,
+                "supplier_count": 1,
+                "active_supplier_cost_count": 1,
+                "active_price_list_count": 1,
+                "active_price_count": 5,
+                "pricing_settings_count": 1,
+                "vat_rate_bps": 1500,
+                "default_markup_bps": 2500,
+                "quote_count": 1,
+                "quote_with_defaults_count": 1,
+            }
+        )
 
     def create_board(self, company_id: str, payload: dict):
         self.created_payload = ("boards", payload)
@@ -585,6 +614,76 @@ CATALOG_CASES = [
         "LED Strip",
     ),
 ]
+
+
+def test_setup_checklist_flags_blank_company_gaps():
+    checklist = _build_setup_checklist({})
+
+    statuses = {item["id"]: item["status"] for item in checklist["items"]}
+    assert checklist["status"] == "needs_attention"
+    assert checklist["complete_count"] == 0
+    assert statuses["boards"] == "missing"
+    assert statuses["slides"] == "missing"
+    assert statuses["hinges"] == "missing"
+    assert statuses["handles"] == "missing"
+    assert statuses["extras"] == "missing"
+    assert statuses["supplier-costs"] == "missing"
+    assert statuses["active-price-list"] == "missing"
+    assert statuses["pricing-settings"] == "warning"
+    assert statuses["quote-defaults"] == "action_needed"
+
+
+def test_setup_checklist_is_ready_for_phase_4_fixture_shape():
+    checklist = _build_setup_checklist(
+        {
+            "board_count": 3,
+            "slide_count": 1,
+            "hinge_count": 1,
+            "handle_count": 4,
+            "extra_category_count": 1,
+            "extra_count": 1,
+            "supplier_count": 1,
+            "active_supplier_cost_count": 7,
+            "active_price_list_count": 1,
+            "active_price_count": 9,
+            "pricing_settings_count": 1,
+            "vat_rate_bps": 1500,
+            "default_markup_bps": 3000,
+            "quote_count": 1,
+            "quote_with_defaults_count": 1,
+        }
+    )
+
+    assert checklist["status"] == "ready"
+    assert checklist["complete_count"] == checklist["total_count"]
+    assert {item["status"] for item in checklist["items"]} == {"complete"}
+
+
+def test_setup_checklist_endpoint_uses_pricing_read_and_company_scope():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.get("/api/v1/libraries/setup-checklist", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert store.setup_checklist_company_id == "company-1"
+
+
+def test_setup_checklist_endpoint_requires_pricing_read_permission():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.get("/api/v1/libraries/setup-checklist", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:read"}
 
 
 @pytest.mark.parametrize(("resource", "payload", "field", "value"), CATALOG_CASES)

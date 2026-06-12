@@ -1,5 +1,11 @@
 import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
   CircleDollarSign,
+  ClipboardCheck,
+  CircleDashed,
+  ExternalLink,
   LoaderCircle,
   Percent,
   Plus,
@@ -34,7 +40,7 @@ import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, Li
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -81,9 +87,36 @@ function _itemExistsForType(
   return rows.extras.some((item) => item.id === itemId)
 }
 
-export function LibrariesPage({ authToken, currencyCode }: { authToken: string; currencyCode: string }) {
+function setupStatusLabel(status: LibrarySetupItemStatus) {
+  return status.replace('_', ' ')
+}
+
+function setupStatusBadgeVariant(status: LibrarySetupItemStatus) {
+  if (status === 'complete') return 'success' as const
+  if (status === 'missing' || status === 'warning' || status === 'action_needed') return 'warning' as const
+  return 'outline' as const
+}
+
+function SetupStatusIcon({ status }: { status: LibrarySetupItemStatus }) {
+  if (status === 'complete') return <CheckCircle2 className="h-4 w-4 text-[var(--status-success-foreground)]" aria-hidden="true" />
+  if (status === 'warning' || status === 'action_needed') {
+    return <AlertTriangle className="h-4 w-4 text-[var(--status-warning-foreground)]" aria-hidden="true" />
+  }
+  return <CircleDashed className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+}
+
+export function LibrariesPage({
+  authToken,
+  currencyCode,
+  onOpenProjects,
+}: {
+  authToken: string
+  currencyCode: string
+  onOpenProjects: () => void
+}) {
   const [activeTab, setActiveTab] = useState<LibraryTab>('pricing')
 
+  const [setupChecklist, setSetupChecklist] = useState<LibrarySetupChecklist | null>(null)
   const [boards, setBoards] = useState<BoardTypeRow[]>([])
   const [slides, setSlides] = useState<SlideRow[]>([])
   const [hinges, setHinges] = useState<HingeRow[]>([])
@@ -100,9 +133,11 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
 
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(true)
   const [isLoadingPricing, setIsLoadingPricing] = useState(true)
+  const [isLoadingChecklist, setIsLoadingChecklist] = useState(true)
   const [isLoadingPriceItems, setIsLoadingPriceItems] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
+  const [checklistError, setChecklistError] = useState<string | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [pricingError, setPricingError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -218,6 +253,21 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     for (const row of extras) labels.set(`extra:${row.id}`, formatExtraLabel(row))
     return labels
   }, [boards, extras, handles, hinges, slides])
+
+  const refreshSetupChecklist = useCallback(async () => {
+    setIsLoadingChecklist(true)
+    setChecklistError(null)
+
+    try {
+      const checklist = await apiRequest<LibrarySetupChecklist>('/api/v1/libraries/setup-checklist', { token: authToken })
+      setSetupChecklist(checklist)
+    } catch (error) {
+      setChecklistError(error instanceof Error ? error.message : 'Could not load the library setup checklist.')
+      setSetupChecklist(null)
+    } finally {
+      setIsLoadingChecklist(false)
+    }
+  }, [authToken])
 
   const refreshCatalog = useCallback(async () => {
     setIsLoadingCatalog(true)
@@ -347,12 +397,13 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
+      void refreshSetupChecklist()
       void refreshCatalog()
       void refreshPricing()
     }, 0)
 
     return () => window.clearTimeout(handle)
-  }, [refreshCatalog, refreshPricing])
+  }, [refreshCatalog, refreshPricing, refreshSetupChecklist])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -439,12 +490,21 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
     setActionSuccess(null)
     try {
       await action()
+      await refreshSetupChecklist()
       setActionSuccess(typeof successMessage === 'function' ? successMessage() : successMessage)
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Action failed.')
     } finally {
       setIsSaving(false)
     }
+  }
+
+  function handleChecklistAction(actionTarget: LibrarySetupActionTarget) {
+    if (actionTarget === 'projects') {
+      onOpenProjects()
+      return
+    }
+    setActiveTab(actionTarget)
   }
 
   async function handleSavePricingSettings(event: FormEvent<HTMLFormElement>) {
@@ -1096,14 +1156,15 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
             </p>
           </div>
           <Button
-            disabled={isLoading || isSaving}
+            disabled={isLoading || isLoadingChecklist || isSaving}
             onClick={() => {
+              void refreshSetupChecklist()
               void refreshCatalog()
               void refreshPricing()
             }}
             variant="outline"
           >
-            {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCcw className="h-4 w-4" aria-hidden="true" />}
+            {isLoading || isLoadingChecklist ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCcw className="h-4 w-4" aria-hidden="true" />}
             Refresh
           </Button>
         </CardHeader>
@@ -1122,8 +1183,67 @@ export function LibrariesPage({ authToken, currencyCode }: { authToken: string; 
 
           {catalogError ? <Alert variant="destructive">{catalogError}</Alert> : null}
           {pricingError ? <Alert variant="destructive">{pricingError}</Alert> : null}
+          {checklistError ? <Alert variant="destructive">{checklistError}</Alert> : null}
           {actionError ? <Alert variant="destructive">{actionError}</Alert> : null}
           {actionSuccess ? <Alert>{actionSuccess}</Alert> : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
+              Setup Checklist
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {setupChecklist?.summary_message ?? 'Checking boards, hardware, supplier costs, pricing, and quote defaults.'}
+            </p>
+          </div>
+          {setupChecklist ? (
+            <Badge variant={setupChecklist.status === 'ready' ? 'success' : 'warning'}>
+              {setupChecklist.complete_count}/{setupChecklist.total_count} ready
+            </Badge>
+          ) : null}
+        </CardHeader>
+        <CardContent>
+          {isLoadingChecklist ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              Loading setup checklist.
+            </div>
+          ) : setupChecklist ? (
+            <div className="grid gap-2 lg:grid-cols-3">
+              {setupChecklist.items.map((item) => (
+                <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3" key={item.id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <SetupStatusIcon status={item.status} />
+                      <p className="truncate text-sm font-medium">{item.label}</p>
+                    </div>
+                    <Badge variant={setupStatusBadgeVariant(item.status)}>{setupStatusLabel(item.status)}</Badge>
+                  </div>
+                  <p className="text-sm leading-5 text-muted-foreground">{item.message}</p>
+                  <Button
+                    className="w-fit"
+                    onClick={() => handleChecklistAction(item.action_target)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {item.action_target === 'projects' ? (
+                      <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {item.action_label}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Alert variant="warning">The setup checklist is not available right now.</Alert>
+          )}
         </CardContent>
       </Card>
 

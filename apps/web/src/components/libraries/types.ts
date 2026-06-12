@@ -11,6 +11,28 @@ export type LibraryTab =
   | 'extras'
 
 export type PriceItemType = 'board' | 'slide' | 'hinge' | 'handle' | 'extra'
+export type LibrarySetupStatus = 'ready' | 'needs_attention'
+export type LibrarySetupItemStatus = 'complete' | 'missing' | 'warning' | 'action_needed'
+export type LibrarySetupActionTarget = LibraryTab | 'projects'
+
+export type LibrarySetupChecklistItem = {
+  id: string
+  label: string
+  status: LibrarySetupItemStatus
+  count: number
+  message: string
+  action_label: string
+  action_target: LibrarySetupActionTarget
+}
+
+export type LibrarySetupChecklist = {
+  status: LibrarySetupStatus
+  summary_title: string
+  summary_message: string
+  complete_count: number
+  total_count: number
+  items: LibrarySetupChecklistItem[]
+}
 
 export type BoardTypeRow = {
   id: string
