@@ -273,7 +273,7 @@ transaction rolls back and no import rows are applied.
 Each catalog library supports:
 
 ```http
-GET    /api/v1/libraries/{resource}
+GET    /api/v1/libraries/{resource}?search=melawood&recent_days=30
 POST   /api/v1/libraries/{resource}
 GET    /api/v1/libraries/{resource}/{id}
 PATCH  /api/v1/libraries/{resource}/{id}
@@ -281,6 +281,69 @@ DELETE /api/v1/libraries/{resource}/{id}
 ```
 
 `PATCH` currently expects the full editable payload for that resource.
+
+List endpoints are company-scoped and accept:
+
+- `search`: case-insensitive match across the human-readable fields for that resource.
+- `recent_days`: rows updated in the last 1 to 365 days.
+- `category_id`: extras only, limits rows to one extra category.
+
+### Catalog Bulk Update
+
+```http
+PATCH /api/v1/libraries/catalog/bulk-update
+```
+
+Requires `catalog:write`. The endpoint only updates explicitly selected row
+IDs, never a whole filtered result set.
+
+Payload:
+
+```json
+{
+  "resource": "handles",
+  "item_ids": ["handle-uuid-1", "handle-uuid-2"],
+  "updates": {
+    "supplier": "Hafele"
+  },
+  "confirm": false
+}
+```
+
+Use `confirm: false` to preview. Re-send the same selected IDs and updates with
+`confirm: true` to apply.
+
+Supported fields:
+
+- `boards`: `costing_mode`
+- `slides`: `brand`, `code`
+- `hinges`: `brand`, `code`
+- `handles`: `supplier`, `code`
+- `extras`: `category_id`, `supplier`, `code`, `notes`
+- `suppliers`: `contact_name`, `email`, `phone`, `notes`, `default_discount_bps`
+
+Response:
+
+```json
+{
+  "resource": "handles",
+  "confirm": false,
+  "requested_count": 2,
+  "matched_count": 2,
+  "updated_count": 0,
+  "failed_count": 0,
+  "summary_message": "Preview ready for 2 selected rows.",
+  "rows": [
+    {
+      "item_id": "handle-uuid-1",
+      "label": "Slim Bar (Hafele)",
+      "status": "preview",
+      "message": "Will update 1 field.",
+      "changed_fields": ["supplier"]
+    }
+  ]
+}
+```
 
 ### Boards
 
@@ -436,12 +499,21 @@ unit. Each item can have multiple supplier links, but only one preferred link pe
 `(item_type, item_ref_id, price_component)`.
 
 ```http
-GET    /api/v1/libraries/item-suppliers?item_type=slide&item_ref_id=slide-uuid
+GET    /api/v1/libraries/item-suppliers?item_type=slide&item_ref_id=slide-uuid&search=dynapro&recent_days=30&has_active_cost=true
 POST   /api/v1/libraries/item-suppliers
 GET    /api/v1/libraries/item-suppliers/{item_supplier_id}
 PATCH  /api/v1/libraries/item-suppliers/{item_supplier_id}
 DELETE /api/v1/libraries/item-suppliers/{item_supplier_id}
 ```
+
+List filters are:
+
+- `item_type`: one of `board`, `slide`, `hinge`, `handle`, or `extra`.
+- `item_ref_id`: the catalog row UUID.
+- `supplier_id`: the supplier UUID.
+- `search`: case-insensitive match across supplier name, SKU, description, component, order UOM, notes, and item type.
+- `has_active_cost`: `true` for links with an active supplier cost or `false` for links missing one.
+- `recent_days`: rows where the supplier link or active cost changed in the last 1 to 365 days.
 
 Payload:
 
@@ -605,9 +677,10 @@ checked alongside `status`.
 ### Price List Items
 
 ```http
-GET    /api/v1/libraries/price-lists/{price_list_id}/items?include_history=false&as_of=2026-06-12T08:00:00Z
+GET    /api/v1/libraries/price-lists/{price_list_id}/items?include_history=false&as_of=2026-06-12T08:00:00Z&search=hinge&item_type=hinge&effective_status=current&recent_days=30
 POST   /api/v1/libraries/price-lists/{price_list_id}/items
 POST   /api/v1/libraries/price-lists/{price_list_id}/items/upsert
+PATCH  /api/v1/libraries/price-lists/{price_list_id}/items/bulk-update
 GET    /api/v1/libraries/price-lists/{price_list_id}/items/{item_id}
 PATCH  /api/v1/libraries/price-lists/{price_list_id}/items/{item_id}
 DELETE /api/v1/libraries/price-lists/{price_list_id}/items/{item_id}
@@ -645,6 +718,12 @@ By default, list endpoints return only prices current at `now()`, where
 `effective_from <= as_of` and `effective_to` is either null or later than
 `as_of`. Pass `as_of` to inspect another timestamp. Pass
 `include_history=true` to include current, future, and retired prices.
+List filters are:
+
+- `search`: case-insensitive match across item type, item key, component, UOM, and source.
+- `item_type`: one of `board`, `slide`, `hinge`, `handle`, or `extra`.
+- `effective_status`: `current`, `future`, or `retired`.
+- `recent_days`: rows updated in the last 1 to 365 days.
 
 Updating a price item does not overwrite the old price. The API closes the row
 current at the replacement timestamp by setting `effective_to`, inserts a new
@@ -668,6 +747,38 @@ row, and returns the replacement. The response includes:
 
 Deleting a price item retires the current or future row by setting
 `effective_to`; it does not remove historical pricing.
+
+### Price List Item Bulk Update
+
+```http
+PATCH /api/v1/libraries/price-lists/{price_list_id}/items/bulk-update
+```
+
+Requires `pricing:update`. The endpoint accepts selected price row IDs only.
+It does not accept filter expressions as update targets. Current rows are
+versioned the same way as the single-row update endpoint; retired and future
+rows are reported as failed preview rows.
+
+Payload:
+
+```json
+{
+  "item_ids": ["price-row-uuid-1", "price-row-uuid-2"],
+  "unit_price_cents": 13200,
+  "uom": "pcs",
+  "cost_source": "override",
+  "confirm": false
+}
+```
+
+At least one of `unit_price_cents`, `uom`, or `cost_source` is required.
+`cost_source` can be set to `manual` or `override` through this endpoint.
+Use `confirm: false` to preview and `confirm: true` to apply the same selected
+row IDs and field changes.
+
+Response shape matches catalog bulk update responses with
+`resource: "price_list_items"` and row `status` values of `preview`, `updated`,
+or `failed`.
 
 ### Generate Price List From Supplier Costs
 

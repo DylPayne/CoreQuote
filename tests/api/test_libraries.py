@@ -50,16 +50,20 @@ class FakeLibraryStore:
         self.price_item_deleted: tuple[str, str, str] | None = None
         self.active_price_list_requested = False
         self.pricing_settings_payload: dict | None = None
+        self.catalog_list_payload: tuple[str, str, str | None, int | None] | None = None
+        self.catalog_bulk_payload: tuple[str, dict] | None = None
         self.created_payload: tuple[str, dict] | None = None
         self.updated_payload: tuple[str, str, dict] | None = None
         self.price_list_payload: dict | None = None
         self.price_item_payload: tuple[str, dict] | None = None
         self.item_supplier_payload: dict | None = None
+        self.item_supplier_list_payload: tuple[str, str | None, str | None, str | None, int | None, str | None, bool | None] | None = None
         self.supplier_cost_payload: tuple[str, dict] | None = None
         self.supplier_cost_list_payload: tuple[str, str, bool, datetime | None] | None = None
         self.supplier_discount_payload: tuple[str, dict] | None = None
         self.generation_payload: tuple[str, dict] | None = None
-        self.price_item_list_payload: tuple[str, str, bool, datetime | None] | None = None
+        self.price_item_list_payload: tuple[str, str, bool, datetime | None, str | None, str | None, str | None, int | None] | None = None
+        self.price_item_bulk_update_payload: tuple[str, str, dict] | None = None
         self.setup_checklist_company_id: str | None = None
         self.import_preview_company_id: str | None = None
         self.import_preview_payload: dict | None = None
@@ -67,7 +71,8 @@ class FakeLibraryStore:
         self.import_apply_user_id: str | None = None
         self.import_apply_payload: dict | None = None
 
-    def list_boards(self, company_id: str):
+    def list_boards(self, company_id: str, search: str | None = None, recent_days: int | None = None):
+        self.catalog_list_payload = ("boards", company_id, search, recent_days)
         return [board("board-1")]
 
     def get_setup_checklist(self, company_id: str):
@@ -172,7 +177,30 @@ class FakeLibraryStore:
     def delete_board(self, company_id: str, item_id: str):
         self.deleted.append(("boards", item_id))
 
-    def list_slides(self, company_id: str):
+    def bulk_update_catalog(self, company_id: str, payload: dict):
+        self.catalog_bulk_payload = (company_id, payload)
+        confirm = bool(payload.get("confirm", False))
+        return {
+            "resource": payload["resource"],
+            "confirm": confirm,
+            "requested_count": len(payload["item_ids"]),
+            "matched_count": len(payload["item_ids"]),
+            "updated_count": len(payload["item_ids"]) if confirm else 0,
+            "failed_count": 0,
+            "summary_message": "Preview ready." if not confirm else "Bulk update applied.",
+            "rows": [
+                {
+                    "item_id": item_id,
+                    "label": f"{payload['resource']} {index + 1}",
+                    "status": "updated" if confirm else "preview",
+                    "message": "Updated selected fields." if confirm else "Will update selected fields.",
+                    "changed_fields": sorted(payload["updates"]),
+                }
+                for index, item_id in enumerate(payload["item_ids"])
+            ],
+        }
+
+    def list_slides(self, company_id: str, search: str | None = None, recent_days: int | None = None):
         return [slide("slide-1")]
 
     def create_slide(self, company_id: str, payload: dict):
@@ -189,7 +217,7 @@ class FakeLibraryStore:
     def delete_slide(self, company_id: str, item_id: str):
         self.deleted.append(("slides", item_id))
 
-    def list_hinges(self, company_id: str):
+    def list_hinges(self, company_id: str, search: str | None = None, recent_days: int | None = None):
         return [hinge("hinge-1")]
 
     def create_hinge(self, company_id: str, payload: dict):
@@ -206,7 +234,8 @@ class FakeLibraryStore:
     def delete_hinge(self, company_id: str, item_id: str):
         self.deleted.append(("hinges", item_id))
 
-    def list_suppliers(self, company_id: str):
+    def list_suppliers(self, company_id: str, search: str | None = None, recent_days: int | None = None):
+        self.catalog_list_payload = ("suppliers", company_id, search, recent_days)
         return [supplier("supplier-1")]
 
     def create_supplier(self, company_id: str, payload: dict):
@@ -234,7 +263,7 @@ class FakeLibraryStore:
             "skipped_without_active_cost_count": 0,
         }
 
-    def list_handles(self, company_id: str):
+    def list_handles(self, company_id: str, search: str | None = None, recent_days: int | None = None):
         return [handle("handle-1")]
 
     def create_handle(self, company_id: str, payload: dict):
@@ -251,7 +280,7 @@ class FakeLibraryStore:
     def delete_handle(self, company_id: str, item_id: str):
         self.deleted.append(("handles", item_id))
 
-    def list_extra_categories(self, company_id: str):
+    def list_extra_categories(self, company_id: str, search: str | None = None, recent_days: int | None = None):
         return [extra_category("category-1")]
 
     def create_extra_category(self, company_id: str, payload: dict):
@@ -268,7 +297,13 @@ class FakeLibraryStore:
     def delete_extra_category(self, company_id: str, item_id: str):
         self.deleted.append(("extra-categories", item_id))
 
-    def list_extras(self, company_id: str):
+    def list_extras(
+        self,
+        company_id: str,
+        search: str | None = None,
+        category_id: str | None = None,
+        recent_days: int | None = None,
+    ):
         return [extra("extra-1")]
 
     def create_extra(self, company_id: str, payload: dict):
@@ -285,7 +320,25 @@ class FakeLibraryStore:
     def delete_extra(self, company_id: str, item_id: str):
         self.deleted.append(("extras", item_id))
 
-    def list_item_suppliers(self, company_id: str, item_type: str | None = None, item_ref_id: str | None = None):
+    def list_item_suppliers(
+        self,
+        company_id: str,
+        item_type: str | None = None,
+        item_ref_id: str | None = None,
+        search: str | None = None,
+        recent_days: int | None = None,
+        supplier_id: str | None = None,
+        has_active_cost: bool | None = None,
+    ):
+        self.item_supplier_list_payload = (
+            company_id,
+            item_type,
+            item_ref_id,
+            search,
+            recent_days,
+            supplier_id,
+            has_active_cost,
+        )
         rows = [item_supplier("item-supplier-1")]
         if item_type:
             rows = [row for row in rows if row["item_type"] == item_type]
@@ -390,13 +443,52 @@ class FakeLibraryStore:
         price_list_id: str,
         include_history: bool = False,
         as_of: datetime | None = None,
+        search: str | None = None,
+        item_type: str | None = None,
+        effective_status: str | None = None,
+        recent_days: int | None = None,
     ):
-        self.price_item_list_payload = (company_id, price_list_id, include_history, as_of)
+        self.price_item_list_payload = (
+            company_id,
+            price_list_id,
+            include_history,
+            as_of,
+            search,
+            item_type,
+            effective_status,
+            recent_days,
+        )
         rows = [price_item("price-item-1", price_list_id)]
         if include_history:
             rows.append(price_item("price-item-old", price_list_id, effective_to=NOW))
             rows.append(price_item("price-item-future", price_list_id, effective_from=datetime(2026, 6, 30, 8, 0, tzinfo=UTC)))
         return rows
+
+    def bulk_update_price_list_items(self, company_id: str, price_list_id: str, payload: dict):
+        confirm = bool(payload.get("confirm", False))
+        changed_fields = [field for field in ("unit_price_cents", "uom", "cost_source") if payload.get(field) is not None]
+        if not changed_fields:
+            raise LibraryValidationError("Choose at least one price field to update")
+        self.price_item_bulk_update_payload = (company_id, price_list_id, payload)
+        return {
+            "resource": "price_list_items",
+            "confirm": confirm,
+            "requested_count": len(payload["item_ids"]),
+            "matched_count": len(payload["item_ids"]),
+            "updated_count": len(payload["item_ids"]) if confirm else 0,
+            "failed_count": 0,
+            "summary_message": "Preview ready." if not confirm else "Bulk update applied.",
+            "rows": [
+                {
+                    "item_id": item_id,
+                    "label": "handle::handle-1 unit",
+                    "status": "updated" if confirm else "preview",
+                    "message": "Updated selected fields." if confirm else "Will update selected fields.",
+                    "changed_fields": changed_fields,
+                }
+                for item_id in payload["item_ids"]
+            ],
+        }
 
     def create_price_list_item(self, company_id: str, price_list_id: str, payload: dict):
         self.price_item_payload = (price_list_id, payload)
@@ -1043,6 +1135,27 @@ def test_catalog_library_crud(resource: str, payload: dict, field: str, value: s
     assert store.deleted[-1] == (resource, created_id)
 
 
+def test_catalog_list_accepts_search_and_recent_filters():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.get(
+            "/api/v1/libraries/boards?search=white&recent_days=14",
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.catalog_list_payload == (
+        "boards",
+        "company-1",
+        "white",
+        14,
+    )
+
+
 def test_catalog_write_requires_catalog_write_permission():
     store = FakeLibraryStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
@@ -1117,7 +1230,7 @@ def test_item_supplier_crud_and_active_cost_summary():
     }
     try:
         list_response = client.get(
-            "/api/v1/libraries/item-suppliers?item_type=slide&item_ref_id=slide-1",
+            "/api/v1/libraries/item-suppliers?item_type=slide&item_ref_id=slide-1&search=dynapro&recent_days=30&supplier_id=supplier-1&has_active_cost=true",
             headers=auth_header(),
         )
         create_response = client.post("/api/v1/libraries/item-suppliers", json=payload, headers=auth_header())
@@ -1135,6 +1248,15 @@ def test_item_supplier_crud_and_active_cost_summary():
     assert list_response.status_code == 200
     assert list_response.json()[0]["supplier_name"] == "Grass ZA"
     assert list_response.json()[0]["active_unit_cost_cents"] == 47949
+    assert store.item_supplier_list_payload == (
+        "company-1",
+        "slide",
+        "slide-1",
+        "dynapro",
+        30,
+        "supplier-1",
+        True,
+    )
     assert create_response.status_code == 201
     assert create_response.json()["supplier_sku"] == "F130107820204"
     assert get_response.status_code == 200
@@ -1238,6 +1360,76 @@ def test_apply_supplier_discount_requires_pricing_update_permission():
 
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: pricing:update"}
+
+
+def test_catalog_bulk_update_previews_and_applies_selected_rows():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "resource": "handles",
+        "item_ids": ["handle-1", "handle-2"],
+        "updates": {"supplier": "Hafele", "code": "HF"},
+        "confirm": False,
+    }
+    try:
+        preview_response = client.patch(
+            "/api/v1/libraries/catalog/bulk-update",
+            json=payload,
+            headers=auth_header(),
+        )
+        apply_response = client.patch(
+            "/api/v1/libraries/catalog/bulk-update",
+            json={**payload, "confirm": True},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert preview_response.status_code == 200
+    assert preview_response.json()["confirm"] is False
+    assert preview_response.json()["rows"][0]["status"] == "preview"
+    assert apply_response.status_code == 200
+    assert apply_response.json()["confirm"] is True
+    assert apply_response.json()["updated_count"] == 2
+    assert store.catalog_bulk_payload == (
+        "company-1",
+        {**payload, "confirm": True},
+    )
+
+
+def test_catalog_bulk_update_rejects_empty_selection():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/libraries/catalog/bulk-update",
+            json={"resource": "handles", "item_ids": [], "updates": {"supplier": "Hafele"}},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert store.catalog_bulk_payload is None
+
+
+def test_catalog_bulk_update_requires_catalog_write_permission():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/libraries/catalog/bulk-update",
+            json={"resource": "handles", "item_ids": ["handle-1"], "updates": {"supplier": "Hafele"}},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: catalog:write"}
 
 
 def test_calculate_discounted_supplier_cost_rounds_to_cents():
@@ -1434,8 +1626,108 @@ def test_price_list_item_crud():
         "price-list-1",
         True,
         datetime(2026, 6, 12, 12, 0, tzinfo=UTC),
+        None,
+        None,
+        None,
+        None,
     )
     assert store.price_item_deleted == ("company-1", "price-list-1", item_id)
+
+
+def test_price_list_items_accept_search_status_and_recent_filters():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.get(
+            "/api/v1/libraries/price-lists/price-list-1/items?include_history=true&search=handle&item_type=handle&effective_status=current&recent_days=14",
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.price_item_list_payload == (
+        "company-1",
+        "price-list-1",
+        True,
+        None,
+        "handle",
+        "handle",
+        "current",
+        14,
+    )
+
+
+def test_bulk_price_update_previews_and_applies_selected_rows():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_ids": ["price-item-1"],
+        "unit_price_cents": 13200,
+        "cost_source": "override",
+        "confirm": False,
+    }
+    try:
+        preview_response = client.patch(
+            "/api/v1/libraries/price-lists/price-list-1/items/bulk-update",
+            json=payload,
+            headers=auth_header(),
+        )
+        apply_response = client.patch(
+            "/api/v1/libraries/price-lists/price-list-1/items/bulk-update",
+            json={**payload, "confirm": True},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert preview_response.status_code == 200
+    assert preview_response.json()["confirm"] is False
+    assert preview_response.json()["rows"][0]["status"] == "preview"
+    assert apply_response.status_code == 200
+    assert apply_response.json()["confirm"] is True
+    assert apply_response.json()["updated_count"] == 1
+    assert store.price_item_bulk_update_payload == (
+        "company-1",
+        "price-list-1",
+        {**payload, "confirm": True, "uom": None},
+    )
+
+
+def test_bulk_price_update_rejects_empty_update_fields():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/libraries/price-lists/price-list-1/items/bulk-update",
+            json={"item_ids": ["price-item-1"]},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert store.price_item_bulk_update_payload is None
+
+
+def test_bulk_price_update_requires_pricing_update_permission():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/libraries/price-lists/price-list-1/items/bulk-update",
+            json={"item_ids": ["price-item-1"], "unit_price_cents": 13200},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:update"}
 
 
 def test_price_list_item_upsert_with_item_ref_id():

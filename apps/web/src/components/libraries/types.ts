@@ -29,6 +29,8 @@ export type LibraryImportSourceFormat = 'csv' | 'tsv' | 'xlsx'
 export type LibraryImportRowStatus = 'create' | 'update' | 'skipped' | 'duplicate' | 'blocked'
 export type LibraryImportApplyRowStatus = 'created' | 'updated' | 'skipped' | 'failed'
 export type LibraryImportProblemSeverity = 'error' | 'warning'
+export type LibraryCatalogBulkResource = 'boards' | 'slides' | 'hinges' | 'handles' | 'extras' | 'suppliers'
+export type LibraryBulkRowStatus = 'preview' | 'updated' | 'failed'
 
 export type LibrarySetupChecklistItem = {
   id: string
@@ -129,6 +131,25 @@ export type LibraryImportApplyResult = {
   source_format: LibraryImportSourceFormat
   summary: LibraryImportApplySummary
   rows: LibraryImportApplyRow[]
+}
+
+export type LibraryBulkUpdateRow = {
+  item_id: string
+  label: string
+  status: LibraryBulkRowStatus
+  message: string
+  changed_fields: string[]
+}
+
+export type LibraryBulkUpdateResult = {
+  resource: string
+  confirm: boolean
+  requested_count: number
+  matched_count: number
+  updated_count: number
+  failed_count: number
+  summary_message: string
+  rows: LibraryBulkUpdateRow[]
 }
 
 export type BoardTypeRow = {

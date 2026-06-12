@@ -13,9 +13,12 @@ import {
   Plus,
   RefreshCcw,
   Save,
+  Search,
+  SquareCheckBig,
   Upload,
+  XCircle,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -43,7 +46,7 @@ import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, Li
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -73,6 +76,86 @@ const importSourceFormatOptions: Array<{ label: string; value: LibraryImportSour
   { label: 'XLSX', value: 'xlsx' },
 ]
 
+type RecentFilterValue = 'all' | '7' | '30' | '90'
+type PriceStatusFilterValue = 'all' | LibraryEffectiveStatus
+type PriceTypeFilterValue = 'all' | PriceItemType
+type PriceSourceFilterValue = 'all' | PriceListItemRow['cost_source']
+
+type CatalogBulkField = {
+  label: string
+  value: string
+  input: 'text' | 'select' | 'percent'
+  options?: Array<{ label: string; value: string }>
+}
+
+type MissingPriceRow = {
+  id: string
+  item_type: PriceItemType
+  label: string
+  components: string[]
+}
+
+const recentFilterOptions: Array<{ label: string; value: RecentFilterValue }> = [
+  { label: 'Any time', value: 'all' },
+  { label: 'Last 7 days', value: '7' },
+  { label: 'Last 30 days', value: '30' },
+  { label: 'Last 90 days', value: '90' },
+]
+
+const priceStatusOptions: Array<{ label: string; value: PriceStatusFilterValue }> = [
+  { label: 'All rows', value: 'all' },
+  { label: 'Current', value: 'current' },
+  { label: 'Future', value: 'future' },
+  { label: 'Retired', value: 'retired' },
+]
+
+const priceSourceOptions: Array<{ label: string; value: PriceSourceFilterValue }> = [
+  { label: 'Any source', value: 'all' },
+  { label: 'Manual', value: 'manual' },
+  { label: 'Supplier', value: 'supplier' },
+  { label: 'Override', value: 'override' },
+  { label: 'Import', value: 'import' },
+]
+
+const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> = {
+  boards: [
+    {
+      input: 'select',
+      label: 'Costing mode',
+      options: [
+        { label: 'Sheet', value: 'sheet' },
+        { label: 'SQM', value: 'sqm' },
+      ],
+      value: 'costing_mode',
+    },
+  ],
+  slides: [
+    { input: 'text', label: 'Brand', value: 'brand' },
+    { input: 'text', label: 'Code', value: 'code' },
+  ],
+  hinges: [
+    { input: 'text', label: 'Brand', value: 'brand' },
+    { input: 'text', label: 'Code', value: 'code' },
+  ],
+  handles: [
+    { input: 'text', label: 'Supplier', value: 'supplier' },
+    { input: 'text', label: 'Code', value: 'code' },
+  ],
+  extras: [
+    { input: 'select', label: 'Category', value: 'category_id' },
+    { input: 'text', label: 'Supplier', value: 'supplier' },
+    { input: 'text', label: 'Code', value: 'code' },
+    { input: 'text', label: 'Notes', value: 'notes' },
+  ],
+  suppliers: [
+    { input: 'text', label: 'Contact', value: 'contact_name' },
+    { input: 'text', label: 'Email', value: 'email' },
+    { input: 'text', label: 'Phone', value: 'phone' },
+    { input: 'text', label: 'Notes', value: 'notes' },
+    { input: 'percent', label: 'Default discount', value: 'default_discount_bps' },
+  ],
+}
+
 const importExampleByResource: Record<LibraryImportResource, string> = {
   boards: 'Brand,Material,Thickness,Length,Width,Costing Mode\nPG Bison,MelaWood,16,2750,1830,sheet',
   slides: 'Brand,Model,Code,Length\nGrass,Dynapro,DYN-500,500',
@@ -83,6 +166,60 @@ const importExampleByResource: Record<LibraryImportResource, string> = {
   extras: 'Name,Category,Supplier,Code\nStove,Appliances,Defy,DFY-600',
   supplier_item_costs: 'Item Type,Brand,Model,Code,Supplier,Order UOM,Unit Cost\nslide,Grass,Dynapro,DYN-500,Grass ZA,pairs,479.49',
   price_list_items: 'Item Type,Brand,Model,Code,Price Component,UOM,Price\nslide,Grass,Dynapro,DYN-500,unit,pairs,899.00',
+}
+
+function searchTextMatches(search: string, parts: Array<string | number | null | undefined>) {
+  const query = search.trim().toLowerCase()
+  if (!query) return true
+  return parts.some((part) => String(part ?? '').toLowerCase().includes(query))
+}
+
+function matchesRecent(updatedAt: string, recentDays: RecentFilterValue) {
+  if (recentDays === 'all') return true
+  const updatedTime = new Date(updatedAt).getTime()
+  if (Number.isNaN(updatedTime)) return true
+  const cutoff = Date.now() - Number(recentDays) * 24 * 60 * 60 * 1000
+  return updatedTime >= cutoff
+}
+
+function catalogResourceForTab(tab: LibraryTab): LibraryCatalogBulkResource | null {
+  if (tab === 'boards' || tab === 'slides' || tab === 'hinges' || tab === 'handles' || tab === 'extras' || tab === 'suppliers') {
+    return tab
+  }
+  return null
+}
+
+function toggleId(ids: string[], itemId: string, checked: boolean) {
+  if (checked) return ids.includes(itemId) ? ids : [...ids, itemId]
+  return ids.filter((id) => id !== itemId)
+}
+
+function onlyVisibleSelected(selectedIds: string[], visibleIds: string[]) {
+  const visible = new Set(visibleIds)
+  return selectedIds.filter((id) => visible.has(id))
+}
+
+function priceComponentsForItem(itemType: PriceItemType, row?: BoardTypeRow) {
+  if (itemType === 'board') {
+    return row?.costing_mode === 'sqm' ? ['sqm'] : ['sheet', 'edging_m', 'labour_board']
+  }
+  return ['unit']
+}
+
+function hasCurrentPrice(
+  rows: PriceListItemRow[],
+  itemType: PriceItemType,
+  itemId: string,
+  component: string,
+) {
+  const key = `${itemType}::${itemId}`
+  return rows.some(
+    (row) =>
+      row.is_current &&
+      row.item_type === itemType &&
+      row.price_component === component &&
+      (row.item_ref_id === itemId || row.item_key === key),
+  )
 }
 
 function _firstItemIdForType(
@@ -190,6 +327,295 @@ function payloadPreview(payload: Record<string, unknown>) {
     .join(', ')
 }
 
+function MaintenanceToolbar({
+  children,
+  onRecentDaysChange,
+  onSearchChange,
+  recentDays,
+  search,
+}: {
+  children?: ReactNode
+  onRecentDaysChange: (value: RecentFilterValue) => void
+  onSearchChange: (value: string) => void
+  recentDays: RecentFilterValue
+  search: string
+}) {
+  return (
+    <div className="grid gap-2 rounded-[var(--control-radius)] border border-border p-3 lg:grid-cols-[minmax(14rem,1fr)_12rem_auto] lg:items-end">
+      <Label className="grid gap-1.5">
+        Search
+        <span className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input className="pl-9" value={search} onChange={(event) => onSearchChange(event.target.value)} />
+        </span>
+      </Label>
+      <Label className="grid gap-1.5">
+        Changed
+        <Select value={recentDays} onChange={(event) => onRecentDaysChange(event.target.value as RecentFilterValue)}>
+          {recentFilterOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </Label>
+      {children ? <div className="flex flex-wrap items-end gap-2">{children}</div> : null}
+    </div>
+  )
+}
+
+function FilteredEmptyNotice({ filteredCount, totalCount }: { filteredCount: number; totalCount: number }) {
+  if (totalCount === 0 || filteredCount > 0) return null
+  return <Alert variant="warning">No rows match the current filters.</Alert>
+}
+
+function BulkPreviewRows({ result }: { result: LibraryBulkUpdateResult | null }) {
+  if (!result) return null
+  return (
+    <div className="grid gap-2 rounded-[var(--control-radius)] border border-border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={result.failed_count > 0 ? 'warning' : result.confirm ? 'success' : 'outline'}>
+          {result.summary_message}
+        </Badge>
+        <Badge variant="outline">{result.matched_count} matched</Badge>
+        {result.failed_count > 0 ? <Badge variant="warning">{result.failed_count} failed</Badge> : null}
+      </div>
+      <div className="grid gap-1 text-xs text-muted-foreground">
+        {result.rows.slice(0, 6).map((row) => (
+          <div className="flex flex-wrap items-center gap-2" key={`${row.item_id}-${row.status}`}>
+            <Badge variant={row.status === 'failed' ? 'warning' : row.status === 'updated' ? 'success' : 'outline'}>{row.status}</Badge>
+            <span className="font-medium text-foreground">{row.label}</span>
+            <span>{row.message}</span>
+          </div>
+        ))}
+      </div>
+      {result.rows.length > 6 ? <p className="text-xs text-muted-foreground">Showing 6 of {result.rows.length} preview rows.</p> : null}
+    </div>
+  )
+}
+
+function CatalogBulkPanel({
+  field,
+  fields,
+  isSaving,
+  onApply,
+  onClearSelection,
+  onFieldChange,
+  onPreview,
+  onSelectVisible,
+  onValueChange,
+  preview,
+  resource,
+  selectedCount,
+  value,
+  visibleCount,
+}: {
+  field: CatalogBulkField | null
+  fields: CatalogBulkField[]
+  isSaving: boolean
+  onApply: () => void
+  onClearSelection: () => void
+  onFieldChange: (value: string) => void
+  onPreview: () => void
+  onSelectVisible: () => void
+  onValueChange: (value: string) => void
+  preview: LibraryBulkUpdateResult | null
+  resource: LibraryCatalogBulkResource
+  selectedCount: number
+  value: string
+  visibleCount: number
+}) {
+  const applyDisabled = isSaving || selectedCount === 0 || !preview || preview.confirm || preview.failed_count > 0
+  const valueDisabled = field?.input === 'select' && (field.options?.length ?? 0) === 0
+
+  return (
+    <div className="grid gap-3 rounded-[var(--control-radius)] border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={selectedCount > 0 ? 'default' : 'outline'}>{selectedCount} selected</Badge>
+          <span className="text-sm font-medium">{resource.replace('-', ' ')}</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={visibleCount === 0 || isSaving} onClick={onSelectVisible} size="sm" type="button" variant="outline">
+            <SquareCheckBig className="h-4 w-4" aria-hidden="true" />
+            Select Visible
+          </Button>
+          <Button disabled={selectedCount === 0 || isSaving} onClick={onClearSelection} size="sm" type="button" variant="outline">
+            <XCircle className="h-4 w-4" aria-hidden="true" />
+            Clear
+          </Button>
+        </div>
+      </div>
+      <div className="grid gap-3 md:grid-cols-[14rem_1fr_auto_auto] md:items-end">
+        <Label className="grid gap-1.5">
+          Field
+          <Select value={field?.value ?? ''} onChange={(event) => onFieldChange(event.target.value)}>
+            {fields.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </Label>
+        <Label className="grid gap-1.5">
+          Value
+          {field?.input === 'select' ? (
+            <Select disabled={valueDisabled} value={value} onChange={(event) => onValueChange(event.target.value)}>
+              {(field.options ?? []).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Input value={value} onChange={(event) => onValueChange(event.target.value)} />
+          )}
+        </Label>
+        <Button disabled={isSaving || selectedCount === 0 || valueDisabled} onClick={onPreview} type="button" variant="outline">
+          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+          Preview
+        </Button>
+        <Button disabled={applyDisabled} onClick={onApply} type="button">
+          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+          Apply
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Only selected rows are changed after a successful preview.</p>
+      <BulkPreviewRows result={preview} />
+    </div>
+  )
+}
+
+function PriceBulkPanel({
+  amount,
+  isSaving,
+  onAmountChange,
+  onApply,
+  onClearSelection,
+  onPreview,
+  onSelectVisible,
+  onSourceChange,
+  onUomChange,
+  preview,
+  selectedCount,
+  source,
+  uom,
+  visibleCurrentCount,
+}: {
+  amount: string
+  isSaving: boolean
+  onAmountChange: (value: string) => void
+  onApply: () => void
+  onClearSelection: () => void
+  onPreview: () => void
+  onSelectVisible: () => void
+  onSourceChange: (value: 'no-change' | 'manual' | 'override') => void
+  onUomChange: (value: string) => void
+  preview: LibraryBulkUpdateResult | null
+  selectedCount: number
+  source: 'no-change' | 'manual' | 'override'
+  uom: string
+  visibleCurrentCount: number
+}) {
+  const applyDisabled = isSaving || selectedCount === 0 || !preview || preview.confirm || preview.failed_count > 0
+  return (
+    <div className="mb-3 grid gap-3 rounded-[var(--control-radius)] border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={selectedCount > 0 ? 'default' : 'outline'}>{selectedCount} selected</Badge>
+          <span className="text-sm font-medium">Price Bulk Edit</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={visibleCurrentCount === 0 || isSaving} onClick={onSelectVisible} size="sm" type="button" variant="outline">
+            <SquareCheckBig className="h-4 w-4" aria-hidden="true" />
+            Select Current
+          </Button>
+          <Button disabled={selectedCount === 0 || isSaving} onClick={onClearSelection} size="sm" type="button" variant="outline">
+            <XCircle className="h-4 w-4" aria-hidden="true" />
+            Clear
+          </Button>
+        </div>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[1fr_10rem_12rem_auto_auto] lg:items-end">
+        <Label className="grid gap-1.5">
+          Price
+          <Input value={amount} onChange={(event) => onAmountChange(event.target.value)} />
+        </Label>
+        <Label className="grid gap-1.5">
+          UOM
+          <Input value={uom} onChange={(event) => onUomChange(event.target.value)} />
+        </Label>
+        <Label className="grid gap-1.5">
+          Source
+          <Select value={source} onChange={(event) => onSourceChange(event.target.value as 'no-change' | 'manual' | 'override')}>
+            <option value="no-change">No change</option>
+            <option value="manual">Manual</option>
+            <option value="override">Override</option>
+          </Select>
+        </Label>
+        <Button disabled={isSaving || selectedCount === 0} onClick={onPreview} type="button" variant="outline">
+          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+          Preview
+        </Button>
+        <Button disabled={applyDisabled} onClick={onApply} type="button">
+          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+          Apply
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">Applying a price bulk edit retires the selected current row and creates a replacement row.</p>
+      <BulkPreviewRows result={preview} />
+    </div>
+  )
+}
+
+function MissingPricesPanel({
+  missingPriceRows,
+  onTypeFilterChange,
+  typeFilter,
+}: {
+  missingPriceRows: MissingPriceRow[]
+  onTypeFilterChange: (value: PriceTypeFilterValue) => void
+  typeFilter: PriceTypeFilterValue
+}) {
+  return (
+    <div className="grid gap-3 rounded-[var(--control-radius)] border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={missingPriceRows.length > 0 ? 'warning' : 'success'}>{missingPriceRows.length} missing</Badge>
+          <span className="text-sm font-medium">Missing Prices</span>
+        </div>
+        <Label className="grid min-w-40 gap-1.5 text-xs">
+          Type
+          <Select value={typeFilter} onChange={(event) => onTypeFilterChange(event.target.value as PriceTypeFilterValue)}>
+            <option value="all">All types</option>
+            {priceItemTypes.map((itemType) => (
+              <option key={itemType} value={itemType}>
+                {itemType}
+              </option>
+            ))}
+          </Select>
+        </Label>
+      </div>
+      {missingPriceRows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Current catalog rows have prices in this list.</p>
+      ) : (
+        <div className="grid gap-2 md:grid-cols-2">
+          {missingPriceRows.slice(0, 8).map((row) => (
+            <div className="rounded-[var(--control-radius)] border border-border px-3 py-2 text-sm" key={`${row.item_type}-${row.id}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{row.item_type}</Badge>
+                <span className="font-medium">{row.label}</span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{row.components.join(', ')}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {missingPriceRows.length > 8 ? <p className="text-xs text-muted-foreground">Showing 8 of {missingPriceRows.length} missing price rows.</p> : null}
+    </div>
+  )
+}
+
 function arrayBufferToBase64(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer)
   const chunkSize = 0x8000
@@ -287,6 +713,33 @@ export function LibrariesPage({
   const [importColumnMapping, setImportColumnMapping] = useState('')
   const [importPreview, setImportPreview] = useState<LibraryImportPreview | null>(null)
   const [importApplyResult, setImportApplyResult] = useState<LibraryImportApplyResult | null>(null)
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [catalogRecentDays, setCatalogRecentDays] = useState<RecentFilterValue>('all')
+  const [extraCategoryFilter, setExtraCategoryFilter] = useState('all')
+  const [priceSearch, setPriceSearch] = useState('')
+  const [priceStatusFilter, setPriceStatusFilter] = useState<PriceStatusFilterValue>('all')
+  const [priceTypeFilter, setPriceTypeFilter] = useState<PriceTypeFilterValue>('all')
+  const [priceSourceFilter, setPriceSourceFilter] = useState<PriceSourceFilterValue>('all')
+  const [priceRecentDays, setPriceRecentDays] = useState<RecentFilterValue>('all')
+  const [missingPriceTypeFilter, setMissingPriceTypeFilter] = useState<PriceTypeFilterValue>('all')
+  const [selectedCatalogIds, setSelectedCatalogIds] = useState<Record<LibraryCatalogBulkResource, string[]>>({
+    boards: [],
+    extras: [],
+    handles: [],
+    hinges: [],
+    slides: [],
+    suppliers: [],
+  })
+  const [selectedPriceItemIds, setSelectedPriceItemIds] = useState<string[]>([])
+  const [catalogBulkField, setCatalogBulkField] = useState('')
+  const [catalogBulkValue, setCatalogBulkValue] = useState('')
+  const [priceBulkAmount, setPriceBulkAmount] = useState('')
+  const [priceBulkUom, setPriceBulkUom] = useState('')
+  const [priceBulkSource, setPriceBulkSource] = useState<'no-change' | 'manual' | 'override'>('override')
+  const [catalogBulkPreview, setCatalogBulkPreview] = useState<LibraryBulkUpdateResult | null>(null)
+  const [priceBulkPreview, setPriceBulkPreview] = useState<LibraryBulkUpdateResult | null>(null)
+  const [bulkError, setBulkError] = useState<string | null>(null)
+  const [isBulkSaving, setIsBulkSaving] = useState(false)
   const displayCurrencyCode = normalizeCurrencyCode(currencyCode)
 
   const selectedPriceList = useMemo(
@@ -349,6 +802,16 @@ export function LibrariesPage({
     return extras.map((item) => ({ id: item.id, label: formatExtraLabel(item) }))
   }, [boards, extras, handles, hinges, itemSupplierDraft.item_type, slides])
 
+  const itemLabelByRef = useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const row of boards) labels.set(`board:${row.id}`, formatBoardLabel(row))
+    for (const row of slides) labels.set(`slide:${row.id}`, formatSlideLabel(row))
+    for (const row of hinges) labels.set(`hinge:${row.id}`, formatHingeLabel(row))
+    for (const row of handles) labels.set(`handle:${row.id}`, formatHandleLabel(row))
+    for (const row of extras) labels.set(`extra:${row.id}`, formatExtraLabel(row))
+    return labels
+  }, [boards, extras, handles, hinges, slides])
+
   const currentPriceRows = useMemo(
     () => priceItems.filter((item) => item.is_current),
     [priceItems],
@@ -360,6 +823,155 @@ export function LibrariesPage({
   const retiredPriceRows = useMemo(
     () => priceItems.filter((item) => item.effective_status === 'retired'),
     [priceItems],
+  )
+  const activeCatalogBulkResource = catalogResourceForTab(activeTab)
+  const activeCatalogSelection = activeCatalogBulkResource ? selectedCatalogIds[activeCatalogBulkResource] : []
+  const activeCatalogBulkFields = activeCatalogBulkResource
+    ? catalogBulkFields[activeCatalogBulkResource].map((field) =>
+        field.value === 'category_id'
+          ? {
+              ...field,
+              options: extraCategories.map((category) => ({ label: category.name, value: category.id })),
+            }
+          : field,
+      )
+    : []
+  const activeCatalogBulkField = activeCatalogBulkFields.find((field) => field.value === catalogBulkField) ?? activeCatalogBulkFields[0] ?? null
+
+  const visibleBoards = useMemo(
+    () =>
+      boards.filter(
+        (row) =>
+          searchTextMatches(catalogSearch, [row.brand, row.material, row.thickness, row.length_mm, row.width_mm, row.costing_mode]) &&
+          matchesRecent(row.updated_at, catalogRecentDays),
+      ),
+    [boards, catalogRecentDays, catalogSearch],
+  )
+  const visibleSlides = useMemo(
+    () =>
+      slides.filter(
+        (row) =>
+          searchTextMatches(catalogSearch, [row.brand, row.model, row.code, row.length, row.side_length]) &&
+          matchesRecent(row.updated_at, catalogRecentDays),
+      ),
+    [catalogRecentDays, catalogSearch, slides],
+  )
+  const visibleHinges = useMemo(
+    () =>
+      hinges.filter(
+        (row) =>
+          searchTextMatches(catalogSearch, [row.brand, row.model, row.code, row.opening_angle_deg]) &&
+          matchesRecent(row.updated_at, catalogRecentDays),
+      ),
+    [catalogRecentDays, catalogSearch, hinges],
+  )
+  const visibleHandles = useMemo(
+    () =>
+      handles.filter(
+        (row) =>
+          searchTextMatches(catalogSearch, [row.name, row.supplier, row.code]) &&
+          matchesRecent(row.updated_at, catalogRecentDays),
+      ),
+    [catalogRecentDays, catalogSearch, handles],
+  )
+  const visibleSuppliers = useMemo(
+    () =>
+      suppliers.filter(
+        (row) =>
+          searchTextMatches(catalogSearch, [row.name, row.code, row.contact_name, row.email, row.phone, row.notes]) &&
+          matchesRecent(row.updated_at, catalogRecentDays),
+      ),
+    [catalogRecentDays, catalogSearch, suppliers],
+  )
+  const visibleItemSuppliers = useMemo(
+    () =>
+      itemSuppliers.filter((row) => {
+        const label = itemLabelByRef.get(`${row.item_type}:${row.item_ref_id}`) ?? `${row.item_type} ${row.item_ref_id}`
+        return (
+          searchTextMatches(catalogSearch, [
+            label,
+            row.item_type,
+            row.supplier_name,
+            row.supplier_sku,
+            row.supplier_description,
+            row.price_component,
+            row.order_uom,
+          ]) && matchesRecent(row.updated_at, catalogRecentDays)
+        )
+      }),
+    [catalogRecentDays, catalogSearch, itemLabelByRef, itemSuppliers],
+  )
+  const visibleExtraCategories = useMemo(
+    () =>
+      extraCategories.filter(
+        (row) =>
+          searchTextMatches(catalogSearch, [row.name]) &&
+          matchesRecent(row.updated_at, catalogRecentDays),
+      ),
+    [catalogRecentDays, catalogSearch, extraCategories],
+  )
+  const visibleExtras = useMemo(
+    () =>
+      extras.filter(
+        (row) =>
+          (extraCategoryFilter === 'all' || row.category_id === extraCategoryFilter) &&
+          searchTextMatches(catalogSearch, [row.name, row.category_name, row.supplier, row.code, row.notes]) &&
+          matchesRecent(row.updated_at, catalogRecentDays),
+      ),
+    [catalogRecentDays, catalogSearch, extraCategoryFilter, extras],
+  )
+  const visiblePriceRows = useMemo(
+    () =>
+      priceItems.filter(
+        (row) =>
+          (priceStatusFilter === 'all' || row.effective_status === priceStatusFilter) &&
+          (priceTypeFilter === 'all' || row.item_type === priceTypeFilter) &&
+          (priceSourceFilter === 'all' || row.cost_source === priceSourceFilter) &&
+          searchTextMatches(priceSearch, [
+            row.item_type,
+            row.item_key,
+            row.price_component,
+            row.uom,
+            row.cost_source,
+            row.item_ref_id ? itemLabelByRef.get(`${row.item_type}:${row.item_ref_id}`) : '',
+          ]) &&
+          matchesRecent(row.updated_at, priceRecentDays),
+      ),
+    [itemLabelByRef, priceItems, priceRecentDays, priceSearch, priceSourceFilter, priceStatusFilter, priceTypeFilter],
+  )
+  const missingPriceRows = useMemo<MissingPriceRow[]>(() => {
+    const rows: MissingPriceRow[] = []
+    for (const row of boards) {
+      const components = priceComponentsForItem('board', row).filter(
+        (component) => !hasCurrentPrice(priceItems, 'board', row.id, component),
+      )
+      if (components.length > 0) rows.push({ components, id: row.id, item_type: 'board', label: formatBoardLabel(row) })
+    }
+    for (const row of slides) {
+      const components = priceComponentsForItem('slide').filter((component) => !hasCurrentPrice(priceItems, 'slide', row.id, component))
+      if (components.length > 0) rows.push({ components, id: row.id, item_type: 'slide', label: formatSlideLabel(row) })
+    }
+    for (const row of hinges) {
+      const components = priceComponentsForItem('hinge').filter((component) => !hasCurrentPrice(priceItems, 'hinge', row.id, component))
+      if (components.length > 0) rows.push({ components, id: row.id, item_type: 'hinge', label: formatHingeLabel(row) })
+    }
+    for (const row of handles) {
+      const components = priceComponentsForItem('handle').filter((component) => !hasCurrentPrice(priceItems, 'handle', row.id, component))
+      if (components.length > 0) rows.push({ components, id: row.id, item_type: 'handle', label: formatHandleLabel(row) })
+    }
+    for (const row of extras) {
+      const components = priceComponentsForItem('extra').filter((component) => !hasCurrentPrice(priceItems, 'extra', row.id, component))
+      if (components.length > 0) rows.push({ components, id: row.id, item_type: 'extra', label: formatExtraLabel(row) })
+    }
+    return rows.filter(
+      (row) =>
+        (missingPriceTypeFilter === 'all' || row.item_type === missingPriceTypeFilter) &&
+        searchTextMatches(priceSearch, [row.label, row.item_type, row.components.join(' ')]),
+    )
+  }, [boards, extras, handles, hinges, missingPriceTypeFilter, priceItems, priceSearch, slides])
+  const currentVisiblePriceRows = useMemo(
+    () => visiblePriceRows.filter((row) => row.effective_status === 'current'),
+    [visiblePriceRows],
   )
 
   const importSummaryItems = useMemo(() => {
@@ -386,16 +998,6 @@ export function LibrariesPage({
   }, [importApplyResult])
 
   const visibleImportApplyRows = useMemo(() => importApplyResult?.rows.slice(0, 50) ?? [], [importApplyResult])
-
-  const itemLabelByRef = useMemo(() => {
-    const labels = new Map<string, string>()
-    for (const row of boards) labels.set(`board:${row.id}`, formatBoardLabel(row))
-    for (const row of slides) labels.set(`slide:${row.id}`, formatSlideLabel(row))
-    for (const row of hinges) labels.set(`hinge:${row.id}`, formatHingeLabel(row))
-    for (const row of handles) labels.set(`handle:${row.id}`, formatHandleLabel(row))
-    for (const row of extras) labels.set(`extra:${row.id}`, formatExtraLabel(row))
-    return labels
-  }, [boards, extras, handles, hinges, slides])
 
   const refreshSetupChecklist = useCallback(async () => {
     setIsLoadingChecklist(true)
@@ -580,6 +1182,29 @@ export function LibrariesPage({
     return () => window.clearTimeout(handle)
   }, [selectedDiscountSupplier])
 
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      if (!activeCatalogBulkResource) {
+        setCatalogBulkField('')
+        setCatalogBulkValue('')
+        setCatalogBulkPreview(null)
+        return
+      }
+      const firstField = catalogBulkFields[activeCatalogBulkResource][0]
+      setCatalogBulkField(firstField.value)
+      if (firstField.input === 'select') {
+        const firstOption = firstField.value === 'category_id' ? extraCategories[0]?.id ?? '' : firstField.options?.[0]?.value ?? ''
+        setCatalogBulkValue(firstOption)
+      } else {
+        setCatalogBulkValue('')
+      }
+      setCatalogBulkPreview(null)
+      setBulkError(null)
+    }, 0)
+
+    return () => window.clearTimeout(handle)
+  }, [activeCatalogBulkResource, extraCategories])
+
   const lookupPriceCents = useCallback(
     (itemType: PriceItemType, itemRefId: string, priceComponent: string) => {
       const canonicalKey = `${itemType}::${itemRefId}`
@@ -648,6 +1273,219 @@ export function LibrariesPage({
       return
     }
     setActiveTab(actionTarget)
+  }
+
+  function visibleCatalogIds(resource: LibraryCatalogBulkResource) {
+    if (resource === 'boards') return visibleBoards.map((row) => row.id)
+    if (resource === 'slides') return visibleSlides.map((row) => row.id)
+    if (resource === 'hinges') return visibleHinges.map((row) => row.id)
+    if (resource === 'handles') return visibleHandles.map((row) => row.id)
+    if (resource === 'extras') return visibleExtras.map((row) => row.id)
+    return visibleSuppliers.map((row) => row.id)
+  }
+
+  function handleCatalogSelection(resource: LibraryCatalogBulkResource, itemId: string, checked: boolean) {
+    setSelectedCatalogIds((current) => ({
+      ...current,
+      [resource]: toggleId(current[resource], itemId, checked),
+    }))
+    setCatalogBulkPreview(null)
+    setBulkError(null)
+  }
+
+  function selectVisibleCatalogRows(resource: LibraryCatalogBulkResource) {
+    setSelectedCatalogIds((current) => ({
+      ...current,
+      [resource]: visibleCatalogIds(resource),
+    }))
+    setCatalogBulkPreview(null)
+    setBulkError(null)
+  }
+
+  function clearCatalogSelection(resource: LibraryCatalogBulkResource) {
+    setSelectedCatalogIds((current) => ({ ...current, [resource]: [] }))
+    setCatalogBulkPreview(null)
+    setBulkError(null)
+  }
+
+  function handlePriceSelection(itemId: string, checked: boolean) {
+    setSelectedPriceItemIds((current) => toggleId(current, itemId, checked))
+    setPriceBulkPreview(null)
+    setBulkError(null)
+  }
+
+  function selectVisiblePriceRows() {
+    setSelectedPriceItemIds(currentVisiblePriceRows.map((row) => row.id))
+    setPriceBulkPreview(null)
+    setBulkError(null)
+  }
+
+  function catalogBulkUpdates() {
+    if (!activeCatalogBulkField) return null
+    if (activeCatalogBulkField.value === 'default_discount_bps') {
+      const bps = percentStringToBps(catalogBulkValue)
+      if (bps === null) return null
+      return { [activeCatalogBulkField.value]: bps }
+    }
+    if (!catalogBulkValue.trim()) return null
+    return { [activeCatalogBulkField.value]: catalogBulkValue.trim() }
+  }
+
+  async function runCatalogBulkUpdate(confirm: boolean) {
+    if (!activeCatalogBulkResource || !activeCatalogBulkField) return
+    const itemIds = onlyVisibleSelected(activeCatalogSelection, visibleCatalogIds(activeCatalogBulkResource))
+    const updates = catalogBulkUpdates()
+    if (itemIds.length === 0) {
+      setBulkError('Select at least one visible row before previewing a bulk edit.')
+      return
+    }
+    if (!updates) {
+      setBulkError('Choose a valid bulk value before previewing.')
+      return
+    }
+
+    setIsBulkSaving(true)
+    setBulkError(null)
+    try {
+      const result = await apiRequest<LibraryBulkUpdateResult>('/api/v1/libraries/catalog/bulk-update', {
+        body: {
+          confirm,
+          item_ids: itemIds,
+          resource: activeCatalogBulkResource,
+          updates,
+        },
+        method: 'PATCH',
+        token: authToken,
+      })
+      setCatalogBulkPreview(result)
+      if (confirm) {
+        clearCatalogSelection(activeCatalogBulkResource)
+        await refreshCatalog()
+        await refreshSetupChecklist()
+        setActionSuccess(result.summary_message)
+      }
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : 'Bulk catalog update failed.')
+    } finally {
+      setIsBulkSaving(false)
+    }
+  }
+
+  function priceBulkPayload() {
+    const payload: { cost_source?: 'manual' | 'override'; unit_price_cents?: number; uom?: string } = {}
+    if (priceBulkAmount.trim()) {
+      const amount = amountStringToCents(priceBulkAmount)
+      if (amount === null) return null
+      payload.unit_price_cents = amount
+    }
+    if (priceBulkUom.trim()) payload.uom = priceBulkUom.trim()
+    if (priceBulkSource !== 'no-change') payload.cost_source = priceBulkSource
+    return Object.keys(payload).length > 0 ? payload : null
+  }
+
+  async function runPriceBulkUpdate(confirm: boolean) {
+    if (!selectedPriceListId) {
+      setBulkError('Select a price list before bulk editing prices.')
+      return
+    }
+    const currentVisibleIds = new Set(currentVisiblePriceRows.map((row) => row.id))
+    const itemIds = selectedPriceItemIds.filter((id) => currentVisibleIds.has(id))
+    const payload = priceBulkPayload()
+    if (itemIds.length === 0) {
+      setBulkError('Select at least one current price row before previewing.')
+      return
+    }
+    if (!payload) {
+      setBulkError('Enter a price, UOM, or source change before previewing.')
+      return
+    }
+
+    setIsBulkSaving(true)
+    setBulkError(null)
+    try {
+      const result = await apiRequest<LibraryBulkUpdateResult>(
+        `/api/v1/libraries/price-lists/${selectedPriceListId}/items/bulk-update`,
+        {
+          body: {
+            ...payload,
+            confirm,
+            item_ids: itemIds,
+          },
+          method: 'PATCH',
+          token: authToken,
+        },
+      )
+      setPriceBulkPreview(result)
+      if (confirm) {
+        setSelectedPriceItemIds([])
+        await refreshPriceItems(selectedPriceListId)
+        await refreshSetupChecklist()
+        setActionSuccess(result.summary_message)
+      }
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : 'Bulk price update failed.')
+    } finally {
+      setIsBulkSaving(false)
+    }
+  }
+
+  function renderCatalogMaintenance(resource: LibraryCatalogBulkResource, totalCount: number, visibleIds: string[]) {
+    const selectedCount = onlyVisibleSelected(selectedCatalogIds[resource], visibleIds).length
+    return (
+      <div className="grid gap-3">
+        <MaintenanceToolbar
+          recentDays={catalogRecentDays}
+          search={catalogSearch}
+          onRecentDaysChange={setCatalogRecentDays}
+          onSearchChange={setCatalogSearch}
+        >
+          {resource === 'extras' ? (
+            <Label className="grid min-w-44 gap-1.5">
+              Category
+              <Select value={extraCategoryFilter} onChange={(event) => setExtraCategoryFilter(event.target.value)}>
+                <option value="all">All categories</option>
+                {extraCategories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </Select>
+            </Label>
+          ) : null}
+        </MaintenanceToolbar>
+        <CatalogBulkPanel
+          field={activeCatalogBulkField}
+          fields={activeCatalogBulkFields}
+          isSaving={isBulkSaving}
+          preview={catalogBulkPreview}
+          resource={resource}
+          selectedCount={selectedCount}
+          value={catalogBulkValue}
+          visibleCount={visibleIds.length}
+          onApply={() => {
+            void runCatalogBulkUpdate(true)
+          }}
+          onClearSelection={() => clearCatalogSelection(resource)}
+          onFieldChange={(fieldValue) => {
+            const nextField = activeCatalogBulkFields.find((field) => field.value === fieldValue)
+            setCatalogBulkField(fieldValue)
+            setCatalogBulkValue(nextField?.options?.[0]?.value ?? '')
+            setCatalogBulkPreview(null)
+            setBulkError(null)
+          }}
+          onPreview={() => {
+            void runCatalogBulkUpdate(false)
+          }}
+          onSelectVisible={() => selectVisibleCatalogRows(resource)}
+          onValueChange={(value) => {
+            setCatalogBulkValue(value)
+            setCatalogBulkPreview(null)
+            setBulkError(null)
+          }}
+        />
+        <FilteredEmptyNotice filteredCount={visibleIds.length} totalCount={totalCount} />
+      </div>
+    )
   }
 
   function clearImportResults() {
@@ -1458,6 +2296,7 @@ export function LibrariesPage({
           {pricingError ? <Alert variant="destructive">{pricingError}</Alert> : null}
           {checklistError ? <Alert variant="destructive">{checklistError}</Alert> : null}
           {actionError ? <Alert variant="destructive">{actionError}</Alert> : null}
+          {bulkError ? <Alert variant="destructive">{bulkError}</Alert> : null}
           {actionSuccess ? <Alert>{actionSuccess}</Alert> : null}
         </CardContent>
       </Card>
@@ -2033,11 +2872,11 @@ export function LibrariesPage({
                 </form>
               </CardContent>
             </Card>
-          </section>
+              </section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Price History</CardTitle>
+              <Card>
+	            <CardHeader>
+	              <CardTitle className="text-base">Price History</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -2045,10 +2884,93 @@ export function LibrariesPage({
                 <Badge variant="outline">{futurePriceRows.length} future</Badge>
                 <Badge variant="warning">{retiredPriceRows.length} retired</Badge>
               </div>
+              <div className="mb-3 grid gap-3">
+                <MaintenanceToolbar
+                  recentDays={priceRecentDays}
+                  search={priceSearch}
+                  onRecentDaysChange={setPriceRecentDays}
+                  onSearchChange={setPriceSearch}
+                >
+                  <Label className="grid min-w-36 gap-1.5">
+                    Status
+                    <Select value={priceStatusFilter} onChange={(event) => setPriceStatusFilter(event.target.value as PriceStatusFilterValue)}>
+                      {priceStatusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                  <Label className="grid min-w-32 gap-1.5">
+                    Type
+                    <Select value={priceTypeFilter} onChange={(event) => setPriceTypeFilter(event.target.value as PriceTypeFilterValue)}>
+                      <option value="all">All types</option>
+                      {priceItemTypes.map((itemType) => (
+                        <option key={itemType} value={itemType}>
+                          {itemType}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                  <Label className="grid min-w-36 gap-1.5">
+                    Source
+                    <Select value={priceSourceFilter} onChange={(event) => setPriceSourceFilter(event.target.value as PriceSourceFilterValue)}>
+                      {priceSourceOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                </MaintenanceToolbar>
+                <MissingPricesPanel
+                  missingPriceRows={missingPriceRows}
+                  typeFilter={missingPriceTypeFilter}
+                  onTypeFilterChange={setMissingPriceTypeFilter}
+                />
+                <PriceBulkPanel
+                  amount={priceBulkAmount}
+                  isSaving={isBulkSaving}
+                  preview={priceBulkPreview}
+                  selectedCount={selectedPriceItemIds.length}
+                  source={priceBulkSource}
+                  uom={priceBulkUom}
+                  visibleCurrentCount={currentVisiblePriceRows.length}
+                  onAmountChange={(value) => {
+                    setPriceBulkAmount(value)
+                    setPriceBulkPreview(null)
+                    setBulkError(null)
+                  }}
+                  onApply={() => {
+                    void runPriceBulkUpdate(true)
+                  }}
+                  onClearSelection={() => {
+                    setSelectedPriceItemIds([])
+                    setPriceBulkPreview(null)
+                    setBulkError(null)
+                  }}
+                  onPreview={() => {
+                    void runPriceBulkUpdate(false)
+                  }}
+                  onSelectVisible={selectVisiblePriceRows}
+                  onSourceChange={(value) => {
+                    setPriceBulkSource(value)
+                    setPriceBulkPreview(null)
+                    setBulkError(null)
+                  }}
+                  onUomChange={(value) => {
+                    setPriceBulkUom(value)
+                    setPriceBulkPreview(null)
+                    setBulkError(null)
+                  }}
+                />
+                <FilteredEmptyNotice filteredCount={visiblePriceRows.length} totalCount={priceItems.length} />
+              </div>
               <TableContainer>
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">Select</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Item</TableHead>
                       <TableHead>Component</TableHead>
@@ -2060,9 +2982,9 @@ export function LibrariesPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {priceItems.length === 0 ? (
+                    {visiblePriceRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8}>
+                        <TableCell colSpan={9}>
                           <div className="grid gap-1 py-3">
                             <p className="font-medium">Build prices for the active list.</p>
                             <p className="text-sm leading-5 text-muted-foreground">
@@ -2072,8 +2994,15 @@ export function LibrariesPage({
                         </TableCell>
                       </TableRow>
                     ) : (
-                      priceItems.map((row) => (
+                      visiblePriceRows.map((row) => (
                         <TableRow key={row.id}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedPriceItemIds.includes(row.id)}
+                              disabled={row.effective_status !== 'current'}
+                              onChange={(event) => handlePriceSelection(row.id, event.target.checked)}
+                            />
+                          </TableCell>
                           <TableCell>{row.item_type}</TableCell>
                           <TableCell>
                             {row.item_ref_id
@@ -2153,14 +3082,18 @@ export function LibrariesPage({
             </CardContent>
           </Card>
 
+          {renderCatalogMaintenance('boards', boards.length, visibleBoards.map((row) => row.id))}
+
           <LibraryBoardsTable
-            boards={boards}
+            boards={visibleBoards}
             editingBoard={editingBoard}
             isSaving={isSaving}
             onDelete={deleteBoard}
             onEdit={setEditingBoard}
             onEditChange={setEditingBoard}
+            onSelectionChange={(itemId, checked) => handleCatalogSelection('boards', itemId, checked)}
             onUpdate={updateBoard}
+            selectedIds={selectedCatalogIds.boards}
           />
         </>
       ) : null}
@@ -2211,14 +3144,18 @@ export function LibrariesPage({
             </CardContent>
           </Card>
 
+          {renderCatalogMaintenance('slides', slides.length, visibleSlides.map((row) => row.id))}
+
           <LibrarySlidesTable
             editingSlide={editingSlide}
             isSaving={isSaving}
             onDelete={deleteSlide}
             onEdit={setEditingSlide}
             onEditChange={setEditingSlide}
+            onSelectionChange={(itemId, checked) => handleCatalogSelection('slides', itemId, checked)}
             onUpdate={updateSlide}
-            slides={slides}
+            selectedIds={selectedCatalogIds.slides}
+            slides={visibleSlides}
           />
         </>
       ) : null}
@@ -2257,14 +3194,18 @@ export function LibrariesPage({
             </CardContent>
           </Card>
 
+          {renderCatalogMaintenance('hinges', hinges.length, visibleHinges.map((row) => row.id))}
+
           <LibraryHingesTable
             editingHinge={editingHinge}
-            hinges={hinges}
+            hinges={visibleHinges}
             isSaving={isSaving}
             onDelete={deleteHinge}
             onEdit={setEditingHinge}
             onEditChange={setEditingHinge}
+            onSelectionChange={(itemId, checked) => handleCatalogSelection('hinges', itemId, checked)}
             onUpdate={updateHinge}
+            selectedIds={selectedCatalogIds.hinges}
           />
         </>
       ) : null}
@@ -2468,6 +3409,8 @@ export function LibrariesPage({
             </Card>
           </section>
 
+          {renderCatalogMaintenance('suppliers', suppliers.length, visibleSuppliers.map((row) => row.id))}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Suppliers</CardTitle>
@@ -2477,6 +3420,7 @@ export function LibrariesPage({
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">Select</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Code</TableHead>
                       <TableHead>Contact</TableHead>
@@ -2485,9 +3429,9 @@ export function LibrariesPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {suppliers.length === 0 ? (
+                    {visibleSuppliers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5}>
+                        <TableCell colSpan={6}>
                           <div className="grid gap-1 py-3">
                             <p className="font-medium">Add your main board or hardware supplier.</p>
                             <p className="text-sm leading-5 text-muted-foreground">
@@ -2497,8 +3441,14 @@ export function LibrariesPage({
                         </TableCell>
                       </TableRow>
                     ) : (
-                      suppliers.map((row) => (
+                      visibleSuppliers.map((row) => (
                         <TableRow key={row.id}>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedCatalogIds.suppliers.includes(row.id)}
+                              onChange={(event) => handleCatalogSelection('suppliers', row.id, event.target.checked)}
+                            />
+                          </TableCell>
                           <TableCell>{row.name}</TableCell>
                           <TableCell>{row.code || '-'}</TableCell>
                           <TableCell>{row.contact_name || row.email || row.phone || '-'}</TableCell>
@@ -2567,12 +3517,13 @@ export function LibrariesPage({
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Supplier Sources</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TableContainer>
-                <Table>
+	            <CardHeader>
+	              <CardTitle className="text-base">Supplier Sources</CardTitle>
+	            </CardHeader>
+	            <CardContent className="grid gap-3">
+	              <FilteredEmptyNotice filteredCount={visibleItemSuppliers.length} totalCount={itemSuppliers.length} />
+	              <TableContainer>
+	                <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Item</TableHead>
@@ -2585,9 +3536,9 @@ export function LibrariesPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {itemSuppliers.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7}>
+	                    {visibleItemSuppliers.length === 0 ? (
+	                      <TableRow>
+	                        <TableCell colSpan={7}>
                           <div className="grid gap-1 py-3">
                             <p className="font-medium">Link supplier costs when you are ready to automate pricing.</p>
                             <p className="text-sm leading-5 text-muted-foreground">
@@ -2597,7 +3548,7 @@ export function LibrariesPage({
                         </TableCell>
                       </TableRow>
                     ) : (
-                      itemSuppliers.map((row) => (
+	                      visibleItemSuppliers.map((row) => (
                         <TableRow key={row.id}>
                           <TableCell>
                             {itemLabelByRef.get(`${row.item_type}:${row.item_ref_id}`) ?? `${row.item_type} ${row.item_ref_id}`}
@@ -2658,14 +3609,18 @@ export function LibrariesPage({
             </CardContent>
           </Card>
 
+          {renderCatalogMaintenance('handles', handles.length, visibleHandles.map((row) => row.id))}
+
           <LibraryHandlesTable
             editingHandle={editingHandle}
-            handles={handles}
+            handles={visibleHandles}
             isSaving={isSaving}
             onDelete={deleteHandle}
             onEdit={setEditingHandle}
             onEditChange={setEditingHandle}
+            onSelectionChange={(itemId, checked) => handleCatalogSelection('handles', itemId, checked)}
             onUpdate={updateHandle}
+            selectedIds={selectedCatalogIds.handles}
           />
         </>
       ) : null}
@@ -2693,8 +3648,18 @@ export function LibrariesPage({
             </CardContent>
           </Card>
 
+          <div className="grid gap-3">
+            <MaintenanceToolbar
+              recentDays={catalogRecentDays}
+              search={catalogSearch}
+              onRecentDaysChange={setCatalogRecentDays}
+              onSearchChange={setCatalogSearch}
+            />
+            <FilteredEmptyNotice filteredCount={visibleExtraCategories.length} totalCount={extraCategories.length} />
+          </div>
+
           <LibraryExtraCategoriesTable
-            categories={extraCategories}
+            categories={visibleExtraCategories}
             editingCategory={editingExtraCategory}
             isSaving={isSaving}
             onDelete={deleteExtraCategory}
@@ -2757,15 +3722,19 @@ export function LibrariesPage({
             </CardContent>
           </Card>
 
+          {renderCatalogMaintenance('extras', extras.length, visibleExtras.map((row) => row.id))}
+
           <LibraryExtrasTable
             categories={extraCategories}
             editingExtra={editingExtra}
-            extras={extras}
+            extras={visibleExtras}
             isSaving={isSaving}
             onDelete={deleteExtra}
             onEdit={setEditingExtra}
             onEditChange={setEditingExtra}
+            onSelectionChange={(itemId, checked) => handleCatalogSelection('extras', itemId, checked)}
             onUpdate={updateExtra}
+            selectedIds={selectedCatalogIds.extras}
           />
         </>
       ) : null}
