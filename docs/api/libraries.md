@@ -82,6 +82,110 @@ The checklist is intentionally business-facing. For example, it explains that
 quote defaults live on quotes rather than asking the user to understand database
 tables.
 
+## Import Preview
+
+```http
+POST /api/v1/libraries/imports/preview
+```
+
+Permission: `pricing:update`.
+
+This endpoint parses CSV, TSV, or XLSX library rows and returns a dry-run
+classification. It does not create, update, or delete library data. A future
+commit endpoint should apply only rows that have already been previewed and
+approved by the user.
+
+Supported `resource` values:
+
+- `boards`
+- `slides`
+- `hinges`
+- `handles`
+- `suppliers`
+- `extra_categories`
+- `extras`
+- `supplier_item_costs`
+- `price_list_items`
+
+Request:
+
+```json
+{
+  "resource": "boards",
+  "source_format": "csv",
+  "filename": "boards.csv",
+  "sheet_name": null,
+  "content": "Brand,Material,Thickness,Length,Width,Costing Mode\nPG Bison,MelaWood,16,2750,1830,sheet\n",
+  "column_mapping": {
+    "thickness": "Thickness"
+  },
+  "price_list_id": null
+}
+```
+
+For `xlsx`, send `content` as base64-encoded workbook bytes and optionally set
+`sheet_name`. For `price_list_items`, `price_list_id` selects the price list to
+preview against; when omitted, the API uses the company's active price list.
+
+Response:
+
+```json
+{
+  "resource": "boards",
+  "source_format": "csv",
+  "sheet_name": null,
+  "columns": ["Brand", "Material", "Thickness", "Length", "Width", "Costing Mode"],
+  "mapped_fields": [
+    {
+      "field": "brand",
+      "label": "Brand",
+      "source_column": "Brand",
+      "required": true
+    }
+  ],
+  "summary": {
+    "total_rows": 2,
+    "create_count": 1,
+    "update_count": 0,
+    "skipped_count": 0,
+    "duplicate_count": 0,
+    "blocked_count": 1
+  },
+  "rows": [
+    {
+      "row_number": 2,
+      "status": "create",
+      "identity": "board:pg bison:melawood:16:2750:1830",
+      "message": "This row will be created when the import is applied.",
+      "payload": {
+        "brand": "PG Bison",
+        "material": "MelaWood",
+        "thickness": 16,
+        "length_mm": 2750,
+        "width_mm": 1830,
+        "costing_mode": "sheet"
+      },
+      "problems": []
+    }
+  ]
+}
+```
+
+Row `status` is one of:
+
+- `create`: no matching row exists in the current company library.
+- `update`: a matching row exists, but the imported values differ.
+- `skipped`: a blank row or an unchanged existing row.
+- `duplicate`: an earlier row in the same file has the same identity.
+- `blocked`: required data, references, units, dimensions, currency, or prices
+  need correction before the row can be applied.
+
+Each problem includes `field`, `code`, `severity`, `message`, and `suggestion`
+so the frontend can show plain validation feedback without parsing exception
+text. Preview lookups are scoped to the authenticated user's `company_id`,
+including supplier, category, catalog item, supplier-cost, and price-list
+references.
+
 ## Catalog Libraries
 
 Each catalog library supports:

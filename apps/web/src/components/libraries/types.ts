@@ -14,6 +14,19 @@ export type PriceItemType = 'board' | 'slide' | 'hinge' | 'handle' | 'extra'
 export type LibrarySetupStatus = 'ready' | 'needs_attention'
 export type LibrarySetupItemStatus = 'complete' | 'missing' | 'warning' | 'action_needed'
 export type LibrarySetupActionTarget = LibraryTab | 'projects'
+export type LibraryImportResource =
+  | 'boards'
+  | 'slides'
+  | 'hinges'
+  | 'handles'
+  | 'suppliers'
+  | 'extra_categories'
+  | 'extras'
+  | 'supplier_item_costs'
+  | 'price_list_items'
+export type LibraryImportSourceFormat = 'csv' | 'tsv' | 'xlsx'
+export type LibraryImportRowStatus = 'create' | 'update' | 'skipped' | 'duplicate' | 'blocked'
+export type LibraryImportProblemSeverity = 'error' | 'warning'
 
 export type LibrarySetupChecklistItem = {
   id: string
@@ -32,6 +45,59 @@ export type LibrarySetupChecklist = {
   complete_count: number
   total_count: number
   items: LibrarySetupChecklistItem[]
+}
+
+export type LibraryImportPreviewRequest = {
+  resource: LibraryImportResource
+  source_format: LibraryImportSourceFormat
+  filename: string
+  sheet_name: string | null
+  content: string
+  column_mapping: Record<string, string>
+  price_list_id: string | null
+}
+
+export type LibraryImportMappedField = {
+  field: string
+  label: string
+  source_column: string
+  required: boolean
+}
+
+export type LibraryImportProblem = {
+  field: string
+  code: string
+  severity: LibraryImportProblemSeverity
+  message: string
+  suggestion: string
+}
+
+export type LibraryImportPreviewRow = {
+  row_number: number
+  status: LibraryImportRowStatus
+  identity: string
+  message: string
+  payload: Record<string, unknown>
+  problems: LibraryImportProblem[]
+}
+
+export type LibraryImportPreviewSummary = {
+  total_rows: number
+  create_count: number
+  update_count: number
+  skipped_count: number
+  duplicate_count: number
+  blocked_count: number
+}
+
+export type LibraryImportPreview = {
+  resource: LibraryImportResource
+  source_format: LibraryImportSourceFormat
+  sheet_name: string | null
+  columns: string[]
+  mapped_fields: LibraryImportMappedField[]
+  summary: LibraryImportPreviewSummary
+  rows: LibraryImportPreviewRow[]
 }
 
 export type BoardTypeRow = {

@@ -7,6 +7,8 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from corequote_api.library_imports import build_import_preview, build_reference_maps
+
 
 class LibraryError(Exception):
     pass
@@ -1164,6 +1166,35 @@ class LibraryStore:
                 {"company_id": company_id},
             ).fetchone()
         return _build_setup_checklist(summary)
+
+    def preview_library_import(self, company_id: str, payload: dict[str, Any]) -> dict:
+        price_list_id = str(payload.get("price_list_id") or "").strip()
+        if not price_list_id and payload.get("resource") == "price_list_items":
+            try:
+                price_list_id = self.get_active_price_list(company_id)["id"]
+            except LibraryNotFound:
+                price_list_id = ""
+
+        price_items: list[dict] = []
+        if price_list_id:
+            try:
+                price_items = self.list_price_list_items(company_id, price_list_id)
+            except LibraryNotFound:
+                price_list_id = ""
+
+        snapshot = {
+            "boards": self.list_boards(company_id),
+            "slides": self.list_slides(company_id),
+            "hinges": self.list_hinges(company_id),
+            "handles": self.list_handles(company_id),
+            "suppliers": self.list_suppliers(company_id),
+            "extra_categories": self.list_extra_categories(company_id),
+            "extras": self.list_extras(company_id),
+            "item_suppliers": self.list_item_suppliers(company_id),
+            "price_items": price_items,
+            "price_list_id": price_list_id,
+        }
+        return build_import_preview(payload, build_reference_maps(snapshot))
 
     def _list(self, config: ResourceConfig, company_id: str) -> list[dict]:
         with self._connect() as conn:

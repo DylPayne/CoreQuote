@@ -5,14 +5,16 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   CircleDashed,
+  Eye,
   ExternalLink,
+  FileSpreadsheet,
   LoaderCircle,
   Percent,
   Plus,
   RefreshCcw,
   Save,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -40,7 +42,7 @@ import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, Li
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -51,6 +53,36 @@ const generationTypeOptions: Array<{ label: string; value: PriceItemType }> = [
   { label: 'Extras', value: 'extra' },
   { label: 'Boards', value: 'board' },
 ]
+
+const importResourceOptions: Array<{ label: string; value: LibraryImportResource }> = [
+  { label: 'Boards', value: 'boards' },
+  { label: 'Slides', value: 'slides' },
+  { label: 'Hinges', value: 'hinges' },
+  { label: 'Handles', value: 'handles' },
+  { label: 'Suppliers', value: 'suppliers' },
+  { label: 'Extra categories', value: 'extra_categories' },
+  { label: 'Extras', value: 'extras' },
+  { label: 'Supplier item costs', value: 'supplier_item_costs' },
+  { label: 'Price list rows', value: 'price_list_items' },
+]
+
+const importSourceFormatOptions: Array<{ label: string; value: LibraryImportSourceFormat }> = [
+  { label: 'CSV', value: 'csv' },
+  { label: 'TSV', value: 'tsv' },
+  { label: 'XLSX', value: 'xlsx' },
+]
+
+const importExampleByResource: Record<LibraryImportResource, string> = {
+  boards: 'Brand,Material,Thickness,Length,Width,Costing Mode\nPG Bison,MelaWood,16,2750,1830,sheet',
+  slides: 'Brand,Model,Code,Length\nGrass,Dynapro,DYN-500,500',
+  hinges: 'Brand,Model,Code,Opening Angle\nBlum,Clip Top,BL-110,110',
+  handles: 'Name,Supplier,Code\nSlim Bar,Hafele,HB-160',
+  suppliers: 'Name,Code,Contact,Email,Default Discount\nGrass ZA,GRASS-ZA,Sales,sales@example.com,30%',
+  extra_categories: 'Name\nAppliances',
+  extras: 'Name,Category,Supplier,Code\nStove,Appliances,Defy,DFY-600',
+  supplier_item_costs: 'Item Type,Brand,Model,Code,Supplier,Order UOM,Unit Cost\nslide,Grass,Dynapro,DYN-500,Grass ZA,pairs,479.49',
+  price_list_items: 'Item Type,Brand,Model,Code,Price Component,UOM,Price\nslide,Grass,Dynapro,DYN-500,unit,pairs,899.00',
+}
 
 function _firstItemIdForType(
   itemType: PriceItemType,
@@ -105,6 +137,61 @@ function SetupStatusIcon({ status }: { status: LibrarySetupItemStatus }) {
   return <CircleDashed className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
 }
 
+function importStatusLabel(status: LibraryImportRowStatus) {
+  if (status === 'skipped') return 'skip'
+  return status
+}
+
+function importStatusBadgeVariant(status: LibraryImportRowStatus) {
+  if (status === 'create') return 'success' as const
+  if (status === 'blocked' || status === 'duplicate') return 'warning' as const
+  if (status === 'skipped') return 'outline' as const
+  return 'default' as const
+}
+
+function importResourceLabel(resource: LibraryImportResource) {
+  return importResourceOptions.find((option) => option.value === resource)?.label ?? resource
+}
+
+function parseColumnMapping(text: string): Record<string, string> {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((mapping, line, index) => {
+      const separatorIndex = line.includes('=') ? line.indexOf('=') : line.indexOf(':')
+      if (separatorIndex <= 0) {
+        throw new Error(`Column mapping line ${index + 1} needs field=Column.`)
+      }
+      const field = line.slice(0, separatorIndex).trim()
+      const column = line.slice(separatorIndex + 1).trim()
+      if (!field || !column) {
+        throw new Error(`Column mapping line ${index + 1} needs both a field and column.`)
+      }
+      mapping[field] = column
+      return mapping
+    }, {})
+}
+
+function payloadPreview(payload: Record<string, unknown>) {
+  const entries = Object.entries(payload).filter(([, value]) => value !== null && value !== '')
+  if (entries.length === 0) return '-'
+  return entries
+    .slice(0, 5)
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join(', ')
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return window.btoa(binary)
+}
+
 export function LibrariesPage({
   authToken,
   currencyCode,
@@ -136,12 +223,14 @@ export function LibrariesPage({
   const [isLoadingChecklist, setIsLoadingChecklist] = useState(true)
   const [isLoadingPriceItems, setIsLoadingPriceItems] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isPreviewingImport, setIsPreviewingImport] = useState(false)
 
   const [checklistError, setChecklistError] = useState<string | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [pricingError, setPricingError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const [boardDraft, setBoardDraft] = useState<BoardDraft>(defaultBoardDraft)
   const [slideDraft, setSlideDraft] = useState<SlideDraft>(defaultSlideDraft)
@@ -177,6 +266,13 @@ export function LibrariesPage({
   const [generationItemTypes, setGenerationItemTypes] = useState<PriceItemType[]>(['slide', 'hinge'])
   const [preserveManualOverrides, setPreserveManualOverrides] = useState(true)
   const [lastGenerationSummary, setLastGenerationSummary] = useState<GeneratePriceListSummary | null>(null)
+  const [importResource, setImportResource] = useState<LibraryImportResource>('boards')
+  const [importSourceFormat, setImportSourceFormat] = useState<LibraryImportSourceFormat>('csv')
+  const [importFilename, setImportFilename] = useState('')
+  const [importSheetName, setImportSheetName] = useState('')
+  const [importContent, setImportContent] = useState(importExampleByResource.boards)
+  const [importColumnMapping, setImportColumnMapping] = useState('')
+  const [importPreview, setImportPreview] = useState<LibraryImportPreview | null>(null)
   const displayCurrencyCode = normalizeCurrencyCode(currencyCode)
 
   const selectedPriceList = useMemo(
@@ -243,6 +339,19 @@ export function LibrariesPage({
     () => priceItems.filter((item) => item.effective_to === null),
     [priceItems],
   )
+
+  const importSummaryItems = useMemo(() => {
+    if (!importPreview) return []
+    return [
+      { label: 'new', status: 'create' as const, value: importPreview.summary.create_count },
+      { label: 'updates', status: 'update' as const, value: importPreview.summary.update_count },
+      { label: 'skips', status: 'skipped' as const, value: importPreview.summary.skipped_count },
+      { label: 'duplicates', status: 'duplicate' as const, value: importPreview.summary.duplicate_count },
+      { label: 'blocked', status: 'blocked' as const, value: importPreview.summary.blocked_count },
+    ]
+  }, [importPreview])
+
+  const visibleImportRows = useMemo(() => importPreview?.rows.slice(0, 50) ?? [], [importPreview])
 
   const itemLabelByRef = useMemo(() => {
     const labels = new Map<string, string>()
@@ -505,6 +614,83 @@ export function LibrariesPage({
       return
     }
     setActiveTab(actionTarget)
+  }
+
+  function handleImportResourceChange(nextResource: LibraryImportResource) {
+    setImportResource(nextResource)
+    setImportPreview(null)
+    setImportError(null)
+    if (!importFilename) {
+      setImportContent(importExampleByResource[nextResource])
+      setImportSourceFormat('csv')
+    }
+  }
+
+  async function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const filename = file.name
+    const extension = filename.split('.').pop()?.toLowerCase()
+    const nextFormat: LibraryImportSourceFormat = extension === 'xlsx' ? 'xlsx' : extension === 'tsv' ? 'tsv' : 'csv'
+
+    setImportFilename(filename)
+    setImportSourceFormat(nextFormat)
+    setImportPreview(null)
+    setImportError(null)
+
+    try {
+      if (nextFormat === 'xlsx') {
+        setImportContent(arrayBufferToBase64(await file.arrayBuffer()))
+      } else {
+        setImportContent(await file.text())
+      }
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Could not read the selected file.')
+    }
+  }
+
+  async function previewLibraryImport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setImportError(null)
+    setImportPreview(null)
+
+    let columnMapping: Record<string, string>
+    try {
+      columnMapping = parseColumnMapping(importColumnMapping)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Column mapping is invalid.')
+      return
+    }
+
+    if (!importContent.trim()) {
+      setImportError('Add pasted rows or upload a file before previewing.')
+      return
+    }
+
+    const payload: LibraryImportPreviewRequest = {
+      resource: importResource,
+      source_format: importSourceFormat,
+      filename: importFilename,
+      sheet_name: importSheetName.trim() || null,
+      content: importContent,
+      column_mapping: columnMapping,
+      price_list_id: importResource === 'price_list_items' ? selectedPriceListId || null : null,
+    }
+
+    setIsPreviewingImport(true)
+    try {
+      const preview = await apiRequest<LibraryImportPreview>('/api/v1/libraries/imports/preview', {
+        body: payload,
+        method: 'POST',
+        token: authToken,
+      })
+      setImportPreview(preview)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Import preview failed.')
+    } finally {
+      setIsPreviewingImport(false)
+    }
   }
 
   async function handleSavePricingSettings(event: FormEvent<HTMLFormElement>) {
@@ -1244,6 +1430,212 @@ export function LibrariesPage({
           ) : (
             <Alert variant="warning">The setup checklist is not available right now.</Alert>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+              Import Preview
+            </CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Check library rows before the import is applied.
+            </p>
+          </div>
+          <Badge variant="outline">dry run</Badge>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          {importError ? <Alert variant="destructive">{importError}</Alert> : null}
+          <form className="grid gap-3" onSubmit={previewLibraryImport}>
+            <div className="grid gap-3 lg:grid-cols-4">
+              <Label className="grid gap-1.5">
+                Import type
+                <Select
+                  value={importResource}
+                  onChange={(event) => handleImportResourceChange(event.target.value as LibraryImportResource)}
+                >
+                  {importResourceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Source
+                <Select
+                  value={importSourceFormat}
+                  onChange={(event) => {
+                    const nextFormat = event.target.value as LibraryImportSourceFormat
+                    setImportSourceFormat(nextFormat)
+                    setImportPreview(null)
+                    setImportError(null)
+                    if (nextFormat !== 'xlsx' && importSourceFormat === 'xlsx') {
+                      setImportFilename('')
+                      setImportContent(importExampleByResource[importResource])
+                    }
+                  }}
+                >
+                  {importSourceFormatOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Sheet
+                <Input
+                  disabled={importSourceFormat !== 'xlsx'}
+                  placeholder="Sheet1"
+                  value={importSheetName}
+                  onChange={(event) => setImportSheetName(event.target.value)}
+                />
+              </Label>
+              <Label className="grid gap-1.5">
+                Upload
+                <Input
+                  accept=".csv,.tsv,.xlsx,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  onChange={(event) => {
+                    void handleImportFileChange(event)
+                  }}
+                  type="file"
+                />
+              </Label>
+            </div>
+
+            {importSourceFormat === 'xlsx' ? (
+              <Alert>
+                {importFilename ? `${importFilename} is ready to preview.` : 'Choose an XLSX workbook before previewing.'}
+              </Alert>
+            ) : (
+              <Label className="grid gap-1.5">
+                Rows
+                <Textarea
+                  className="min-h-32 font-mono text-xs"
+                  value={importContent}
+                  onChange={(event) => {
+                    setImportContent(event.target.value)
+                    setImportFilename('')
+                    setImportPreview(null)
+                  }}
+                />
+              </Label>
+            )}
+
+            <Label className="grid gap-1.5">
+              Column mapping
+              <Textarea
+                className="min-h-20 font-mono text-xs"
+                placeholder="unit_cost_cents=Net Cost"
+                value={importColumnMapping}
+                onChange={(event) => {
+                  setImportColumnMapping(event.target.value)
+                  setImportPreview(null)
+                }}
+              />
+            </Label>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                disabled={isPreviewingImport || (importSourceFormat === 'xlsx' && !importFilename)}
+                type="submit"
+              >
+                {isPreviewingImport ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                )}
+                Preview Import
+              </Button>
+              {importFilename ? <Badge variant="outline">{importFilename}</Badge> : null}
+              {importResource === 'price_list_items' && selectedPriceList ? (
+                <Badge variant="outline">{selectedPriceList.name}</Badge>
+              ) : null}
+            </div>
+          </form>
+
+          {importPreview ? (
+            <div className="grid gap-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{importResourceLabel(importPreview.resource)}</Badge>
+                <Badge variant="outline">{importPreview.summary.total_rows} rows</Badge>
+                {importSummaryItems.map((item) => (
+                  <Badge key={item.status} variant={importStatusBadgeVariant(item.status)}>
+                    {item.value} {item.label}
+                  </Badge>
+                ))}
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {importPreview.mapped_fields
+                  .filter((field) => field.source_column || field.required)
+                  .map((field) => (
+                    <div className="rounded-[var(--control-radius)] border border-border px-3 py-2 text-sm" key={field.field}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{field.label}</span>
+                        {field.required ? <Badge variant="outline">required</Badge> : null}
+                      </div>
+                      <p className="mt-1 break-words text-xs text-muted-foreground">
+                        {field.source_column || 'not mapped'}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+
+              <TableContainer>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Row</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Identity</TableHead>
+                      <TableHead>Preview</TableHead>
+                      <TableHead>Messages</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {visibleImportRows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5}>
+                          <div className="py-3 text-sm text-muted-foreground">No import rows were found.</div>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      visibleImportRows.map((row) => (
+                        <TableRow key={`${row.row_number}-${row.identity || row.status}`}>
+                          <TableCell>{row.row_number}</TableCell>
+                          <TableCell>
+                            <Badge variant={importStatusBadgeVariant(row.status)}>{importStatusLabel(row.status)}</Badge>
+                          </TableCell>
+                          <TableCell className="max-w-64 break-all text-xs">{row.identity || '-'}</TableCell>
+                          <TableCell className="max-w-80 break-words text-xs">{payloadPreview(row.payload)}</TableCell>
+                          <TableCell className="min-w-72">
+                            <div className="grid gap-1 text-xs">
+                              <span>{row.message}</span>
+                              {row.problems.map((problem) => (
+                                <span className="text-muted-foreground" key={`${row.row_number}-${problem.field}-${problem.code}`}>
+                                  {problem.message} {problem.suggestion}
+                                </span>
+                              ))}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {importPreview.rows.length > visibleImportRows.length ? (
+                <p className="text-xs text-muted-foreground">
+                  Showing first {visibleImportRows.length} of {importPreview.rows.length} rows.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
