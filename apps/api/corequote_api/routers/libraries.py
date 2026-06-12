@@ -22,6 +22,8 @@ from corequote_api.schemas import (
     GeneratePriceListFromSupplierCostsResponse,
     ItemSupplierRequest,
     ItemSupplierResponse,
+    LibraryImportPreviewRequest,
+    LibraryImportPreviewResponse,
     PriceListItemRequest,
     PriceListItemResponse,
     PriceListRequest,
@@ -57,6 +59,23 @@ StoreDep = Annotated[LibraryStore, Depends(get_library_store)]
 @router.get("/setup-checklist", response_model=LibrarySetupChecklistResponse, summary="Get library setup checklist")
 def get_setup_checklist(current_user: PricingReader, store: StoreDep) -> LibrarySetupChecklistResponse:
     return LibrarySetupChecklistResponse.model_validate(store.get_setup_checklist(current_user.company_id))
+
+
+@router.post(
+    "/imports/preview",
+    response_model=LibraryImportPreviewResponse,
+    summary="Preview a library import without saving changes",
+)
+def preview_library_import(
+    payload: LibraryImportPreviewRequest,
+    current_user: PricingWriter,
+    store: StoreDep,
+) -> LibraryImportPreviewResponse:
+    try:
+        preview = store.preview_library_import(current_user.company_id, _payload(payload))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return LibraryImportPreviewResponse.model_validate(preview)
 
 
 @router.get("/boards", response_model=list[BoardTypeResponse], summary="List board types")

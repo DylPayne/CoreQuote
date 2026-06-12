@@ -23,6 +23,20 @@ LibrarySetupActionTarget = Literal[
     "extras",
     "projects",
 ]
+LibraryImportResource = Literal[
+    "boards",
+    "slides",
+    "hinges",
+    "handles",
+    "suppliers",
+    "extra_categories",
+    "extras",
+    "supplier_item_costs",
+    "price_list_items",
+]
+LibraryImportSourceFormat = Literal["csv", "tsv", "xlsx"]
+LibraryImportRowStatus = Literal["create", "update", "skipped", "duplicate", "blocked"]
+LibraryImportProblemSeverity = Literal["error", "warning"]
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
@@ -686,6 +700,84 @@ class LibrarySetupChecklistResponse(BaseModel):
     complete_count: int = Field(ge=0)
     total_count: int = Field(ge=0)
     items: list[LibrarySetupChecklistItemResponse] = Field(default_factory=list)
+
+
+class LibraryImportPreviewRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "resource": "boards",
+                    "source_format": "csv",
+                    "filename": "boards.csv",
+                    "content": "Brand,Material,Thickness,Length,Width\\nPG Bison,MelaWood,16,2750,1830\\n",
+                    "column_mapping": {"thickness": "Thickness"},
+                }
+            ]
+        },
+    )
+
+    resource: LibraryImportResource
+    source_format: LibraryImportSourceFormat = "csv"
+    filename: str = Field(default="", max_length=240)
+    sheet_name: str | None = Field(default=None, max_length=120)
+    content: str = Field(
+        min_length=1,
+        max_length=8_000_000,
+        description="CSV/TSV text, or base64-encoded XLSX bytes when source_format is xlsx.",
+    )
+    column_mapping: dict[str, str] = Field(
+        default_factory=dict,
+        description="Optional canonical-field to source-column overrides, such as {'brand': 'Supplier Brand'}.",
+    )
+    price_list_id: str | None = Field(
+        default=None,
+        description="Optional active price list UUID used when previewing price_list_items.",
+    )
+
+
+class LibraryImportMappedFieldResponse(BaseModel):
+    field: str
+    label: str
+    source_column: str
+    required: bool = False
+
+
+class LibraryImportProblemResponse(BaseModel):
+    field: str
+    code: str
+    severity: LibraryImportProblemSeverity
+    message: str
+    suggestion: str
+
+
+class LibraryImportPreviewRowResponse(BaseModel):
+    row_number: int = Field(ge=1)
+    status: LibraryImportRowStatus
+    identity: str
+    message: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    problems: list[LibraryImportProblemResponse] = Field(default_factory=list)
+
+
+class LibraryImportPreviewSummaryResponse(BaseModel):
+    total_rows: int = Field(ge=0)
+    create_count: int = Field(ge=0)
+    update_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    duplicate_count: int = Field(ge=0)
+    blocked_count: int = Field(ge=0)
+
+
+class LibraryImportPreviewResponse(BaseModel):
+    resource: LibraryImportResource
+    source_format: LibraryImportSourceFormat
+    sheet_name: str | None = None
+    columns: list[str] = Field(default_factory=list)
+    mapped_fields: list[LibraryImportMappedFieldResponse] = Field(default_factory=list)
+    summary: LibraryImportPreviewSummaryResponse
+    rows: list[LibraryImportPreviewRowResponse] = Field(default_factory=list)
 
 
 class PricingSettingsFields(BaseModel):

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import base64
 from datetime import UTC, datetime
+from io import BytesIO
+from xml.sax.saxutils import escape
+from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
 
 from corequote_api.auth import AuthenticatedUser
+from corequote_api.library_imports import build_import_preview, build_reference_maps
 from corequote_api.libraries import (
     LibraryConflict,
     LibraryNotFound,
@@ -53,6 +58,8 @@ class FakeLibraryStore:
         self.supplier_discount_payload: tuple[str, dict] | None = None
         self.generation_payload: tuple[str, dict] | None = None
         self.setup_checklist_company_id: str | None = None
+        self.import_preview_company_id: str | None = None
+        self.import_preview_payload: dict | None = None
 
     def list_boards(self, company_id: str):
         return [board("board-1")]
@@ -77,6 +84,27 @@ class FakeLibraryStore:
                 "quote_count": 1,
                 "quote_with_defaults_count": 1,
             }
+        )
+
+    def preview_library_import(self, company_id: str, payload: dict):
+        self.import_preview_company_id = company_id
+        self.import_preview_payload = payload
+        return build_import_preview(
+            payload,
+            build_reference_maps(
+                {
+                    "boards": [board("board-1")],
+                    "slides": [slide("slide-1")],
+                    "hinges": [hinge("hinge-1")],
+                    "handles": [handle("handle-1")],
+                    "suppliers": [supplier("supplier-1")],
+                    "extra_categories": [extra_category("category-1")],
+                    "extras": [extra("extra-1")],
+                    "item_suppliers": [item_supplier("item-supplier-1")],
+                    "price_items": [price_item("price-item-1", "price-list-1", item_ref_id="slide-1")],
+                    "price_list_id": "price-list-1",
+                }
+            ),
         )
 
     def create_board(self, company_id: str, payload: dict):
@@ -686,6 +714,145 @@ def test_setup_checklist_endpoint_requires_pricing_read_permission():
     assert response.json() == {"detail": "Missing permission: pricing:read"}
 
 
+def test_import_preview_classifies_board_rows_from_csv():
+    content = "\n".join(
+        [
+            "Brand,Material,Thickness,Length,Width,Costing Mode",
+            "PG Bison,MelaWood,16,2750,1830,sqm",
+            "PG Bison,MelaWood,16,2750,1830,sqm",
+            "Sonae,MDF,18,2440,1220,sheet",
+            "Bad Board,MDF,0,2440,1220,sheet",
+        ]
+    )
+
+    preview = build_import_preview(
+        {"resource": "boards", "source_format": "csv", "content": content},
+        build_reference_maps(
+            {
+                "boards": [board("board-1")],
+                "slides": [],
+                "hinges": [],
+                "handles": [],
+                "suppliers": [],
+                "extra_categories": [],
+                "extras": [],
+                "item_suppliers": [],
+                "price_items": [],
+                "price_list_id": "",
+            }
+        ),
+    )
+
+    assert preview["summary"] == {
+        "total_rows": 4,
+        "create_count": 1,
+        "update_count": 1,
+        "skipped_count": 0,
+        "duplicate_count": 1,
+        "blocked_count": 1,
+    }
+    assert [row["status"] for row in preview["rows"]] == ["update", "duplicate", "create", "blocked"]
+    assert preview["rows"][3]["problems"][0]["code"] == "invalid_number"
+
+
+def test_import_preview_blocks_supplier_cost_rows_with_missing_refs_and_bad_units():
+    content = "\n".join(
+        [
+            "Item Type,Brand,Model,Code,Supplier,Supplier SKU,Order UOM,Unit Cost",
+            "slide,Grass,Dynapro,DYN-500,Grass ZA,F130107820204,pairs,479.49",
+            "hinge,Grass,Missing,,Unknown Supplier,,box,100",
+        ]
+    )
+    preview = build_import_preview(
+        {"resource": "supplier_item_costs", "source_format": "csv", "content": content},
+        build_reference_maps(
+            {
+                "boards": [],
+                "slides": [slide("slide-1")],
+                "hinges": [],
+                "handles": [],
+                "suppliers": [supplier("supplier-1", name="Grass ZA")],
+                "extra_categories": [],
+                "extras": [],
+                "item_suppliers": [item_supplier("item-supplier-1")],
+                "price_items": [],
+                "price_list_id": "",
+            }
+        ),
+    )
+
+    assert [row["status"] for row in preview["rows"]] == ["update", "blocked"]
+    assert preview["rows"][0]["payload"]["unit_cost_cents"] == 47949
+    problem_codes = {problem["code"] for problem in preview["rows"][1]["problems"]}
+    assert problem_codes == {"missing_catalog_item", "missing_supplier", "invalid_uom"}
+
+
+def test_import_preview_reads_xlsx_upload_content():
+    xlsx_content = _xlsx_base64(
+        [
+            ["Name", "Code"],
+            ["Board Store", "BS"],
+        ]
+    )
+
+    preview = build_import_preview(
+        {"resource": "suppliers", "source_format": "xlsx", "content": xlsx_content},
+        build_reference_maps(
+            {
+                "boards": [],
+                "slides": [],
+                "hinges": [],
+                "handles": [],
+                "suppliers": [],
+                "extra_categories": [],
+                "extras": [],
+                "item_suppliers": [],
+                "price_items": [],
+                "price_list_id": "",
+            }
+        ),
+    )
+
+    assert preview["source_format"] == "xlsx"
+    assert preview["sheet_name"] == "Sheet1"
+    assert preview["columns"] == ["Name", "Code"]
+    assert preview["rows"][0]["status"] == "create"
+    assert preview["rows"][0]["payload"]["name"] == "Board Store"
+
+
+def test_import_preview_endpoint_requires_pricing_update_permission():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.post(
+            "/api/v1/libraries/imports/preview",
+            json={"resource": "boards", "source_format": "csv", "content": "Brand,Material,Thickness,Length,Width\nA,B,16,1,1\n"},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:update"}
+
+
+def test_import_preview_endpoint_uses_company_scope():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {"resource": "boards", "source_format": "csv", "content": "Brand,Material,Thickness,Length,Width\nA,B,16,1,1\n"}
+    try:
+        response = client.post("/api/v1/libraries/imports/preview", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["create_count"] == 1
+    assert store.import_preview_company_id == "company-1"
+    assert store.import_preview_payload == {**payload, "filename": "", "sheet_name": None, "column_mapping": {}, "price_list_id": None}
+
+
 @pytest.mark.parametrize(("resource", "payload", "field", "value"), CATALOG_CASES)
 def test_catalog_library_crud(resource: str, payload: dict, field: str, value: str):
     store = FakeLibraryStore()
@@ -1145,6 +1312,45 @@ def test_price_list_item_write_rejects_missing_item_identity():
 
     assert response.status_code == 422
     assert response.json() == {"detail": "Either item_ref_id or item_key is required"}
+
+
+def _xlsx_base64(rows: list[list[str]]) -> str:
+    buffer = BytesIO()
+    with ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "xl/workbook.xml",
+            """
+            <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+              xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+            </workbook>
+            """,
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            """
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+            </Relationships>
+            """,
+        )
+        archive.writestr(
+            "xl/worksheets/sheet1.xml",
+            f"""
+            <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+              <sheetData>{''.join(_xlsx_row(index, row) for index, row in enumerate(rows, start=1))}</sheetData>
+            </worksheet>
+            """,
+        )
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _xlsx_row(row_number: int, values: list[str]) -> str:
+    cells = "".join(
+        f'<c r="{chr(ord("A") + index)}{row_number}" t="inlineStr"><is><t>{escape(value)}</t></is></c>'
+        for index, value in enumerate(values)
+    )
+    return f'<row r="{row_number}">{cells}</row>'
 
 
 def auth_header() -> dict[str, str]:
