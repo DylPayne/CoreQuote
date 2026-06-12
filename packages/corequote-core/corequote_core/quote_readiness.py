@@ -8,7 +8,16 @@ from typing import Any, Literal
 
 ReadinessSeverity = Literal["pass", "warning", "error"]
 ReadinessStatus = Literal["ready", "needs_attention"]
-ReadinessActionTarget = Literal["project", "quote", "units", "panels", "cutting-lists", "pricing", "outputs"]
+ReadinessActionTarget = Literal[
+    "project",
+    "quote",
+    "units",
+    "panels",
+    "cutting-lists",
+    "pricing",
+    "outputs",
+    "libraries-pricing",
+]
 
 
 @dataclass(frozen=True)
@@ -280,18 +289,21 @@ def _missing_prices_check(
             id="missing_prices",
             severity="warning",
             title="Activate a price list",
-            message="Choose an active price list before trusting quote totals.",
-            action_label="Review pricing",
-            action_target="pricing",
+            message="Open Libraries > Pricing and make one price list active before trusting quote totals.",
+            action_label="Open price lists",
+            action_target="libraries-pricing",
         )
     if missing_price_count:
         return QuoteReadinessCheck(
             id="missing_prices",
             severity="warning",
             title="Add missing prices",
-            message=f"{missing_price_count} required {_plural(missing_price_count, 'price')} missing, so totals are not ready for review.",
-            action_label="Review pricing",
-            action_target="pricing",
+            message=(
+                f"{missing_price_count} required {_plural(missing_price_count, 'price')} missing from the active price list, "
+                "so totals are not ready for review."
+            ),
+            action_label="Open price list",
+            action_target="libraries-pricing",
         )
     return QuoteReadinessCheck(
         id="missing_prices",

@@ -31,6 +31,7 @@ import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, apiRequestBlob } from '@/components/projects-quotes/api'
+import type { LibraryTab } from '@/components/libraries/types'
 import { customUnitTypeValue, defaultProjectDraft, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
@@ -330,7 +331,7 @@ function MissingPriceGuidance({
 }: {
   includeQuote: boolean
   missingPrices: MissingPrice[]
-  onOpenLibraries: () => void
+  onOpenLibraries: (target?: LibraryTab) => void
 }) {
   if (missingPrices.length === 0) return null
 
@@ -341,11 +342,14 @@ function MissingPriceGuidance({
           <p className="text-xs font-semibold uppercase text-muted-foreground">Missing prices</p>
           <Badge variant="warning">{formatMissingPriceCount(missingPrices.length)}</Badge>
         </div>
-        <Button onClick={onOpenLibraries} size="sm" type="button" variant="outline">
+        <Button onClick={() => onOpenLibraries('pricing')} size="sm" type="button" variant="outline">
           <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
-          Pricing library
+          Open Pricing
         </Button>
       </div>
+      <Alert variant="warning">
+        These catalog items are already on the quote. Add their missing rows to the active price list, or add supplier costs first and generate prices from Libraries.
+      </Alert>
 
       {missingPriceGroups(missingPrices).map((group) => (
         <div className="grid gap-2" key={group.label}>
@@ -361,6 +365,7 @@ function MissingPriceGuidance({
                   <TableHead>Component</TableHead>
                   <TableHead>Used in</TableHead>
                   {includeQuote ? <TableHead>Quote</TableHead> : null}
+                  <TableHead>Fix in</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                 </TableRow>
               </TableHeader>
@@ -370,12 +375,21 @@ function MissingPriceGuidance({
                     <TableCell>
                       <div className="grid gap-1">
                         <span>{row.action_label}</span>
-                        <span className="text-muted-foreground">{row.message}</span>
+                        <span className="text-muted-foreground">{row.guidance_message || row.message}</span>
+                        {row.catalog_target_label ? (
+                          <span className="text-muted-foreground">{`Catalog item: ${row.catalog_target_label}`}</span>
+                        ) : null}
                       </div>
                     </TableCell>
                     <TableCell>{row.component}</TableCell>
                     <TableCell>{row.usage_label}</TableCell>
                     {includeQuote ? <TableCell>{row.affected_quote_name}</TableCell> : null}
+                    <TableCell>
+                      <Button onClick={() => onOpenLibraries(row.library_target)} size="sm" type="button" variant="outline">
+                        <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
+                        {row.guidance_action_label}
+                      </Button>
+                    </TableCell>
                     <TableCell className="text-right">{`${formatPricingQty(row.quantity)} ${row.uom}`}</TableCell>
                   </TableRow>
                 ))}
@@ -385,6 +399,26 @@ function MissingPriceGuidance({
         </div>
       ))}
     </div>
+  )
+}
+
+function ActivePriceListGuidance({
+  activePriceListId,
+  onOpenLibraries,
+}: {
+  activePriceListId: string | null
+  onOpenLibraries: (target?: LibraryTab) => void
+}) {
+  if (activePriceListId) return null
+
+  return (
+    <Alert className="flex flex-wrap items-center justify-between gap-3" variant="warning">
+      <span>There is no active price list for this pricing view. Open Libraries &gt; Pricing and activate a price list before reviewing totals.</span>
+      <Button onClick={() => onOpenLibraries('pricing')} size="sm" type="button" variant="outline">
+        <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
+        Open Pricing
+      </Button>
+    </Alert>
   )
 }
 
@@ -634,7 +668,15 @@ function OutputReviewPanel({
   )
 }
 
-export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }: { authToken: string; currencyCode: string; onOpenLibraries: () => void }) {
+export function ProjectsQuotesPage({
+  authToken,
+  currencyCode,
+  onOpenLibraries,
+}: {
+  authToken: string
+  currencyCode: string
+  onOpenLibraries: (target?: LibraryTab) => void
+}) {
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [quotes, setQuotes] = useState<QuoteRow[]>([])
   const [units, setUnits] = useState<UnitRow[]>([])
@@ -761,16 +803,12 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     0,
   ) ?? 0
   const panelFamilyCounts = useMemo(() => countPanelFamilies(units), [units])
-  const selectedUnitCount = selectedUnitIds.length
-
-  useEffect(() => {
-    const visibleUnitIds = new Set(units.map((unit) => unit.id))
-    setSelectedUnitIds((current) => current.filter((unitId) => visibleUnitIds.has(unitId)))
-  }, [units])
-
-  useEffect(() => {
-    setSelectedUnitIds([])
-  }, [selectedQuoteId])
+  const visibleUnitIds = useMemo(() => new Set(units.map((unit) => unit.id)), [units])
+  const visibleSelectedUnitIds = useMemo(
+    () => selectedUnitIds.filter((unitId) => visibleUnitIds.has(unitId)),
+    [selectedUnitIds, visibleUnitIds],
+  )
+  const selectedUnitCount = visibleSelectedUnitIds.length
 
   const loadLibraries = useCallback(async () => {
     setIsLoadingLibraries(true)
@@ -1173,6 +1211,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
       openQuotePricingTab()
       return
     }
+    if (check.action_target === 'libraries-pricing') {
+      onOpenLibraries('pricing')
+      return
+    }
     openQuoteOutputsTab()
   }
 
@@ -1200,6 +1242,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
     }
     if (action.action_target === 'pricing') {
       openQuotePricingTab()
+      return
+    }
+    if (action.action_target === 'libraries-pricing') {
+      onOpenLibraries('pricing')
       return
     }
     openQuoteOutputsTab()
@@ -1415,7 +1461,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   }
 
   function openBulkApplyModal() {
-    if (!selectedQuote || selectedUnitIds.length === 0) return
+    if (!selectedQuote || visibleSelectedUnitIds.length === 0) return
     setModalError(null)
     setBulkApplyDraft({
       ...defaultBulkApplyDraft(),
@@ -1785,7 +1831,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
   }
 
   function bulkApplyPayload(): { ok: true; payload: Record<string, unknown> } | { ok: false; error: string } {
-    const payload: Record<string, unknown> = { unit_ids: selectedUnitIds }
+    const payload: Record<string, unknown> = { unit_ids: visibleSelectedUnitIds }
     let fieldCount = 0
 
     if (bulkApplyDraft.apply_carcass_board_type_id) {
@@ -1832,7 +1878,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
 
   async function handleBulkApplySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!selectedQuoteId || selectedUnitIds.length === 0) return
+    if (!selectedQuoteId || visibleSelectedUnitIds.length === 0) return
     const nextPayload = bulkApplyPayload()
     if (!nextPayload.ok) {
       setModalError(nextPayload.error)
@@ -2520,7 +2566,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                           <TableHead className="w-10">
                             <Checkbox
                               aria-label="Select all units"
-                              checked={units.length > 0 && selectedUnitIds.length === units.length}
+                              checked={units.length > 0 && visibleSelectedUnitIds.length === units.length}
                               disabled={units.length === 0}
                               onChange={(event) => toggleAllUnits(event.target.checked)}
                             />
@@ -2555,7 +2601,7 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                                 <TableCell>
                                   <Checkbox
                                     aria-label={`Select unit ${unit.unit_number}`}
-                                    checked={selectedUnitIds.includes(unit.id)}
+                                    checked={visibleSelectedUnitIds.includes(unit.id)}
                                     onChange={(event) => toggleUnitSelection(unit.id, event.target.checked)}
                                   />
                                 </TableCell>
@@ -2899,6 +2945,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                               <Badge variant="outline">{`Profit ${formatCents(selectedQuotePricing.profit_cents, pricingCurrencyCode)}`}</Badge>
                             </div>
                           </div>
+                          <ActivePriceListGuidance
+                            activePriceListId={selectedQuotePricing.active_price_list_id}
+                            onOpenLibraries={onOpenLibraries}
+                          />
                           <MissingPriceGuidance
                             includeQuote={false}
                             missingPrices={selectedQuotePricing.missing_prices}
@@ -3016,6 +3066,10 @@ export function ProjectsQuotesPage({ authToken, currencyCode, onOpenLibraries }:
                     <Badge variant="outline">{pricingCurrencyCode}</Badge>
                     <span>{`Default markup ${formatPercentFromBps(projectPricing.markup_bps)} · VAT ${formatPercentFromBps(projectPricing.vat_rate_bps)}`}</span>
                     </div>
+                    <ActivePriceListGuidance
+                      activePriceListId={projectPricing.active_price_list_id}
+                      onOpenLibraries={onOpenLibraries}
+                    />
                     <MissingPriceGuidance
                       includeQuote
                       missingPrices={projectPricing.missing_prices}

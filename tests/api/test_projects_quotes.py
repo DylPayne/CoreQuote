@@ -32,9 +32,16 @@ class FakeAuthStore:
 
 
 class FakeWorkspaceStore:
-    def __init__(self, *, project_pricing_payload: dict | None = None, quote_output_review_payload: dict | None = None):
+    def __init__(
+        self,
+        *,
+        project_pricing_payload: dict | None = None,
+        quote_output_review_payload: dict | None = None,
+        quote_readiness_payload: dict | None = None,
+    ):
         self.project_pricing_payload = project_pricing_payload
         self.quote_output_review_payload = quote_output_review_payload
+        self.quote_readiness_payload = quote_readiness_payload
         self.created_project_payload: tuple[str, dict] | None = None
         self.updated_project_payload: tuple[str, str, dict] | None = None
         self.deleted_project: tuple[str, str] | None = None
@@ -298,7 +305,7 @@ class FakeWorkspaceStore:
         if quote_id == "missing":
             raise WorkspaceNotFound("Quote not found")
         self.requested_quote_readiness = (company_id, quote_id)
-        return quote_readiness(quote_id)
+        return self.quote_readiness_payload or quote_readiness(quote_id)
 
     def get_quote_output_review(self, company_id: str, quote_id: str, runtime_service=None) -> dict:
         if quote_id == "missing":
@@ -1011,6 +1018,31 @@ def test_get_quote_readiness_returns_structured_checks():
     assert store.requested_quote_readiness == ("company-1", "quote-1")
 
 
+def test_get_quote_readiness_allows_libraries_pricing_action_target():
+    readiness = quote_readiness("quote-1")
+    readiness["checks"] = [
+        {
+            "id": "missing_prices",
+            "severity": "warning",
+            "title": "Activate a price list",
+            "message": "Open Libraries > Pricing and make one price list active before trusting quote totals.",
+            "action_label": "Open price lists",
+            "action_target": "libraries-pricing",
+        }
+    ]
+    store = FakeWorkspaceStore(quote_readiness_payload=readiness)
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.get("/api/v1/quotes/quote-1/readiness", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["checks"][0]["action_target"] == "libraries-pricing"
+    assert response.json()["checks"][0]["action_label"] == "Open price lists"
+
+
 def test_get_quote_readiness_returns_404_if_quote_not_visible():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
@@ -1342,7 +1374,11 @@ def test_get_project_pricing_returns_missing_price_guidance():
     assert body["is_complete"] is False
     assert body["missing_prices"][0]["action_label"] == "Add a price for Bar pull"
     assert body["missing_prices"][0]["affected_quote_name"] == "Kitchen Quote"
+    assert body["missing_prices"][0]["library_target"] == "pricing"
+    assert body["missing_prices"][0]["catalog_target"] == "handles"
+    assert "supplier cost first" in body["missing_prices"][0]["guidance_message"]
     assert body["quotes"][0]["missing_prices"][0]["item_ref_id"] == "handle-1"
+    assert body["quotes"][0]["missing_prices"][0]["guidance_action_label"] == "Open Pricing"
 
 
 def test_get_project_pricing_returns_quote_material_summary():
@@ -2047,15 +2083,25 @@ def material_summary() -> dict:
 
 
 def missing_price(**overrides) -> dict:
+    item_type = overrides.get("item_type", "board")
+    item_name = overrides.get("item_name", "PG White (16mm)")
+    component = overrides.get("component", "Square metre price")
+    catalog_target, catalog_target_label = {
+        "board": ("boards", "Board library"),
+        "slide": ("slides", "Slide library"),
+        "hinge": ("hinges", "Hinge library"),
+        "handle": ("handles", "Handle library"),
+        "extra": ("extras", "Extra library"),
+    }.get(item_type, (None, None))
     payload = {
-        "item_type": "board",
+        "item_type": item_type,
         "item_type_label": "Board",
         "item_key": "board::board-1",
         "item_ref_id": "board-1",
         "price_component": "sqm",
-        "component": "Square metre price",
+        "component": component,
         "bucket": "material",
-        "item_name": "PG White (16mm)",
+        "item_name": item_name,
         "uom": "m2",
         "quantity": 1,
         "used_in": ["Carcass material"],
@@ -2065,6 +2111,15 @@ def missing_price(**overrides) -> dict:
         "library_area": "pricing",
         "action_label": "Add a price for PG White (16mm)",
         "message": "Add a price for PG White (16mm) using Square metre price in the pricing library.",
+        "library_target": "pricing",
+        "library_target_label": "Pricing",
+        "catalog_target": catalog_target,
+        "catalog_target_label": catalog_target_label,
+        "guidance_action_label": "Open Pricing",
+        "guidance_message": (
+            f"{catalog_target_label or 'Catalog'} already appears on the quote. Open Pricing and add {component} for {item_name} "
+            "to the active price list. If this price comes from suppliers, add the supplier cost first and generate prices."
+        ),
     }
     payload.update(overrides)
     return payload

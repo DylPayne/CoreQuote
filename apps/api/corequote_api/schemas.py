@@ -42,7 +42,16 @@ LibraryEffectiveStatus = Literal["current", "future", "retired"]
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
-QuoteReadinessActionTarget = Literal["project", "quote", "units", "panels", "cutting-lists", "pricing", "outputs"]
+QuoteReadinessActionTarget = Literal[
+    "project",
+    "quote",
+    "units",
+    "panels",
+    "cutting-lists",
+    "pricing",
+    "outputs",
+    "libraries-pricing",
+]
 QuoteOutputActionId = Literal["client_quote_pdf", "workshop_schedule", "material_summary", "hardware_pick_list"]
 QuoteOutputGroup = Literal["client", "workshop"]
 MaterialRole = Literal["carcass", "door_panel", "visible_panel"]
@@ -683,6 +692,12 @@ class MissingPriceResponse(BaseModel):
     library_area: str = "pricing"
     action_label: str
     message: str
+    library_target: str = "pricing"
+    library_target_label: str = "Pricing"
+    catalog_target: str | None = None
+    catalog_target_label: str | None = None
+    guidance_action_label: str = "Open Pricing"
+    guidance_message: str = ""
 
 
 class LibrarySetupChecklistItemResponse(BaseModel):

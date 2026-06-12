@@ -457,9 +457,9 @@ Response shape:
       "id": "missing_prices",
       "severity": "warning",
       "title": "Add missing prices",
-      "message": "1 required price missing, so totals are not ready for review.",
-      "action_label": "Review pricing",
-      "action_target": "pricing"
+      "message": "1 required price missing from the active price list, so totals are not ready for review.",
+      "action_label": "Open price list",
+      "action_target": "libraries-pricing"
     }
   ]
 }
@@ -478,7 +478,9 @@ Readiness checks currently use these stable IDs:
 - `required_outputs`
 
 `action_target` maps to frontend workspace actions: `project`, `quote`,
-`units`, `panels`, `cutting-lists`, `pricing`, or `outputs`. The current UI
+`units`, `panels`, `cutting-lists`, `pricing`, or `outputs`. The
+`libraries-pricing` target opens Libraries > Pricing so missing active price
+lists and missing price rows can be fixed without parsing copy. The current UI
 uses `outputs` to open the quote output review screen.
 
 Errors:
@@ -977,7 +979,13 @@ Response shape:
           "affected_quote_name": "Kitchen Quote v1",
           "library_area": "pricing",
           "action_label": "Add a price for Bar pull",
-          "message": "Add a price for Bar pull using Unit price in the pricing library."
+          "message": "Add a price for Bar pull using Unit price in the pricing library.",
+          "library_target": "pricing",
+          "library_target_label": "Pricing",
+          "catalog_target": "handles",
+          "catalog_target_label": "Handle library",
+          "guidance_action_label": "Open Pricing",
+          "guidance_message": "Handle library already appears on the quote. Open Pricing and add Unit price for Bar pull to the active price list. If this price comes from suppliers, add the supplier cost first and generate prices."
         }
       ],
       "material_summary": {
@@ -1094,11 +1102,14 @@ When a required item has no active price entry, it is returned in
 `missing_items` for backward compatibility and in `missing_prices` as
 estimator-facing guidance. Each `missing_prices` row identifies the library
 item type, stable item reference, price component, unit of measure, quantity,
-where it is used, and the affected quote. Cost/sell totals are omitted for the
-matching line, and `is_complete` is `false`. Project pricing responses also
-include a top-level `missing_prices` array containing the missing price guidance
-for all included quotes. `is_complete` is also `false` when `cutlist_warnings`
-is not empty.
+where it is used, the affected quote, the price-list target (`library_target`),
+and the related catalog target (`catalog_target`) when the missing price belongs
+to a board, slide, hinge, handle, or extra. Use `guidance_message` and
+`guidance_action_label` for user-facing copy that distinguishes a missing price
+from a missing catalog item. Cost/sell totals are omitted for the matching line,
+and `is_complete` is `false`. Project pricing responses also include a top-level
+`missing_prices` array containing the missing price guidance for all included
+quotes. `is_complete` is also `false` when `cutlist_warnings` is not empty.
 
 Each quote also includes `material_summary` for internal review/workshop
 handoff. It is aggregated from the same runtime cutlist rows used for pricing,
@@ -1132,7 +1143,7 @@ Line `bucket` values group the spreadsheet-derived pricing categories:
 - Cutting list tab can call `GET /quotes/{quote_id}/cutting-list`.
 - Extras tab can load and save quote-selected extras via `GET/PUT /quotes/{quote_id}/extras`.
 - Pricing tab can load project totals via `GET /projects/{project_id}/pricing` and format all cent values with the returned `currency_code`.
-- Pricing UI should show `missing_prices` before detailed line items and use `action_label` / `message` copy such as "Add a price for..." instead of exposing raw item keys.
+- Pricing UI should show `missing_prices` before detailed line items and use `guidance_action_label`, `guidance_message`, `library_target`, and `catalog_target` instead of exposing raw item keys.
 - Quote pricing review should show `material_summary` groups and warnings before detailed line items. Treat `estimated_sheets` as an estimate; `null` means sheet dimensions are missing.
 - Quote pricing or output review should show `hardware_pick_list` groups and warnings for internal/workshop use. Do not mix its rows with client-facing margin, profit, or sell-price display.
 - Quote defaults are designed for fast unit creation UX: set defaults once on quote, then apply during add-unit flows.
