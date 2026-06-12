@@ -874,9 +874,14 @@ The endpoint builds a live project pricing summary by combining:
 
 - Project quotes and units.
 - Quote-selected extras.
-- Active price-list items (`effective_to IS NULL`) if an active price list exists.
+- Price-list items current at each quote's pricing timestamp if an active price list exists.
 - Project pricing defaults for project metadata.
 - Each quote's own pricing settings for quote calculations.
+
+Each quote summary includes `active_price_list_id` and `pricing_as_of`. Price
+rows are selected where `effective_from <= pricing_as_of` and `effective_to` is
+either null or later than `pricing_as_of`. This keeps older revisions
+explainable after a supplier-cost refresh creates newer price rows.
 
 Response shape:
 
@@ -941,6 +946,8 @@ Response shape:
       "previous_revision_revision": null,
       "vat_rate_bps": 1500,
       "markup_bps": 2500,
+      "active_price_list_id": "price-list-uuid",
+      "pricing_as_of": "2026-06-01T10:30:00Z",
       "pricing_settings": {
         "company_id": "company-uuid",
         "quote_id": "quote-uuid",

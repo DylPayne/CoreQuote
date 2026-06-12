@@ -23,16 +23,17 @@ Pricing in the workbook is split across a few major areas:
 
 ## App Pricing Model
 
-CoreQuote treats pricing as a live quote-scoped calculation from the current
-quote state, active price list, and the quote's pricing settings.
+CoreQuote treats pricing as a quote-scoped calculation from the current quote
+state, the active price list effective at the quote's pricing timestamp, and
+the quote's pricing settings.
 
 The active price list stores base costs. Pricing settings store sell-side
 multipliers and operational rates. Company pricing settings are defaults for new
 projects, project pricing settings are defaults for new quotes, and quote
 pricing settings are the values used in calculations. Updating a parent default
-does not rewrite existing project or quote settings. The calculation returns
-both cost and sell values so estimators can see margin, missing prices, and the
-source of each total.
+or refreshing supplier costs does not rewrite existing project or quote
+settings. The calculation returns both cost and sell values so estimators can
+see margin, missing prices, and the source of each total.
 
 ## Pricing Settings
 

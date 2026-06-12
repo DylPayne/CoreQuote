@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -382,6 +383,7 @@ def list_supplier_item_costs(
     current_user: PricingReader,
     store: StoreDep,
     include_history: bool = False,
+    as_of: datetime | None = None,
 ) -> list[SupplierItemCostResponse]:
     return [
         SupplierItemCostResponse.model_validate(row)
@@ -389,6 +391,7 @@ def list_supplier_item_costs(
             current_user.company_id,
             item_supplier_id,
             include_history=include_history,
+            as_of=as_of,
         )
     ]
 
@@ -478,8 +481,12 @@ def create_price_list(payload: PriceListRequest, current_user: PricingWriter, st
 
 
 @router.get("/price-lists/active", response_model=PriceListResponse, summary="Get the active price list")
-def get_active_price_list(current_user: PricingReader, store: StoreDep) -> PriceListResponse:
-    return _get_response(PriceListResponse, store.get_active_price_list, current_user.company_id)
+def get_active_price_list(
+    current_user: PricingReader,
+    store: StoreDep,
+    as_of: datetime | None = None,
+) -> PriceListResponse:
+    return _get_response(PriceListResponse, store.get_active_price_list, current_user.company_id, as_of)
 
 
 @router.get("/price-lists/{price_list_id}", response_model=PriceListResponse, summary="Get a price list")
@@ -532,10 +539,16 @@ def list_price_list_items(
     current_user: PricingReader,
     store: StoreDep,
     include_history: bool = False,
+    as_of: datetime | None = None,
 ) -> list[PriceListItemResponse]:
     return [
         PriceListItemResponse.model_validate(row)
-        for row in store.list_price_list_items(current_user.company_id, price_list_id, include_history=include_history)
+        for row in store.list_price_list_items(
+            current_user.company_id,
+            price_list_id,
+            include_history=include_history,
+            as_of=as_of,
+        )
     ]
 
 

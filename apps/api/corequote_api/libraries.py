@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import Any
 
 import psycopg
@@ -158,6 +159,7 @@ PRICING_SETTINGS_COLUMNS: tuple[str, ...] = (
 PRICING_SETTINGS_SELECT = ", ".join(PRICING_SETTINGS_COLUMNS)
 DEFAULT_VAT_RATE_BPS = 1500
 DEFAULT_MARKUP_BPS = 2500
+PRICE_EFFECTIVE_STATUS_VALUES = {"current", "future", "retired"}
 
 
 class LibraryStore:
@@ -273,13 +275,14 @@ class LibraryStore:
                     JOIN supplier_item_costs cost
                       ON cost.company_id = item.company_id
                      AND cost.item_supplier_id = item.id
-                     AND cost.effective_to IS NULL
+                     AND cost.effective_from <= COALESCE(%s, now())
+                     AND (cost.effective_to IS NULL OR cost.effective_to > COALESCE(%s, now()))
                     WHERE item.company_id = %s
                       AND item.supplier_id = %s
                     ORDER BY item.item_type ASC, item.item_ref_id ASC, item.price_component ASC, item.id ASC
                     FOR UPDATE OF cost
                     """,
-                    (company_id, supplier_id),
+                    (replacement_time, replacement_time, company_id, supplier_id),
                 ).fetchall()
                 active_count = len(active_rows)
 
@@ -508,7 +511,8 @@ class LibraryStore:
                 LEFT JOIN supplier_item_costs cost
                   ON cost.company_id = item.company_id
                  AND cost.item_supplier_id = item.id
-                 AND cost.effective_to IS NULL
+                 AND cost.effective_from <= now()
+                 AND (cost.effective_to IS NULL OR cost.effective_to > now())
                 WHERE {where_clause}
                 ORDER BY item.item_type ASC, supplier.name ASC, item.supplier_sku ASC, item.id ASC
                 """,
@@ -603,11 +607,16 @@ class LibraryStore:
         company_id: str,
         item_supplier_id: str,
         include_history: bool = False,
+        as_of: datetime | None = None,
     ) -> list[dict]:
         self._ensure_item_supplier(company_id, item_supplier_id)
-        history_filter = "" if include_history else "AND effective_to IS NULL"
+        as_of_dt = _coerce_effective_datetime(as_of)
+        history_filter = "" if include_history else "AND effective_from <= %s AND (effective_to IS NULL OR effective_to > %s)"
+        values: list[Any] = [company_id, item_supplier_id]
+        if not include_history:
+            values.extend([as_of_dt, as_of_dt])
         with self._connect() as conn:
-            return conn.execute(
+            rows = conn.execute(
                 f"""
                 SELECT
                     id::text,
@@ -630,8 +639,9 @@ class LibraryStore:
                   {history_filter}
                 ORDER BY effective_from DESC, id DESC
                 """,
-                (company_id, item_supplier_id),
+                values,
             ).fetchall()
+        return _with_effective_statuses(rows, as_of_dt)
 
     def create_supplier_item_cost(self, company_id: str, item_supplier_id: str, payload: dict[str, Any]) -> dict:
         self._ensure_item_supplier(company_id, item_supplier_id)
@@ -680,10 +690,13 @@ class LibraryStore:
                 FROM supplier_item_costs
                 WHERE company_id = %s
                   AND item_supplier_id = %s
-                  AND effective_to IS NULL
+                  AND effective_from <= COALESCE(%s, now())
+                  AND (effective_to IS NULL OR effective_to > COALESCE(%s, now()))
+                ORDER BY effective_from DESC, id DESC
+                LIMIT 1
                 FOR UPDATE
                 """,
-                (company_id, item_supplier_id),
+                (company_id, item_supplier_id, replacement_time, replacement_time),
             ).fetchone()
             if old_row and _supplier_cost_matches(old_row, data):
                 return self.get_supplier_item_cost(company_id, item_supplier_id, old_row["id"])
@@ -755,7 +768,7 @@ class LibraryStore:
             ).fetchone()
         if not row:
             raise LibraryNotFound("Supplier cost not found")
-        return row
+        return _with_effective_status(row)
 
     def generate_price_list_from_supplier_costs(
         self,
@@ -767,6 +780,7 @@ class LibraryStore:
         selection_mode = str(payload.get("selection_mode") or "preferred_then_cheapest").strip().lower()
         item_types = [str(item).strip().lower() for item in payload.get("item_types") or [] if str(item).strip()]
         preserve_manual_overrides = bool(payload.get("preserve_manual_overrides", True))
+        refresh_time = payload.get("effective_from")
         if selection_mode not in {"preferred_then_cheapest", "preferred_only", "cheapest"}:
             raise LibraryValidationError("Unsupported supplier cost selection mode")
         unsupported_types = [item_type for item_type in item_types if item_type not in PRICE_ITEM_TYPE_TABLES]
@@ -774,7 +788,7 @@ class LibraryStore:
             raise LibraryValidationError(f"Unsupported item_types: {', '.join(unsupported_types)}")
 
         with self._connect() as conn:
-            item_rows = self._fetch_supplier_generation_rows(conn, company_id, item_types)
+            item_rows = self._fetch_supplier_generation_rows(conn, company_id, item_types, refresh_time)
             selected_rows, missing_price_count = _select_supplier_generation_rows(item_rows, selection_mode)
 
             created_count = 0
@@ -793,7 +807,8 @@ class LibraryStore:
                       AND item_type = %s
                       AND item_key = %s
                       AND price_component = %s
-                      AND effective_to IS NULL
+                      AND effective_from <= COALESCE(%s, now())
+                      AND (effective_to IS NULL OR effective_to > COALESCE(%s, now()))
                     ORDER BY effective_from DESC
                     LIMIT 1
                     FOR UPDATE
@@ -804,6 +819,8 @@ class LibraryStore:
                         selected["item_type"],
                         item_key,
                         selected["price_component"],
+                        refresh_time,
+                        refresh_time,
                     ),
                 ).fetchone()
 
@@ -822,12 +839,12 @@ class LibraryStore:
                     conn.execute(
                         """
                         UPDATE price_list_items
-                        SET effective_to = now()
+                        SET effective_to = COALESCE(%s, now())
                         WHERE company_id = %s
                           AND price_list_id = %s
                           AND id = %s
                         """,
-                        (company_id, price_list_id, current["id"]),
+                        (refresh_time, company_id, price_list_id, current["id"]),
                     )
                     updated_count += 1
                 else:
@@ -837,8 +854,8 @@ class LibraryStore:
                     """
                     INSERT INTO price_list_items
                         (company_id, price_list_id, item_type, item_ref_id, item_key, price_component,
-                         uom, unit_price_cents, source_supplier_item_cost_id, cost_source)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'supplier')
+                         uom, unit_price_cents, source_supplier_item_cost_id, cost_source, effective_from, replaces_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'supplier', COALESCE(%s, now()), %s)
                     """,
                     (
                         company_id,
@@ -850,6 +867,8 @@ class LibraryStore:
                         uom,
                         unit_cost_cents,
                         source_cost_id,
+                        refresh_time,
+                        current["id"] if current else None,
                     ),
                 )
 
@@ -906,7 +925,8 @@ class LibraryStore:
     def list_price_lists(self, company_id: str) -> list[dict]:
         return self._list(PRICE_LIST_CONFIG, company_id)
 
-    def get_active_price_list(self, company_id: str) -> dict:
+    def get_active_price_list(self, company_id: str, as_of: datetime | date | None = None) -> dict:
+        as_of_date = _coerce_effective_date(as_of)
         with self._connect() as conn:
             row = conn.execute(
                 f"""
@@ -914,10 +934,12 @@ class LibraryStore:
                 FROM price_lists
                 WHERE company_id = %s
                   AND status = 'active'
+                  AND (effective_from IS NULL OR effective_from <= %s)
+                  AND (effective_to IS NULL OR effective_to >= %s)
                 ORDER BY created_at DESC, id DESC
                 LIMIT 1
                 """,
-                (company_id,),
+                (company_id, as_of_date, as_of_date),
             ).fetchone()
         if not row:
             raise LibraryNotFound("Active price list not found")
@@ -935,11 +957,21 @@ class LibraryStore:
     def delete_price_list(self, company_id: str, price_list_id: str) -> None:
         self._delete(PRICE_LIST_CONFIG, company_id, price_list_id)
 
-    def list_price_list_items(self, company_id: str, price_list_id: str, include_history: bool = False) -> list[dict]:
+    def list_price_list_items(
+        self,
+        company_id: str,
+        price_list_id: str,
+        include_history: bool = False,
+        as_of: datetime | None = None,
+    ) -> list[dict]:
         self._ensure_price_list(company_id, price_list_id)
-        history_filter = "" if include_history else "AND effective_to IS NULL"
+        as_of_dt = _coerce_effective_datetime(as_of)
+        history_filter = "" if include_history else "AND effective_from <= %s AND (effective_to IS NULL OR effective_to > %s)"
+        values: list[Any] = [company_id, price_list_id]
+        if not include_history:
+            values.extend([as_of_dt, as_of_dt])
         with self._connect() as conn:
-            return conn.execute(
+            rows = conn.execute(
                 f"""
                 SELECT {PRICE_LIST_ITEM_CONFIG.select_clause}
                 FROM price_list_items
@@ -948,8 +980,9 @@ class LibraryStore:
                   {history_filter}
                 ORDER BY {PRICE_LIST_ITEM_CONFIG.order_by}
                 """,
-                (company_id, price_list_id),
+                values,
             ).fetchall()
+        return _with_effective_statuses(rows, as_of_dt)
 
     def create_price_list_item(self, company_id: str, price_list_id: str, payload: dict[str, Any]) -> dict:
         self._ensure_price_list(company_id, price_list_id)
@@ -997,7 +1030,7 @@ class LibraryStore:
             ).fetchone()
         if not row:
             raise LibraryNotFound("Price list item not found")
-        return row
+        return _with_effective_status(row)
 
     def update_price_list_item(
         self,
@@ -1070,6 +1103,7 @@ class LibraryStore:
     def upsert_price_list_item(self, company_id: str, price_list_id: str, payload: dict[str, Any]) -> dict:
         self._ensure_price_list(company_id, price_list_id)
         data = self._normalize_price_item_payload(company_id, payload)
+        replacement_time = data.get("effective_from")
 
         with self._connect() as conn:
             existing = conn.execute(
@@ -1081,7 +1115,8 @@ class LibraryStore:
                   AND item_type = %s
                   AND item_key = %s
                   AND price_component = %s
-                  AND effective_to IS NULL
+                  AND effective_from <= COALESCE(%s, now())
+                  AND (effective_to IS NULL OR effective_to > COALESCE(%s, now()))
                 ORDER BY effective_from DESC
                 LIMIT 1
                 """,
@@ -1091,6 +1126,8 @@ class LibraryStore:
                     data["item_type"],
                     data["item_key"],
                     data["price_component"],
+                    replacement_time,
+                    replacement_time,
                 ),
             ).fetchone()
 
@@ -1108,7 +1145,7 @@ class LibraryStore:
                 WHERE company_id = %s
                   AND price_list_id = %s
                   AND id = %s
-                  AND effective_to IS NULL
+                  AND (effective_to IS NULL OR effective_to > now())
                 RETURNING id::text
                 """,
                 (company_id, price_list_id, item_id),
@@ -1134,7 +1171,8 @@ class LibraryStore:
                         JOIN supplier_item_costs cost
                           ON cost.company_id = item.company_id
                          AND cost.item_supplier_id = item.id
-                         AND cost.effective_to IS NULL
+                         AND cost.effective_from <= now()
+                         AND (cost.effective_to IS NULL OR cost.effective_to > now())
                         WHERE item.company_id = %(company_id)s
                     ) AS active_supplier_cost_count,
                     (
@@ -1147,9 +1185,10 @@ class LibraryStore:
                         SELECT count(*)::int
                         FROM price_lists list
                         JOIN price_list_items item
-                          ON item.company_id = list.company_id
+                         ON item.company_id = list.company_id
                          AND item.price_list_id = list.id
-                         AND item.effective_to IS NULL
+                         AND item.effective_from <= now()
+                         AND (item.effective_to IS NULL OR item.effective_to > now())
                         WHERE list.company_id = %(company_id)s
                           AND list.status = 'active'
                     ) AS active_price_count,
@@ -1473,7 +1512,8 @@ class LibraryStore:
             LEFT JOIN supplier_item_costs cost
               ON cost.company_id = item.company_id
              AND cost.item_supplier_id = item.id
-             AND cost.effective_to IS NULL
+             AND cost.effective_from <= now()
+             AND (cost.effective_to IS NULL OR cost.effective_to > now())
             WHERE {where_clause}
             ORDER BY item.item_type ASC, supplier.name ASC, item.supplier_sku ASC, item.id ASC
             """,
@@ -1486,9 +1526,14 @@ class LibraryStore:
         company_id: str,
         price_list_id: str,
         include_history: bool = False,
+        as_of: datetime | None = None,
     ) -> list[dict]:
-        history_filter = "" if include_history else "AND effective_to IS NULL"
-        return conn.execute(
+        as_of_dt = _coerce_effective_datetime(as_of)
+        history_filter = "" if include_history else "AND effective_from <= %s AND (effective_to IS NULL OR effective_to > %s)"
+        values: list[Any] = [company_id, price_list_id]
+        if not include_history:
+            values.extend([as_of_dt, as_of_dt])
+        rows = conn.execute(
             f"""
             SELECT {PRICE_LIST_ITEM_CONFIG.select_clause}
             FROM price_list_items
@@ -1497,20 +1542,24 @@ class LibraryStore:
               {history_filter}
             ORDER BY {PRICE_LIST_ITEM_CONFIG.order_by}
             """,
-            (company_id, price_list_id),
+            values,
         ).fetchall()
+        return _with_effective_statuses(rows, as_of_dt)
 
-    def _get_active_price_list_with_conn(self, conn, company_id: str) -> dict | None:
+    def _get_active_price_list_with_conn(self, conn, company_id: str, as_of: datetime | date | None = None) -> dict | None:
+        as_of_date = _coerce_effective_date(as_of)
         return conn.execute(
             f"""
             SELECT {PRICE_LIST_CONFIG.select_clause}
             FROM price_lists
             WHERE company_id = %s
               AND status = 'active'
+              AND (effective_from IS NULL OR effective_from <= %s)
+              AND (effective_to IS NULL OR effective_to >= %s)
             ORDER BY created_at DESC, id DESC
             LIMIT 1
             """,
-            (company_id,),
+            (company_id, as_of_date, as_of_date),
         ).fetchone()
 
     def _price_list_exists_with_conn(self, conn, company_id: str, price_list_id: str) -> bool:
@@ -1763,7 +1812,8 @@ class LibraryStore:
             FROM supplier_item_costs
             WHERE company_id = %s
               AND item_supplier_id = %s
-              AND effective_to IS NULL
+              AND effective_from <= now()
+              AND (effective_to IS NULL OR effective_to > now())
             FOR UPDATE
             """,
             (company_id, item_supplier_id),
@@ -1853,7 +1903,8 @@ class LibraryStore:
             WHERE company_id = %s
               AND price_list_id = %s
               AND id = %s
-              AND effective_to IS NULL
+              AND effective_from <= now()
+              AND (effective_to IS NULL OR effective_to > now())
             FOR UPDATE
             """,
             (company_id, data["price_list_id"], item_id),
@@ -2009,7 +2060,13 @@ class LibraryStore:
             values,
         )
 
-    def _fetch_supplier_generation_rows(self, conn, company_id: str, item_types: list[str]) -> list[dict]:
+    def _fetch_supplier_generation_rows(
+        self,
+        conn,
+        company_id: str,
+        item_types: list[str],
+        as_of: datetime | None = None,
+    ) -> list[dict]:
         filters = ["item.company_id = %s"]
         values: list[Any] = [company_id]
         if item_types:
@@ -2030,11 +2087,12 @@ class LibraryStore:
             LEFT JOIN supplier_item_costs cost
               ON cost.company_id = item.company_id
              AND cost.item_supplier_id = item.id
-             AND cost.effective_to IS NULL
+             AND cost.effective_from <= COALESCE(%s, now())
+             AND (cost.effective_to IS NULL OR cost.effective_to > COALESCE(%s, now()))
             WHERE {where_clause}
             ORDER BY item.item_type ASC, item.item_ref_id ASC, item.price_component ASC, item.is_preferred DESC
             """,
-            values,
+            [as_of, as_of, *values],
         ).fetchall()
 
     def _normalize_price_item_payload(self, company_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2106,6 +2164,51 @@ class LibraryStore:
             """,
             (company_id, clean_name),
         ).fetchone()
+
+
+def _coerce_effective_datetime(value: Any | None) -> datetime:
+    if value is None:
+        return datetime.now(UTC)
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _coerce_effective_date(value: Any | None) -> date:
+    if value is None:
+        return datetime.now(UTC).date()
+    if isinstance(value, datetime):
+        return (value if value.tzinfo else value.replace(tzinfo=UTC)).date()
+    if isinstance(value, date):
+        return value
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+
+
+def _effective_status(effective_from: Any, effective_to: Any | None, as_of: Any | None = None) -> str:
+    as_of_dt = _coerce_effective_datetime(as_of)
+    start = _coerce_effective_datetime(effective_from)
+    end = _coerce_effective_datetime(effective_to) if effective_to is not None else None
+    if start > as_of_dt:
+        return "future"
+    if end is not None and end <= as_of_dt:
+        return "retired"
+    return "current"
+
+
+def _with_effective_status(row: dict[str, Any], as_of: Any | None = None) -> dict[str, Any]:
+    result = dict(row)
+    status = _effective_status(result["effective_from"], result.get("effective_to"), as_of)
+    result["effective_status"] = status
+    result["is_current"] = status == "current"
+    result["is_active"] = result.get("effective_to") is None
+    return result
+
+
+def _with_effective_statuses(rows: list[dict[str, Any]], as_of: Any | None = None) -> list[dict[str, Any]]:
+    return [_with_effective_status(row, as_of) for row in rows]
 
 
 def _build_setup_checklist(summary: dict[str, Any]) -> dict[str, Any]:
