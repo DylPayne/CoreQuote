@@ -91,9 +91,8 @@ POST /api/v1/libraries/imports/preview
 Permission: `pricing:update`.
 
 This endpoint parses CSV, TSV, or XLSX library rows and returns a dry-run
-classification. It does not create, update, or delete library data. A future
-commit endpoint should apply only rows that have already been previewed and
-approved by the user.
+classification. It does not create, update, or delete library data. Use the
+apply endpoint below when the user explicitly commits the reviewed import.
 
 Supported `resource` values:
 
@@ -185,6 +184,89 @@ so the frontend can show plain validation feedback without parsing exception
 text. Preview lookups are scoped to the authenticated user's `company_id`,
 including supplier, category, catalog item, supplier-cost, and price-list
 references.
+
+## Import Apply
+
+```http
+POST /api/v1/libraries/imports/apply
+```
+
+Permission: `pricing:update`.
+
+This endpoint re-runs the same server-side validation as import preview, then
+commits the import inside one PostgreSQL transaction. Rows classified as
+`create` or `update` are written, `skipped` rows are left unchanged, and rows
+classified as `blocked` or `duplicate` are recorded as failed without writing
+that row. Unexpected database failures roll back the whole apply operation.
+
+Request:
+
+```json
+{
+  "resource": "boards",
+  "source_format": "csv",
+  "filename": "boards.csv",
+  "sheet_name": null,
+  "source_ref": "Supplier price list June",
+  "content": "Brand,Material,Thickness,Length,Width,Costing Mode\nPG Bison,MelaWood,16,2750,1830,sqm\n",
+  "column_mapping": {},
+  "price_list_id": null
+}
+```
+
+Response:
+
+```json
+{
+  "batch_id": "import-batch-uuid",
+  "resource": "boards",
+  "source_format": "csv",
+  "summary": {
+    "total_rows": 3,
+    "created_count": 1,
+    "updated_count": 1,
+    "skipped_count": 0,
+    "failed_count": 1
+  },
+  "rows": [
+    {
+      "row_number": 2,
+      "status": "updated",
+      "identity": "board:pg bison:melawood:16:2750:1830",
+      "message": "Updated library row.",
+      "target_id": "board-uuid",
+      "problems": []
+    },
+    {
+      "row_number": 3,
+      "status": "failed",
+      "identity": "board:pg bison:melawood:16:2750:1830",
+      "message": "This row looks like row 2 in the same import.",
+      "target_id": "",
+      "problems": [
+        {
+          "field": "identity",
+          "code": "duplicate_in_file",
+          "severity": "warning",
+          "message": "Another import row already uses board:pg bison:melawood:16:2750:1830.",
+          "suggestion": "Keep one copy of this item before applying the import."
+        }
+      ]
+    }
+  ]
+}
+```
+
+Apply row `status` is one of `created`, `updated`, `skipped`, or `failed`.
+Successful apply operations create audit rows in `library_import_batches` and
+`library_import_rows`, including the authenticated user, company, source file
+metadata, `source_ref`, content hash, normalized payload, row outcome, target
+row id, and structured validation problems.
+
+Validation errors return `422`, duplicate/race conflicts return `409`, and
+company-scoped missing references return `404` or `422` depending on whether
+the missing row was the target or supporting data. In these error cases the
+transaction rolls back and no import rows are applied.
 
 ## Catalog Libraries
 

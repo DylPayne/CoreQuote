@@ -26,6 +26,7 @@ export type LibraryImportResource =
   | 'price_list_items'
 export type LibraryImportSourceFormat = 'csv' | 'tsv' | 'xlsx'
 export type LibraryImportRowStatus = 'create' | 'update' | 'skipped' | 'duplicate' | 'blocked'
+export type LibraryImportApplyRowStatus = 'created' | 'updated' | 'skipped' | 'failed'
 export type LibraryImportProblemSeverity = 'error' | 'warning'
 
 export type LibrarySetupChecklistItem = {
@@ -55,6 +56,10 @@ export type LibraryImportPreviewRequest = {
   content: string
   column_mapping: Record<string, string>
   price_list_id: string | null
+}
+
+export type LibraryImportApplyRequest = LibraryImportPreviewRequest & {
+  source_ref: string
 }
 
 export type LibraryImportMappedField = {
@@ -98,6 +103,31 @@ export type LibraryImportPreview = {
   mapped_fields: LibraryImportMappedField[]
   summary: LibraryImportPreviewSummary
   rows: LibraryImportPreviewRow[]
+}
+
+export type LibraryImportApplySummary = {
+  total_rows: number
+  created_count: number
+  updated_count: number
+  skipped_count: number
+  failed_count: number
+}
+
+export type LibraryImportApplyRow = {
+  row_number: number
+  status: LibraryImportApplyRowStatus
+  identity: string
+  message: string
+  target_id: string
+  problems: LibraryImportProblem[]
+}
+
+export type LibraryImportApplyResult = {
+  batch_id: string
+  resource: LibraryImportResource
+  source_format: LibraryImportSourceFormat
+  summary: LibraryImportApplySummary
+  rows: LibraryImportApplyRow[]
 }
 
 export type BoardTypeRow = {

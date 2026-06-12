@@ -36,6 +36,7 @@ LibraryImportResource = Literal[
 ]
 LibraryImportSourceFormat = Literal["csv", "tsv", "xlsx"]
 LibraryImportRowStatus = Literal["create", "update", "skipped", "duplicate", "blocked"]
+LibraryImportApplyRowStatus = Literal["created", "updated", "skipped", "failed"]
 LibraryImportProblemSeverity = Literal["error", "warning"]
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
@@ -778,6 +779,39 @@ class LibraryImportPreviewResponse(BaseModel):
     mapped_fields: list[LibraryImportMappedFieldResponse] = Field(default_factory=list)
     summary: LibraryImportPreviewSummaryResponse
     rows: list[LibraryImportPreviewRowResponse] = Field(default_factory=list)
+
+
+class LibraryImportApplyRequest(LibraryImportPreviewRequest):
+    source_ref: str = Field(
+        default="",
+        max_length=240,
+        description="Optional human source reference such as supplier sheet, email, or spreadsheet tab.",
+    )
+
+
+class LibraryImportApplySummaryResponse(BaseModel):
+    total_rows: int = Field(ge=0)
+    created_count: int = Field(ge=0)
+    updated_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+
+
+class LibraryImportApplyRowResponse(BaseModel):
+    row_number: int = Field(ge=1)
+    status: LibraryImportApplyRowStatus
+    identity: str
+    message: str
+    target_id: str = ""
+    problems: list[LibraryImportProblemResponse] = Field(default_factory=list)
+
+
+class LibraryImportApplyResponse(BaseModel):
+    batch_id: str
+    resource: LibraryImportResource
+    source_format: LibraryImportSourceFormat
+    summary: LibraryImportApplySummaryResponse
+    rows: list[LibraryImportApplyRowResponse] = Field(default_factory=list)
 
 
 class PricingSettingsFields(BaseModel):
