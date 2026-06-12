@@ -3,6 +3,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LIBRARIES_PAGE = REPO_ROOT / "apps/web/src/components/libraries-page.tsx"
+LIBRARIES_CONSTANTS = REPO_ROOT / "apps/web/src/components/libraries/constants.ts"
 LIBRARIES_API = REPO_ROOT / "apps/api/corequote_api/libraries.py"
 
 
@@ -45,3 +46,13 @@ def test_library_workflow_copy_avoids_old_internal_labels() -> None:
     combined = f"{source}\n{api_source}"
     unexpected = [copy for copy in old_copy if copy in combined]
     assert unexpected == []
+
+
+def test_setup_checks_and_imports_are_the_first_library_tab() -> None:
+    page_source = LIBRARIES_PAGE.read_text()
+    constants_source = LIBRARIES_CONSTANTS.read_text()
+
+    assert "initialTab = 'setup-imports'" in page_source
+    assert "{ label: 'Setup & Imports', value: 'setup-imports' }" in constants_source
+    assert constants_source.index("'setup-imports'") < constants_source.index("'pricing'")
+    assert "activeTab === 'setup-imports'" in page_source

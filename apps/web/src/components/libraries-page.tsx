@@ -751,7 +751,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
 export function LibrariesPage({
   authToken,
   currencyCode,
-  initialTab = 'pricing',
+  initialTab = 'setup-imports',
   onOpenProjects,
 }: {
   authToken: string
@@ -2431,389 +2431,393 @@ export function LibrariesPage({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
-              Setup Checklist
-            </CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {setupChecklist?.summary_message ?? 'Checking boards, hardware, supplier costs, pricing, and quote defaults.'}
-            </p>
-          </div>
-          {setupChecklist ? (
-            <Badge variant={setupChecklist.status === 'ready' ? 'success' : 'warning'}>
-              {setupChecklist.complete_count}/{setupChecklist.total_count} ready
-            </Badge>
-          ) : null}
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          {isLoadingChecklist ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-              Loading setup checklist.
-            </div>
-          ) : setupChecklist ? (
-            <>
-              {nextSetupItem ? (
-                <Alert variant="warning">
-                  Next best step: {nextSetupItem.label}. {nextSetupItem.message}
-                </Alert>
-              ) : (
-                <Alert>
-                  Setup is ready. New quotes can use the visible libraries and current prices.
-                </Alert>
-              )}
-              <div className="grid gap-2 lg:grid-cols-3">
-                {setupChecklist.items.map((item) => (
-                  <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3" key={item.id}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <SetupStatusIcon status={item.status} />
-                        <p className="truncate text-sm font-medium">{item.label}</p>
-                      </div>
-                      <Badge variant={setupStatusBadgeVariant(item.status)}>{setupStatusLabel(item.status)}</Badge>
-                    </div>
-                    <p className="text-sm leading-5 text-muted-foreground">{item.message}</p>
-                    <Button
-                      className="w-fit"
-                      onClick={() => handleChecklistAction(item.action_target)}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      {item.action_target === 'projects' ? (
-                        <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                      ) : (
-                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                      )}
-                      {item.action_label}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <Alert variant="warning">The setup checklist is not available right now. Refresh Libraries, then sign in again if it keeps happening.</Alert>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
-              Import Preview
-            </CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Preview shows exactly what will be added, changed, ignored, or needs fixing before anything is saved.
-            </p>
-          </div>
-          <Badge variant="outline">preview before saving</Badge>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          {importError ? <Alert variant="destructive">The import could not be previewed or saved. {importError}</Alert> : null}
-          <Alert>{importResourceHelp(importResource, selectedPriceList?.name)}</Alert>
-          <form className="grid gap-3" onSubmit={previewLibraryImport}>
-            <div className="grid gap-3 lg:grid-cols-4">
-              <Label className="grid gap-1.5">
-                Import type
-                <Select
-                  value={importResource}
-                  onChange={(event) => handleImportResourceChange(event.target.value as LibraryImportResource)}
-                >
-                  {importResourceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </Label>
-              <Label className="grid gap-1.5">
-                Source
-                <Select
-                  value={importSourceFormat}
-                  onChange={(event) => {
-                    const nextFormat = event.target.value as LibraryImportSourceFormat
-                    setImportSourceFormat(nextFormat)
-                    clearImportResults()
-                    setImportError(null)
-                    if (nextFormat !== 'xlsx' && importSourceFormat === 'xlsx') {
-                      setImportFilename('')
-                      setImportContent(importExampleByResource[importResource])
-                    }
-                  }}
-                >
-                  {importSourceFormatOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </Label>
-              <Label className="grid gap-1.5">
-                Sheet
-                <Input
-                  disabled={importSourceFormat !== 'xlsx'}
-                  placeholder="Sheet1"
-                  value={importSheetName}
-                  onChange={(event) => {
-                    setImportSheetName(event.target.value)
-                    clearImportResults()
-                  }}
-                />
-              </Label>
-              <Label className="grid gap-1.5">
-                Upload
-                <Input
-                  accept=".csv,.tsv,.xlsx,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  onChange={(event) => {
-                    void handleImportFileChange(event)
-                  }}
-                  type="file"
-                />
-              </Label>
-            </div>
-            <Label className="grid gap-1.5">
-              Source reference
-              <Input
-                placeholder="Supplier price list June"
-                value={importSourceRef}
-                onChange={(event) => {
-                  setImportSourceRef(event.target.value)
-                  setImportApplyResult(null)
-                }}
-              />
-              <span className="text-xs text-muted-foreground">Use a short note you will recognize later, such as the supplier price list month.</span>
-            </Label>
-
-            {importSourceFormat === 'xlsx' ? (
-              <Alert>
-                {importFilename ? `${importFilename} is ready to preview.` : 'Choose an XLSX workbook before previewing.'}
-              </Alert>
-            ) : (
-              <Label className="grid gap-1.5">
-                Rows
-                <Textarea
-                  className="min-h-32 font-mono text-xs"
-                  value={importContent}
-                  onChange={(event) => {
-                    setImportContent(event.target.value)
-                    setImportFilename('')
-                    clearImportResults()
-                  }}
-                />
-              </Label>
-            )}
-
-            <Label className="grid gap-1.5">
-              Column mapping
-              <Textarea
-                className="min-h-20 font-mono text-xs"
-                placeholder="unit_cost_cents=Net Cost"
-                value={importColumnMapping}
-                onChange={(event) => {
-                  setImportColumnMapping(event.target.value)
-                  clearImportResults()
-                }}
-              />
-              <span className="text-xs text-muted-foreground">
-                Optional. Use this only when a supplier sheet uses different headings, for example unit_cost_cents=Net Cost.
-              </span>
-            </Label>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                disabled={isPreviewingImport || isApplyingImport || (importSourceFormat === 'xlsx' && !importFilename)}
-                type="submit"
-              >
-                {isPreviewingImport ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Eye className="h-4 w-4" aria-hidden="true" />
-                )}
-                Preview Import
-              </Button>
-              <Button
-                disabled={!importPreview || importHasBlockedRows || isPreviewingImport || isApplyingImport || (importSourceFormat === 'xlsx' && !importFilename)}
-                onClick={() => {
-                  void applyLibraryImport()
-                }}
-                type="button"
-                variant="outline"
-              >
-                {isApplyingImport ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Upload className="h-4 w-4" aria-hidden="true" />
-                )}
-                Apply Import
-              </Button>
-              {importFilename ? <Badge variant="outline">{importFilename}</Badge> : null}
-              {importResource === 'price_list_items' && selectedPriceList ? (
-                <Badge variant="outline">{selectedPriceList.name}</Badge>
-              ) : null}
-            </div>
-            {importPreview ? (
-              importPreviewProblemCount > 0 ? (
-                <Alert variant="warning">
-                  Review before applying: {importPreviewProblemCount} rows need attention. Rows marked Needs fixing must be corrected before Apply Import is available; duplicate rows will be skipped.
-                </Alert>
-              ) : importPreviewSaveCount === 0 ? (
-                <Alert>
-                  Nothing new to save. Every row in this preview is already current in CoreQuote.
-                </Alert>
-              ) : (
-                <Alert>
-                  Safe to apply: CoreQuote will save {importPreviewSaveCount} rows marked Will add or Will update, and leave Already current rows alone.
-                </Alert>
-              )
-            ) : null}
-          </form>
-
-          {importPreview ? (
-            <div className="grid gap-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">{importResourceLabel(importPreview.resource)}</Badge>
-                <Badge variant="outline">{importPreview.summary.total_rows} rows</Badge>
-                {importSummaryItems.map((item) => (
-                  <Badge key={item.status} variant={importStatusBadgeVariant(item.status)}>
-                    {item.value} {item.label}
-                  </Badge>
-                ))}
-              </div>
-
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {importPreview.mapped_fields
-                  .filter((field) => field.source_column || field.required)
-                  .map((field) => (
-                    <div className="rounded-[var(--control-radius)] border border-border px-3 py-2 text-sm" key={field.field}>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{field.label}</span>
-                        {field.required ? <Badge variant="outline">required</Badge> : null}
-                      </div>
-                      <p className="mt-1 break-words text-xs text-muted-foreground">
-                        {field.source_column || 'not mapped'}
-                      </p>
-                    </div>
-                  ))}
-              </div>
-
-              <TableContainer>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Row</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Matched item</TableHead>
-                      <TableHead>What CoreQuote read</TableHead>
-                      <TableHead>What to do</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visibleImportRows.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5}>
-                          <div className="py-3 text-sm text-muted-foreground">No import rows were found.</div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      visibleImportRows.map((row) => (
-                        <TableRow key={`${row.row_number}-${row.identity || row.status}`}>
-                          <TableCell>{row.row_number}</TableCell>
-                          <TableCell>
-                            <div className="grid gap-1">
-                              <Badge className="w-fit" variant={importStatusBadgeVariant(row.status)}>{importStatusLabel(row.status)}</Badge>
-                              <span className="max-w-56 text-xs text-muted-foreground">{importStatusHelp(row.status)}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="max-w-64 break-words text-xs">{row.identity || 'New library row'}</TableCell>
-                          <TableCell className="max-w-80 break-words text-xs">{payloadPreview(row.payload)}</TableCell>
-                          <TableCell className="min-w-72">
-                            <div className="grid gap-1 text-xs">
-                              <span>{row.message}</span>
-                              {row.problems.map((problem) => (
-                                <span className="text-muted-foreground" key={`${row.row_number}-${problem.field}-${problem.code}`}>
-                                  {problem.message} {problem.suggestion}
-                                </span>
-                              ))}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-
-              {importPreview.rows.length > visibleImportRows.length ? (
-                <p className="text-xs text-muted-foreground">
-                  Showing first {visibleImportRows.length} of {importPreview.rows.length} rows.
+      {activeTab === 'setup-imports' ? (
+        <>
+          <Card>
+            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
+                  Setup Checklist
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {setupChecklist?.summary_message ?? 'Checking boards, hardware, supplier costs, pricing, and quote defaults.'}
                 </p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {importApplyResult ? (
-            <div className="grid gap-4 rounded-[var(--control-radius)] border border-border p-3">
-              <Alert variant={importApplyResult.summary.failed_count > 0 ? 'warning' : undefined}>
-                {importApplyResult.summary.failed_count > 0
-                  ? 'Some rows were not saved. Fix rows marked Needs fixing, then preview the import again.'
-                  : 'Import applied. Added and updated rows are now available in Libraries and Pricing.'}
-              </Alert>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">Import receipt {importApplyResult.batch_id}</Badge>
-                <Badge variant="outline">{importApplyResult.summary.total_rows} rows</Badge>
-                {importApplySummaryItems.map((item) => (
-                  <Badge key={item.status} variant={importApplyStatusBadgeVariant(item.status)}>
-                    {item.value} {item.label}
-                  </Badge>
-                ))}
               </div>
-              <TableContainer>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Row</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Saved item</TableHead>
-                      <TableHead>What happened</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visibleImportApplyRows.map((row) => (
-                      <TableRow key={`${row.row_number}-${row.status}-${row.target_id}`}>
-                        <TableCell>{row.row_number}</TableCell>
-                        <TableCell>
-                          <Badge variant={importApplyStatusBadgeVariant(row.status)}>{importApplyStatusLabel(row.status)}</Badge>
-                        </TableCell>
-                        <TableCell className="max-w-64 break-words text-xs">{row.identity || row.target_id || '-'}</TableCell>
-                        <TableCell className="min-w-72">
-                          <div className="grid gap-1 text-xs">
-                            <span>{row.message}</span>
-                            {row.problems.map((problem) => (
-                              <span className="text-muted-foreground" key={`${row.row_number}-${problem.field}-${problem.code}`}>
-                                {problem.message} {problem.suggestion}
-                              </span>
-                            ))}
+              {setupChecklist ? (
+                <Badge variant={setupChecklist.status === 'ready' ? 'success' : 'warning'}>
+                  {setupChecklist.complete_count}/{setupChecklist.total_count} ready
+                </Badge>
+              ) : null}
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {isLoadingChecklist ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  Loading setup checklist.
+                </div>
+              ) : setupChecklist ? (
+                <>
+                  {nextSetupItem ? (
+                    <Alert variant="warning">
+                      Next best step: {nextSetupItem.label}. {nextSetupItem.message}
+                    </Alert>
+                  ) : (
+                    <Alert>
+                      Setup is ready. New quotes can use the visible libraries and current prices.
+                    </Alert>
+                  )}
+                  <div className="grid gap-2 lg:grid-cols-3">
+                    {setupChecklist.items.map((item) => (
+                      <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3" key={item.id}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <SetupStatusIcon status={item.status} />
+                            <p className="truncate text-sm font-medium">{item.label}</p>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                          <Badge variant={setupStatusBadgeVariant(item.status)}>{setupStatusLabel(item.status)}</Badge>
+                        </div>
+                        <p className="text-sm leading-5 text-muted-foreground">{item.message}</p>
+                        <Button
+                          className="w-fit"
+                          onClick={() => handleChecklistAction(item.action_target)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          {item.action_target === 'projects' ? (
+                            <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                          )}
+                          {item.action_label}
+                        </Button>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-              {importApplyResult.rows.length > visibleImportApplyRows.length ? (
-                <p className="text-xs text-muted-foreground">
-                  Showing first {visibleImportApplyRows.length} of {importApplyResult.rows.length} rows.
+                  </div>
+                </>
+              ) : (
+                <Alert variant="warning">The setup checklist is not available right now. Refresh Libraries, then sign in again if it keeps happening.</Alert>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+                  Import Preview
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Preview shows exactly what will be added, changed, ignored, or needs fixing before anything is saved.
                 </p>
+              </div>
+              <Badge variant="outline">preview before saving</Badge>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              {importError ? <Alert variant="destructive">The import could not be previewed or saved. {importError}</Alert> : null}
+              <Alert>{importResourceHelp(importResource, selectedPriceList?.name)}</Alert>
+              <form className="grid gap-3" onSubmit={previewLibraryImport}>
+                <div className="grid gap-3 lg:grid-cols-4">
+                  <Label className="grid gap-1.5">
+                    Import type
+                    <Select
+                      value={importResource}
+                      onChange={(event) => handleImportResourceChange(event.target.value as LibraryImportResource)}
+                    >
+                      {importResourceOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Source
+                    <Select
+                      value={importSourceFormat}
+                      onChange={(event) => {
+                        const nextFormat = event.target.value as LibraryImportSourceFormat
+                        setImportSourceFormat(nextFormat)
+                        clearImportResults()
+                        setImportError(null)
+                        if (nextFormat !== 'xlsx' && importSourceFormat === 'xlsx') {
+                          setImportFilename('')
+                          setImportContent(importExampleByResource[importResource])
+                        }
+                      }}
+                    >
+                      {importSourceFormatOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Sheet
+                    <Input
+                      disabled={importSourceFormat !== 'xlsx'}
+                      placeholder="Sheet1"
+                      value={importSheetName}
+                      onChange={(event) => {
+                        setImportSheetName(event.target.value)
+                        clearImportResults()
+                      }}
+                    />
+                  </Label>
+                  <Label className="grid gap-1.5">
+                    Upload
+                    <Input
+                      accept=".csv,.tsv,.xlsx,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      onChange={(event) => {
+                        void handleImportFileChange(event)
+                      }}
+                      type="file"
+                    />
+                  </Label>
+                </div>
+                <Label className="grid gap-1.5">
+                  Source reference
+                  <Input
+                    placeholder="Supplier price list June"
+                    value={importSourceRef}
+                    onChange={(event) => {
+                      setImportSourceRef(event.target.value)
+                      setImportApplyResult(null)
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">Use a short note you will recognize later, such as the supplier price list month.</span>
+                </Label>
+
+                {importSourceFormat === 'xlsx' ? (
+                  <Alert>
+                    {importFilename ? `${importFilename} is ready to preview.` : 'Choose an XLSX workbook before previewing.'}
+                  </Alert>
+                ) : (
+                  <Label className="grid gap-1.5">
+                    Rows
+                    <Textarea
+                      className="min-h-32 font-mono text-xs"
+                      value={importContent}
+                      onChange={(event) => {
+                        setImportContent(event.target.value)
+                        setImportFilename('')
+                        clearImportResults()
+                      }}
+                    />
+                  </Label>
+                )}
+
+                <Label className="grid gap-1.5">
+                  Column mapping
+                  <Textarea
+                    className="min-h-20 font-mono text-xs"
+                    placeholder="unit_cost_cents=Net Cost"
+                    value={importColumnMapping}
+                    onChange={(event) => {
+                      setImportColumnMapping(event.target.value)
+                      clearImportResults()
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Optional. Use this only when a supplier sheet uses different headings, for example unit_cost_cents=Net Cost.
+                  </span>
+                </Label>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    disabled={isPreviewingImport || isApplyingImport || (importSourceFormat === 'xlsx' && !importFilename)}
+                    type="submit"
+                  >
+                    {isPreviewingImport ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Eye className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    Preview Import
+                  </Button>
+                  <Button
+                    disabled={!importPreview || importHasBlockedRows || isPreviewingImport || isApplyingImport || (importSourceFormat === 'xlsx' && !importFilename)}
+                    onClick={() => {
+                      void applyLibraryImport()
+                    }}
+                    type="button"
+                    variant="outline"
+                  >
+                    {isApplyingImport ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Upload className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    Apply Import
+                  </Button>
+                  {importFilename ? <Badge variant="outline">{importFilename}</Badge> : null}
+                  {importResource === 'price_list_items' && selectedPriceList ? (
+                    <Badge variant="outline">{selectedPriceList.name}</Badge>
+                  ) : null}
+                </div>
+                {importPreview ? (
+                  importPreviewProblemCount > 0 ? (
+                    <Alert variant="warning">
+                      Review before applying: {importPreviewProblemCount} rows need attention. Rows marked Needs fixing must be corrected before Apply Import is available; duplicate rows will be skipped.
+                    </Alert>
+                  ) : importPreviewSaveCount === 0 ? (
+                    <Alert>
+                      Nothing new to save. Every row in this preview is already current in CoreQuote.
+                    </Alert>
+                  ) : (
+                    <Alert>
+                      Safe to apply: CoreQuote will save {importPreviewSaveCount} rows marked Will add or Will update, and leave Already current rows alone.
+                    </Alert>
+                  )
+                ) : null}
+              </form>
+
+              {importPreview ? (
+                <div className="grid gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{importResourceLabel(importPreview.resource)}</Badge>
+                    <Badge variant="outline">{importPreview.summary.total_rows} rows</Badge>
+                    {importSummaryItems.map((item) => (
+                      <Badge key={item.status} variant={importStatusBadgeVariant(item.status)}>
+                        {item.value} {item.label}
+                      </Badge>
+                    ))}
+                  </div>
+
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {importPreview.mapped_fields
+                      .filter((field) => field.source_column || field.required)
+                      .map((field) => (
+                        <div className="rounded-[var(--control-radius)] border border-border px-3 py-2 text-sm" key={field.field}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium">{field.label}</span>
+                            {field.required ? <Badge variant="outline">required</Badge> : null}
+                          </div>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            {field.source_column || 'not mapped'}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+
+                  <TableContainer>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Row</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Matched item</TableHead>
+                          <TableHead>What CoreQuote read</TableHead>
+                          <TableHead>What to do</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visibleImportRows.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={5}>
+                              <div className="py-3 text-sm text-muted-foreground">No import rows were found.</div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          visibleImportRows.map((row) => (
+                            <TableRow key={`${row.row_number}-${row.identity || row.status}`}>
+                              <TableCell>{row.row_number}</TableCell>
+                              <TableCell>
+                                <div className="grid gap-1">
+                                  <Badge className="w-fit" variant={importStatusBadgeVariant(row.status)}>{importStatusLabel(row.status)}</Badge>
+                                  <span className="max-w-56 text-xs text-muted-foreground">{importStatusHelp(row.status)}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="max-w-64 break-words text-xs">{row.identity || 'New library row'}</TableCell>
+                              <TableCell className="max-w-80 break-words text-xs">{payloadPreview(row.payload)}</TableCell>
+                              <TableCell className="min-w-72">
+                                <div className="grid gap-1 text-xs">
+                                  <span>{row.message}</span>
+                                  {row.problems.map((problem) => (
+                                    <span className="text-muted-foreground" key={`${row.row_number}-${problem.field}-${problem.code}`}>
+                                      {problem.message} {problem.suggestion}
+                                    </span>
+                                  ))}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+
+                  {importPreview.rows.length > visibleImportRows.length ? (
+                    <p className="text-xs text-muted-foreground">
+                      Showing first {visibleImportRows.length} of {importPreview.rows.length} rows.
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+
+              {importApplyResult ? (
+                <div className="grid gap-4 rounded-[var(--control-radius)] border border-border p-3">
+                  <Alert variant={importApplyResult.summary.failed_count > 0 ? 'warning' : undefined}>
+                    {importApplyResult.summary.failed_count > 0
+                      ? 'Some rows were not saved. Fix rows marked Needs fixing, then preview the import again.'
+                      : 'Import applied. Added and updated rows are now available in Libraries and Pricing.'}
+                  </Alert>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">Import receipt {importApplyResult.batch_id}</Badge>
+                    <Badge variant="outline">{importApplyResult.summary.total_rows} rows</Badge>
+                    {importApplySummaryItems.map((item) => (
+                      <Badge key={item.status} variant={importApplyStatusBadgeVariant(item.status)}>
+                        {item.value} {item.label}
+                      </Badge>
+                    ))}
+                  </div>
+                  <TableContainer>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Row</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Saved item</TableHead>
+                          <TableHead>What happened</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {visibleImportApplyRows.map((row) => (
+                          <TableRow key={`${row.row_number}-${row.status}-${row.target_id}`}>
+                            <TableCell>{row.row_number}</TableCell>
+                            <TableCell>
+                              <Badge variant={importApplyStatusBadgeVariant(row.status)}>{importApplyStatusLabel(row.status)}</Badge>
+                            </TableCell>
+                            <TableCell className="max-w-64 break-words text-xs">{row.identity || row.target_id || '-'}</TableCell>
+                            <TableCell className="min-w-72">
+                              <div className="grid gap-1 text-xs">
+                                <span>{row.message}</span>
+                                {row.problems.map((problem) => (
+                                  <span className="text-muted-foreground" key={`${row.row_number}-${problem.field}-${problem.code}`}>
+                                    {problem.message} {problem.suggestion}
+                                  </span>
+                                ))}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                  {importApplyResult.rows.length > visibleImportApplyRows.length ? (
+                    <p className="text-xs text-muted-foreground">
+                      Showing first {visibleImportApplyRows.length} of {importApplyResult.rows.length} rows.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
 
       {isLoading ? (
         <Card>
