@@ -1,6 +1,7 @@
 import type { BoardDraft, ExtraCategoryDraft, ExtraDraft, HandleDraft, HingeDraft, ItemSupplierDraft, LibraryTab, PriceListDraft, SlideDraft, SupplierDraft } from './types'
 
 export const libraryTabs: Array<{ label: string; value: LibraryTab }> = [
+  { label: 'Setup & Imports', value: 'setup-imports' },
   { label: 'Pricing', value: 'pricing' },
   { label: 'Boards', value: 'boards' },
   { label: 'Slides', value: 'slides' },

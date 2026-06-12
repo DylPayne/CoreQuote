@@ -1,6 +1,7 @@
 import type { CompanyPricingSettingsRow } from '@/components/pricing-settings'
 
 export type LibraryTab =
+  | 'setup-imports'
   | 'pricing'
   | 'boards'
   | 'slides'

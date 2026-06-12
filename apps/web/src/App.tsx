@@ -36,7 +36,7 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [colourTheme, setColourTheme] = useState<ColourTheme>('neutral')
   const [currentPage, setCurrentPage] = useState<AppPage>('projects')
-  const [libraryInitialTab, setLibraryInitialTab] = useState<LibraryTab>('pricing')
+  const [libraryInitialTab, setLibraryInitialTab] = useState<LibraryTab>('setup-imports')
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [themeMode, setThemeMode] = useState<ThemeMode>('light')
@@ -45,6 +45,12 @@ function App() {
   const selectedTheme = colourThemes.find((theme) => theme.value === colourTheme) ?? colourThemes[0]
   const selectedStyle = uiStyles.find((style) => style.value === uiStyle) ?? uiStyles[3]
   const themeVars = useMemo(() => createThemeVars(selectedTheme, themeMode, uiStyle), [selectedTheme, themeMode, uiStyle])
+  const handleSetCurrentPage = useCallback((page: AppPage) => {
+    if (page === 'libraries') {
+      setLibraryInitialTab('setup-imports')
+    }
+    setCurrentPage(page)
+  }, [])
 
   const clearSession = useCallback(() => {
     localStorage.removeItem(AUTH_TOKEN_KEY)
@@ -177,7 +183,7 @@ function App() {
         currentPage={currentPage}
         isLoggingOut={isLoggingOut}
         onLogout={handleLogout}
-        setCurrentPage={setCurrentPage}
+        setCurrentPage={handleSetCurrentPage}
         user={user}
       >
         {currentPage === 'settings' ? (
@@ -197,7 +203,7 @@ function App() {
           <ProjectsQuotesPage
             authToken={authToken}
             currencyCode={user.company_currency_code}
-            onOpenLibraries={(target = 'pricing') => {
+            onOpenLibraries={(target = 'setup-imports') => {
               setLibraryInitialTab(target)
               setCurrentPage('libraries')
             }}
