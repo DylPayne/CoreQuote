@@ -246,6 +246,7 @@ type BoardLibraryRow = {
   thickness: number
   length_mm: number
   width_mm: number
+  grain_policy: 'none' | 'optional' | 'required'
 }
 
 type NewUnitTypeDraft = {

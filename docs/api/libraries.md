@@ -114,7 +114,7 @@ Request:
   "source_format": "csv",
   "filename": "boards.csv",
   "sheet_name": null,
-  "content": "Brand,Material,Thickness,Length,Width,Costing Mode\nPG Bison,MelaWood,16,2750,1830,sheet\n",
+  "content": "Brand,Material,Thickness,Length,Width,Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sheet,required\n",
   "column_mapping": {
     "thickness": "Thickness"
   },
@@ -166,7 +166,8 @@ Response:
         "thickness": 16,
         "length_mm": 2750,
         "width_mm": 1830,
-        "costing_mode": "sheet"
+        "costing_mode": "sheet",
+        "grain_policy": "required"
       },
       "problems": []
     }
@@ -212,7 +213,7 @@ Request:
   "filename": "boards.csv",
   "sheet_name": null,
   "source_ref": "Supplier price list June",
-  "content": "Brand,Material,Thickness,Length,Width,Costing Mode\nPG Bison,MelaWood,16,2750,1830,sqm\n",
+  "content": "Brand,Material,Thickness,Length,Width,Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sqm,optional\n",
   "column_mapping": {},
   "price_list_id": null
 }
@@ -319,7 +320,7 @@ Use `confirm: false` to preview. Re-send the same selected IDs and updates with
 
 Supported fields:
 
-- `boards`: `costing_mode`
+- `boards`: `costing_mode`, `grain_policy`
 - `slides`: `brand`, `code`
 - `hinges`: `brand`, `code`
 - `handles`: `supplier`, `code`
@@ -360,11 +361,25 @@ Resource: `boards`
   "thickness": 16,
   "length_mm": 2750,
   "width_mm": 1830,
-  "costing_mode": "sheet"
+  "costing_mode": "sheet",
+  "grain_policy": "required"
 }
 ```
 
 `costing_mode` is `sheet` or `sqm`.
+
+`grain_policy` controls whether workshop grain direction applies to this board
+type:
+
+- `required`: grain direction is expected for production-relevant door and
+  visible panel parts, and missing grain can produce production warnings.
+- `optional`: users may record grain direction, but missing grain does not
+  produce production warnings.
+- `none`: grain direction is not applicable; production handoff rows, labels,
+  and exports show grain as not applicable and do not warn about missing grain.
+
+Existing board rows default to `required` when the grain policy migration is
+applied so current production warning behavior is preserved.
 
 ### Slides
 

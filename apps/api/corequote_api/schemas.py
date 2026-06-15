@@ -67,6 +67,7 @@ QuoteOutputGroup = Literal["client", "workshop"]
 MaterialRole = Literal["carcass", "door_panel", "visible_panel"]
 ProductionGrainDirection = Literal["none", "length", "width"]
 ProductionRotationGuidance = Literal["none", "allow_rotation", "no_rotation"]
+BoardGrainPolicy = Literal["none", "optional", "required"]
 MaterialSummaryWarningCode = Literal["missing_board_selection", "missing_board_record", "missing_board_dimensions"]
 ProductionBoardRequirementWarningCode = Literal[
     "missing_board_selection",
@@ -1333,6 +1334,7 @@ class BoardTypeRequest(BaseModel):
     length_mm: int = Field(gt=0)
     width_mm: int = Field(gt=0)
     costing_mode: Literal["sheet", "sqm"] = "sheet"
+    grain_policy: BoardGrainPolicy = "required"
 
 
 class BoardTypeResponse(BoardTypeRequest):

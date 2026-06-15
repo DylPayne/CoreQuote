@@ -686,8 +686,11 @@ overrides quote defaults for matching roles, and custom panel metadata overrides
 the quote `visible_panel` defaults for that generated row. Cutting ruleset edge
 flags are rendered as `edge_sides`; saved edge-banding text, grain direction,
 rotation guidance, and production notes are shown beside each affected part.
-Door/drawer panels and visible quote panels produce row warnings when required
-edge or grain details are missing.
+Grain warnings respect the selected board type's `grain_policy`: `required`
+keeps missing-grain warnings, `optional` allows grain notes without requiring
+them, and `none` marks grain as not applicable in the handoff, labels, and
+exports. Door/drawer panels and visible quote panels produce row warnings when
+required edge or applicable grain details are missing.
 
 The response also includes `board_requirements`, a production-facing material
 ordering review derived from the same rows and material summary. It groups by
@@ -744,6 +747,7 @@ Response excerpt:
           "material_role": "carcass",
           "board_type_id": "board-uuid",
           "board_name": "PG White (16mm)",
+          "grain_policy": "required",
           "desc": "Side",
           "length": 748,
           "width": 564,

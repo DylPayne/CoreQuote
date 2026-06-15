@@ -32,6 +32,7 @@ export type LibraryImportApplyRowStatus = 'created' | 'updated' | 'skipped' | 'f
 export type LibraryImportProblemSeverity = 'error' | 'warning'
 export type LibraryCatalogBulkResource = 'boards' | 'slides' | 'hinges' | 'handles' | 'extras' | 'suppliers'
 export type LibraryBulkRowStatus = 'preview' | 'updated' | 'failed'
+export type BoardGrainPolicy = 'none' | 'optional' | 'required'
 
 export type LibrarySetupChecklistItem = {
   id: string
@@ -161,6 +162,7 @@ export type BoardTypeRow = {
   length_mm: number
   width_mm: number
   costing_mode: 'sheet' | 'sqm'
+  grain_policy: BoardGrainPolicy
   created_at: string
   updated_at: string
 }
@@ -310,6 +312,7 @@ export type BoardDraft = {
   length_mm: string
   width_mm: string
   costing_mode: 'sheet' | 'sqm'
+  grain_policy: BoardGrainPolicy
 }
 
 export type SlideDraft = {

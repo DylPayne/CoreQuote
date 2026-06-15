@@ -46,7 +46,7 @@ import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, Li
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -74,6 +74,12 @@ const importSourceFormatOptions: Array<{ label: string; value: LibraryImportSour
   { label: 'CSV', value: 'csv' },
   { label: 'TSV', value: 'tsv' },
   { label: 'XLSX', value: 'xlsx' },
+]
+
+const boardGrainPolicyOptions: Array<{ label: string; value: BoardGrainPolicy }> = [
+  { label: 'Grain required', value: 'required' },
+  { label: 'Optional grain', value: 'optional' },
+  { label: 'No grain', value: 'none' },
 ]
 
 type RecentFilterValue = 'all' | '7' | '30' | '90'
@@ -128,6 +134,12 @@ const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> 
       ],
       value: 'costing_mode',
     },
+    {
+      input: 'select',
+      label: 'Grain',
+      options: boardGrainPolicyOptions,
+      value: 'grain_policy',
+    },
   ],
   slides: [
     { input: 'text', label: 'Brand', value: 'brand' },
@@ -157,7 +169,7 @@ const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> 
 }
 
 const importExampleByResource: Record<LibraryImportResource, string> = {
-  boards: 'Brand,Material,Thickness,Length,Width,Costing Mode\nPG Bison,MelaWood,16,2750,1830,sheet',
+  boards: 'Brand,Material,Thickness,Length,Width,Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sheet,required',
   slides: 'Brand,Model,Code,Length\nGrass,Dynapro,DYN-500,500',
   hinges: 'Brand,Model,Code,Opening Angle\nBlum,Clip Top,BL-110,110',
   handles: 'Name,Supplier,Code\nSlim Bar,Hafele,HB-160',
@@ -964,7 +976,7 @@ export function LibrariesPage({
     () =>
       boards.filter(
         (row) =>
-          searchTextMatches(catalogSearch, [row.brand, row.material, row.thickness, row.length_mm, row.width_mm, row.costing_mode]) &&
+          searchTextMatches(catalogSearch, [row.brand, row.material, row.thickness, row.length_mm, row.width_mm, row.costing_mode, row.grain_policy]) &&
           matchesRecent(row.updated_at, catalogRecentDays),
       ),
     [boards, catalogRecentDays, catalogSearch],
@@ -1899,6 +1911,7 @@ export function LibrariesPage({
       length_mm: String(editingBoard.length_mm),
       width_mm: String(editingBoard.width_mm),
       costing_mode: editingBoard.costing_mode,
+      grain_policy: editingBoard.grain_policy,
     })
     if (!payload) {
       setActionError('Board values are invalid.')
@@ -3242,6 +3255,16 @@ export function LibrariesPage({
                   <Select value={boardDraft.costing_mode} onChange={(event) => setBoardDraft((current) => ({ ...current, costing_mode: event.target.value as 'sheet' | 'sqm' }))}>
                     <option value="sheet">sheet</option>
                     <option value="sqm">sqm</option>
+                  </Select>
+                </Label>
+                <Label className="grid gap-1.5">
+                  Grain
+                  <Select value={boardDraft.grain_policy} onChange={(event) => setBoardDraft((current) => ({ ...current, grain_policy: event.target.value as BoardGrainPolicy }))}>
+                    {boardGrainPolicyOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </Select>
                 </Label>
                 <Label className="grid gap-1.5">

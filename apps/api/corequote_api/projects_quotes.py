@@ -2052,7 +2052,7 @@ class WorkspaceStore:
             row["id"]: row
             for row in conn.execute(
                 """
-                SELECT id::text, brand, material, thickness, length_mm, width_mm, costing_mode
+                SELECT id::text, brand, material, thickness, length_mm, width_mm, costing_mode, grain_policy
                 FROM board_types
                 WHERE company_id = %s
                 ORDER BY brand ASC, material ASC, thickness ASC
