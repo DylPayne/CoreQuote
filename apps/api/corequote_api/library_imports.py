@@ -35,6 +35,7 @@ XLSX_NS = {
 ALLOWED_ITEM_TYPES = {"board", "slide", "hinge", "handle", "extra"}
 ALLOWED_UOMS = {"sheet", "m2", "m", "board", "pcs", "pairs", "pair", "each", "unit", "set", "day", "trip"}
 ALLOWED_COSTING_MODES = {"sheet", "sqm"}
+ALLOWED_GRAIN_POLICIES = {"none", "optional", "required"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("length_mm", "Length", ("length", "length mm", "length_mm", "sheet length"), True),
             ImportField("width_mm", "Width", ("width", "width mm", "width_mm", "sheet width"), True),
             ImportField("costing_mode", "Costing mode", ("costing mode", "costing_mode", "pricing mode")),
+            ImportField("grain_policy", "Grain policy", ("grain policy", "grain_policy", "grain", "grain required")),
         ),
     ),
     "slides": ImportSpec(
@@ -437,9 +439,12 @@ def _normalize_board(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dic
         "length_mm": _positive_int(raw.get("length_mm"), "length_mm", "Length", problems),
         "width_mm": _positive_int(raw.get("width_mm"), "width_mm", "Width", problems),
         "costing_mode": _text(raw.get("costing_mode")) or "sheet",
+        "grain_policy": _normalize_grain_policy(raw.get("grain_policy")),
     }
     if payload["costing_mode"] not in ALLOWED_COSTING_MODES:
         problems.append(_problem("costing_mode", "invalid_costing_mode", "Costing mode must be sheet or sqm.", "Use sheet for full board prices or sqm for square-metre prices."))
+    if payload["grain_policy"] not in ALLOWED_GRAIN_POLICIES:
+        problems.append(_problem("grain_policy", "invalid_grain_policy", "Grain policy must be none, optional, or required.", "Use none for MDF/utility boards, optional when grain notes are useful, or required for grained materials."))
     return payload
 
 
@@ -676,7 +681,7 @@ def _find_existing(resource: ImportResource, identity: str, references: dict[str
 
 def _payload_matches(resource: ImportResource, payload: dict[str, Any], existing: dict[str, Any]) -> bool:
     compare_fields = {
-        "boards": ("brand", "material", "thickness", "length_mm", "width_mm", "costing_mode"),
+        "boards": ("brand", "material", "thickness", "length_mm", "width_mm", "costing_mode", "grain_policy"),
         "slides": ("brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift"),
         "hinges": ("brand", "model", "code", "opening_angle_deg"),
         "handles": ("name", "supplier", "code"),
@@ -803,6 +808,17 @@ def _text(value: Any) -> str:
     if isinstance(value, float) and value.is_integer():
         return str(int(value)).strip()
     return str(value).strip()
+
+
+def _normalize_grain_policy(value: Any) -> str:
+    text = _text(value).lower()
+    if not text:
+        return "required"
+    if text in {"no", "false", "not grained", "non-grained", "nongrained", "no grain"}:
+        return "none"
+    if text in {"yes", "true", "grained", "grain required", "requires grain"}:
+        return "required"
+    return text
 
 
 def _positive_int(value: Any, field: str, label: str, problems: list[dict[str, Any]], default: int | None = None) -> int:

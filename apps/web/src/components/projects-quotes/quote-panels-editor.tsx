@@ -53,6 +53,13 @@ export function QuotePanelsEditor({
   const wallDoor = resolveDefaultDims(selectedQuote.unit_defaults, 'Wall Door')
   const tallDoor = resolveDefaultDims(selectedQuote.unit_defaults, 'Tall Door')
   const defaultReturnDepth = baseDoor.depth
+  const grainPolicyForBoardId = useCallback(
+    (boardId: string | null | undefined) => {
+      const effectiveBoardId = boardId ?? defaultPanelBoardId
+      return boards.find((board) => board.id === effectiveBoardId)?.grain_policy ?? 'required'
+    },
+    [boards, defaultPanelBoardId],
+  )
 
   const defaultPresetConfig = useCallback(
     (key: PanelPresetKey): QuoteCustomPanelPresetConfig => {
@@ -466,7 +473,19 @@ export function QuotePanelsEditor({
                           onChange({
                             ...panelState,
                             manual: panelState.manual.map((current, currentIndex) =>
-                              currentIndex === index ? { ...current, board_type_id: optionalId(event.target.value) } : current,
+                              currentIndex === index
+                                ? {
+                                    ...current,
+                                    board_type_id: optionalId(event.target.value),
+                                    production_metadata:
+                                      grainPolicyForBoardId(optionalId(event.target.value)) === 'none'
+                                        ? {
+                                            ...(current.production_metadata ?? defaultProductionMetadata),
+                                            grain_direction: 'none',
+                                          }
+                                        : current.production_metadata,
+                                  }
+                                : current,
                             ),
                           })
                         }
@@ -503,6 +522,7 @@ export function QuotePanelsEditor({
                     </TableCell>
                     <TableCell>
                       <Select
+                        disabled={grainPolicyForBoardId(row.board_type_id) === 'none'}
                         onChange={(event) =>
                           onChange({
                             ...panelState,
@@ -519,9 +539,9 @@ export function QuotePanelsEditor({
                             ),
                           })
                         }
-                        value={(row.production_metadata ?? defaultProductionMetadata).grain_direction}
+                        value={grainPolicyForBoardId(row.board_type_id) === 'none' ? 'none' : (row.production_metadata ?? defaultProductionMetadata).grain_direction}
                       >
-                        <option value="none">Unspecified</option>
+                        <option value="none">{grainPolicyForBoardId(row.board_type_id) === 'none' ? 'Not applicable' : 'Unspecified'}</option>
                         <option value="length">Length</option>
                         <option value="width">Width</option>
                       </Select>

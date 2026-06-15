@@ -165,7 +165,7 @@ class FakeLibraryStore:
 
     def create_board(self, company_id: str, payload: dict):
         self.created_payload = ("boards", payload)
-        return board("board-2", brand=payload["brand"])
+        return board("board-2", brand=payload["brand"], grain_policy=payload.get("grain_policy", "required"))
 
     def get_board(self, company_id: str, item_id: str):
         if not item_id.startswith("board-"):
@@ -174,7 +174,7 @@ class FakeLibraryStore:
 
     def update_board(self, company_id: str, item_id: str, payload: dict):
         self.updated_payload = ("boards", item_id, payload)
-        return board(item_id, brand=payload["brand"])
+        return board(item_id, brand=payload["brand"], grain_policy=payload.get("grain_policy", "required"))
 
     def delete_board(self, company_id: str, item_id: str):
         self.deleted.append(("boards", item_id))
@@ -573,7 +573,7 @@ class _BrandCaptureConnection:
         return _CaptureCursor(board("board-1", brand="CoreBoard"))
 
 
-def board(item_id: str, *, brand: str = "PG Bison") -> dict:
+def board(item_id: str, *, brand: str = "PG Bison", grain_policy: str = "required") -> dict:
     return {
         "id": item_id,
         "brand": brand,
@@ -582,6 +582,7 @@ def board(item_id: str, *, brand: str = "PG Bison") -> dict:
         "length_mm": 2750,
         "width_mm": 1830,
         "costing_mode": "sheet",
+        "grain_policy": grain_policy,
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -782,7 +783,7 @@ def supplier_cost(
 CATALOG_CASES = [
     (
         "boards",
-        {"brand": "Sonae", "material": "MDF", "thickness": 18, "length_mm": 2440, "width_mm": 1220, "costing_mode": "sqm"},
+        {"brand": "Sonae", "material": "MDF", "thickness": 18, "length_mm": 2440, "width_mm": 1220, "costing_mode": "sqm", "grain_policy": "none"},
         "brand",
         "Sonae",
     ),
@@ -903,11 +904,11 @@ def test_setup_checklist_endpoint_requires_pricing_read_permission():
 def test_import_preview_classifies_board_rows_from_csv():
     content = "\n".join(
         [
-            "Brand,Material,Thickness,Length,Width,Costing Mode",
-            "PG Bison,MelaWood,16,2750,1830,sqm",
-            "PG Bison,MelaWood,16,2750,1830,sqm",
-            "Sonae,MDF,18,2440,1220,sheet",
-            "Bad Board,MDF,0,2440,1220,sheet",
+            "Brand,Material,Thickness,Length,Width,Costing Mode,Grain Policy",
+            "PG Bison,MelaWood,16,2750,1830,sqm,optional",
+            "PG Bison,MelaWood,16,2750,1830,sqm,optional",
+            "Sonae,MDF,18,2440,1220,sheet,none",
+            "Bad Board,MDF,0,2440,1220,sheet,required",
         ]
     )
 
@@ -938,6 +939,8 @@ def test_import_preview_classifies_board_rows_from_csv():
         "blocked_count": 1,
     }
     assert [row["status"] for row in preview["rows"]] == ["update", "duplicate", "create", "blocked"]
+    assert preview["rows"][0]["payload"]["grain_policy"] == "optional"
+    assert preview["rows"][2]["payload"]["grain_policy"] == "none"
     assert preview["rows"][3]["problems"][0]["code"] == "invalid_number"
 
 
@@ -950,6 +953,7 @@ def test_brand_backed_catalog_writes_brand_id_not_brand_row():
         "length_mm": 2750,
         "width_mm": 1830,
         "costing_mode": "sheet",
+        "grain_policy": "required",
     }
 
     create_conn = _BrandCaptureConnection()
@@ -1176,6 +1180,32 @@ def test_catalog_library_crud(resource: str, payload: dict, field: str, value: s
     assert patch_response.json()[field] == value
     assert delete_response.status_code == 204
     assert store.deleted[-1] == (resource, created_id)
+
+
+def test_board_type_grain_policy_round_trips_and_validates():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "brand": "Sonae",
+        "material": "MDF",
+        "thickness": 18,
+        "length_mm": 2440,
+        "width_mm": 1220,
+        "costing_mode": "sqm",
+        "grain_policy": "none",
+    }
+    invalid_payload = {**payload, "grain_policy": "sometimes"}
+    try:
+        create_response = client.post("/api/v1/libraries/boards", json=payload, headers=auth_header())
+        invalid_response = client.post("/api/v1/libraries/boards", json=invalid_payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert create_response.status_code == 201
+    assert create_response.json()["grain_policy"] == "none"
+    assert store.created_payload == ("boards", payload)
+    assert invalid_response.status_code == 422
 
 
 def test_catalog_list_accepts_search_and_recent_filters():
@@ -1456,6 +1486,20 @@ def test_catalog_bulk_update_rejects_empty_selection():
 
     assert response.status_code == 422
     assert store.catalog_bulk_payload is None
+
+
+def test_catalog_bulk_update_rejects_invalid_board_grain_policy_before_sql():
+    store = LibraryStore(database_url="postgresql://unused")
+
+    with pytest.raises(LibraryValidationError, match="Grain policy must be none, optional, or required"):
+        store.bulk_update_catalog(
+            "company-1",
+            {
+                "resource": "boards",
+                "item_ids": ["board-1"],
+                "updates": {"grain_policy": "sometimes"},
+            },
+        )
 
 
 def test_catalog_bulk_update_requires_catalog_write_permission():

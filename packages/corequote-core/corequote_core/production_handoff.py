@@ -28,6 +28,7 @@ PRODUCTION_META_DEFAULT = {
     "rotation": "none",
     "notes": "",
 }
+GRAIN_POLICIES = {"none", "optional", "required"}
 EDGE_LABELS = (
     ("edge_long_1", "L1"),
     ("edge_long_2", "L2"),
@@ -444,6 +445,7 @@ def _production_rows(
         unit = units_by_number.get(unit_number)
         board_id = _material_board_id(row=row, quote=quote, unit=unit, material_role=material_role)
         board = board_lookup.get(board_id) if board_id else None
+        grain_policy = _grain_policy_for_board(board)
         row_warnings = warnings_by_row.get((unit_number, section, desc), [])
         production_metadata = _production_metadata_for_row(
             quote=quote,
@@ -452,7 +454,7 @@ def _production_rows(
             material_role=material_role,
         )
         edge_sides = _edge_sides(row)
-        grain_direction = _grain_direction_for_row(row, production_metadata)
+        grain_direction = _grain_direction_for_row(row, production_metadata, grain_policy=grain_policy)
         can_rotate = bool(row.get("can_rotate", True))
         rotation = _rotation_for_row(production_metadata, can_rotate=can_rotate)
         production_warnings = _production_metadata_warnings(
@@ -462,6 +464,7 @@ def _production_rows(
             edge_sides=edge_sides,
             production_metadata=production_metadata,
             grain_direction=grain_direction,
+            grain_policy=grain_policy,
             rotation=rotation,
         )
         repeat_key = (source_type, unit_number, section, desc, length, width)
@@ -501,6 +504,7 @@ def _production_rows(
                 "thickness": _optional_positive_int((board or {}).get("thickness")),
                 "sheet_length_mm": _optional_positive_int((board or {}).get("length_mm")),
                 "sheet_width_mm": _optional_positive_int((board or {}).get("width_mm")),
+                "grain_policy": grain_policy,
                 "desc": desc,
                 "length": length,
                 "width": width,
@@ -509,7 +513,7 @@ def _production_rows(
                 "edge_sides_label": ", ".join(edge_sides) if edge_sides else "None",
                 "edge_banding": production_metadata["edge_banding"],
                 "grain_direction": grain_direction,
-                "grain_label": _grain_label(grain_direction),
+                "grain_label": _grain_label(grain_direction, grain_policy=grain_policy),
                 "can_rotate": can_rotate,
                 "rotation": rotation,
                 "rotation_label": _rotation_label(rotation),
@@ -550,6 +554,7 @@ def _production_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "thickness": row["thickness"],
                 "sheet_length_mm": row["sheet_length_mm"],
                 "sheet_width_mm": row["sheet_width_mm"],
+                "grain_policy": row["grain_policy"],
                 "material_role": row["material_role"],
                 "role_label": row["role_label"],
                 "unit_number": row["unit_number"],
@@ -673,6 +678,7 @@ def _label_for_row(row: dict[str, Any]) -> dict[str, Any]:
         "quantity": row["quantity"],
         "warning_count": row["warning_count"],
         "edge_sides_label": row["edge_sides_label"],
+        "grain_policy": row["grain_policy"],
         "grain_label": row["grain_label"],
         "rotation_label": row["rotation_label"],
     }
@@ -790,7 +796,14 @@ def _edge_sides(row: dict[str, Any]) -> list[str]:
     return [label for key, label in EDGE_LABELS if bool(row.get(key))]
 
 
-def _grain_direction_for_row(row: dict[str, Any], production_metadata: dict[str, str]) -> str:
+def _grain_policy_for_board(board: dict[str, Any] | None) -> str:
+    policy = str((board or {}).get("grain_policy") or "required").strip().lower()
+    return policy if policy in GRAIN_POLICIES else "required"
+
+
+def _grain_direction_for_row(row: dict[str, Any], production_metadata: dict[str, str], *, grain_policy: str) -> str:
+    if grain_policy == "none":
+        return "none"
     if production_metadata.get("grain_direction") in {"length", "width"}:
         return production_metadata["grain_direction"]
     row_grain = str(row.get("grain_direction") or "none").strip().lower()
@@ -811,6 +824,7 @@ def _production_metadata_warnings(
     edge_sides: list[str],
     production_metadata: dict[str, str],
     grain_direction: str,
+    grain_policy: str,
     rotation: str,
 ) -> list[str]:
     if material_role not in {"door_panel", "visible_panel"}:
@@ -820,14 +834,16 @@ def _production_metadata_warnings(
     part_label = f"{source_label} / {desc}"
     if (edge_sides or material_role == "visible_panel") and not production_metadata.get("edge_banding"):
         messages.append(f"Add edge-banding instruction for {part_label}.")
-    if grain_direction == "none":
+    if grain_policy == "required" and grain_direction == "none":
         messages.append(f"Add grain direction for {part_label}.")
     if rotation == "none":
         messages.append(f"Add rotation guidance for {part_label}.")
     return messages
 
 
-def _grain_label(value: str) -> str:
+def _grain_label(value: str, *, grain_policy: str = "required") -> str:
+    if grain_policy == "none":
+        return "Not applicable"
     return {
         "length": "Length grain",
         "width": "Width grain",

@@ -4,6 +4,7 @@ export type UnitDefaults = Record<string, { height: number; depth: number }>
 export type QuoteStatus = 'draft' | 'ready' | 'sent' | 'accepted' | 'rejected' | 'revised' | 'expired'
 export type ProductionGrainDirection = 'none' | 'length' | 'width'
 export type ProductionRotationGuidance = 'none' | 'allow_rotation' | 'no_rotation'
+export type BoardGrainPolicy = 'none' | 'optional' | 'required'
 export type ProductionMetadata = {
   edge_banding: string
   grain_direction: ProductionGrainDirection
@@ -81,6 +82,7 @@ export type BoardRow = {
   thickness: number
   length_mm: number
   width_mm: number
+  grain_policy: BoardGrainPolicy
 }
 
 export type SlideRow = {
@@ -427,6 +429,7 @@ export type ProductionHandoffRow = {
   thickness: number | null
   sheet_length_mm: number | null
   sheet_width_mm: number | null
+  grain_policy: BoardGrainPolicy
   desc: string
   length: number
   width: number
@@ -453,6 +456,7 @@ export type ProductionHandoffGroup = {
   thickness: number | null
   sheet_length_mm: number | null
   sheet_width_mm: number | null
+  grain_policy: BoardGrainPolicy
   material_role: MaterialRole
   role_label: string
   unit_number: number
@@ -588,6 +592,7 @@ export type ProductionHandoffLabel = {
   quantity: number
   warning_count: number
   edge_sides_label: string
+  grain_policy: BoardGrainPolicy
   grain_label: string
   rotation_label: string
 }

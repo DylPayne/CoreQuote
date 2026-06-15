@@ -1,8 +1,14 @@
-import type { BoardDraft, BoardTypeRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
 export { formatCurrencyFromCents } from '@/lib/currency'
 
 export function formatBoardLabel(row: BoardTypeRow) {
   return `${row.brand} ${row.material} ${row.thickness}mm (${row.length_mm}x${row.width_mm})`
+}
+
+export function formatBoardGrainPolicy(value: BoardGrainPolicy) {
+  if (value === 'none') return 'No grain'
+  if (value === 'optional') return 'Optional grain'
+  return 'Grain required'
 }
 
 export function formatSlideLabel(row: SlideRow) {
@@ -80,6 +86,7 @@ export function buildBoardPayload(draft: BoardDraft) {
     length_mm,
     width_mm,
     costing_mode: draft.costing_mode,
+    grain_policy: draft.grain_policy,
   }
 }
 

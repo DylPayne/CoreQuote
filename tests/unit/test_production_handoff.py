@@ -345,6 +345,57 @@ def test_production_handoff_shows_edge_grain_metadata_and_workshop_warnings():
     assert result["warning_count"] == 2
 
 
+def test_production_handoff_suppresses_grain_for_non_grained_board_types():
+    lookup = board_lookup()
+    lookup["board-black"] = {**lookup["board-black"], "grain_policy": "none"}
+    result = build_production_handoff(
+        quote={
+            **quote(),
+            "production_metadata": {
+                "visible_panel": {
+                    "edge_banding": "",
+                    "grain_direction": "length",
+                    "rotation": "none",
+                    "notes": "",
+                },
+            },
+        },
+        project=project(),
+        units=[],
+        cutting_list={
+            "runtime_rows": [
+                {
+                    "unit_number": 0,
+                    "section": "extra_panel",
+                    "desc": "MDF Utility Panel",
+                    "length": 2300,
+                    "width": 300,
+                    "qty": 1,
+                    "board_type_id": "board-black",
+                    "production_metadata": {
+                        "edge_banding": "",
+                        "grain_direction": "width",
+                        "rotation": "none",
+                        "notes": "",
+                    },
+                },
+            ],
+            "validation_warnings": [],
+        },
+        material_summary={"groups": [], "warnings": [], "total_area_m2": 0, "total_piece_count": 0, "total_edge_m": 0},
+        hardware_pick_list={"items": [], "warnings": [], "total_item_count": 0, "total_quantity": 0},
+        board_lookup=lookup,
+    )
+
+    panel = result["rows"][0]
+    assert panel["grain_policy"] == "none"
+    assert panel["grain_direction"] == "none"
+    assert panel["grain_label"] == "Not applicable"
+    assert panel["warning_count"] == 1
+    assert "Add edge-banding instruction for Quote-level / MDF Utility Panel." in panel["warning_messages"]
+    assert all("grain direction" not in message.lower() for message in panel["warning_messages"])
+
+
 def assert_no_pricing_fields(value):
     blocked = {
         "client_quote_total_cents",
@@ -423,6 +474,7 @@ def board_lookup() -> dict:
             "thickness": 16,
             "length_mm": 2750,
             "width_mm": 1830,
+            "grain_policy": "required",
         },
         "board-oak": {
             "id": "board-oak",
@@ -431,6 +483,7 @@ def board_lookup() -> dict:
             "thickness": 18,
             "length_mm": 2800,
             "width_mm": 1220,
+            "grain_policy": "required",
         },
         "board-black": {
             "id": "board-black",
@@ -439,6 +492,7 @@ def board_lookup() -> dict:
             "thickness": 16,
             "length_mm": 2750,
             "width_mm": 1830,
+            "grain_policy": "required",
         },
     }
 
