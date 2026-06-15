@@ -111,6 +111,31 @@ def test_production_handoff_groups_sorts_custom_panels_and_stable_part_ids():
     assert result["row_count"] == 4
     assert result["group_count"] == 4
     assert result["warning_count"] == 1
+    assert result["board_requirements"]["estimate_label"] == (
+        "Sheet counts are estimates only; CoreQuote has not optimized board nesting."
+    )
+    assert result["board_requirements"]["total_piece_count"] == result["material_summary"]["total_piece_count"]
+    assert result["board_requirements"]["total_area_m2"] == result["material_summary"]["total_area_m2"]
+    assert result["board_requirements"]["total_estimated_sheets"] == result["material_summary"]["total_estimated_sheets"]
+
+    white_requirement = next(
+        group
+        for group in result["board_requirements"]["groups"]
+        if group["board_type_id"] == "board-white" and group["material_role"] == "carcass"
+    )
+    assert white_requirement["piece_count"] == 3
+    assert white_requirement["area_m2"] == 1.01
+    assert white_requirement["estimated_sheets"] == 1
+    assert white_requirement["sheet_estimate_label"] == "1 estimated sheet (area estimate, not optimized nesting)."
+    assert white_requirement["waste_allowance_label"].startswith("Estimated waste allowance ")
+
+    panel_requirement = next(
+        group
+        for group in result["board_requirements"]["groups"]
+        if group["board_type_id"] == "board-black" and group["material_role"] == "visible_panel"
+    )
+    assert panel_requirement["part_ids"] == [kicker["part_id"]]
+    assert panel_requirement["source_labels"] == ["Quote-level"]
     assert_no_pricing_fields(result)
 
 
@@ -147,6 +172,90 @@ def test_production_handoff_uses_workspace_cutlist_rows_and_unassigned_warnings(
     assert result["rows"][0]["warning_messages"] == ["Choose a carcass board for this unit or quote default."]
     assert result["rows"][1]["board_name"] == "Seno Oak (18mm)"
     assert result["groups"][0]["board_name"] == "Unassigned material"
+
+
+def test_production_handoff_board_requirements_surface_material_data_warnings():
+    result = build_production_handoff(
+        quote={
+            **quote(),
+            "default_carcass_board_type_id": None,
+            "default_door_board_type_id": "board-missing",
+            "default_panel_board_type_id": "board-no-dimensions",
+        },
+        project=project(),
+        units=[unit(1, "Base Door", carcass_board_type_id=None, door_board_type_id="board-missing")],
+        cutting_list={
+            "runtime_rows": [
+                {"unit_number": 1, "section": "carcass", "desc": "Side", "length": 0, "width": 564, "qty": 2},
+                {"unit_number": 1, "section": "panel", "desc": "Door", "length": 720, "width": 297, "qty": 2},
+                {
+                    "unit_number": 0,
+                    "section": "extra_panel",
+                    "desc": "Filler",
+                    "length": 2200,
+                    "width": 80,
+                    "qty": 1,
+                    "board_type_id": "board-no-dimensions",
+                },
+            ],
+            "validation_warnings": [
+                {
+                    "severity": "warning",
+                    "source": "unit",
+                    "unit_number": 1,
+                    "section": "carcass",
+                    "row_desc": "Side",
+                    "reason": "Length must be greater than 0 mm.",
+                },
+                {
+                    "severity": "warning",
+                    "source": "unit",
+                    "unit_number": 1,
+                    "section": "carcass",
+                    "row_desc": "Side",
+                    "reason": "Choose a carcass board for this unit or quote default.",
+                },
+                {
+                    "severity": "warning",
+                    "source": "unit",
+                    "unit_number": 1,
+                    "section": "panel",
+                    "row_desc": "Door",
+                    "reason": "Selected board is not available in the company board library.",
+                },
+            ],
+        },
+        material_summary={"groups": [], "warnings": [], "total_area_m2": 0, "total_piece_count": 0, "total_edge_m": 0},
+        hardware_pick_list={"items": [], "warnings": [], "total_item_count": 0, "total_quantity": 0},
+        board_lookup={
+            **board_lookup(),
+            "board-no-dimensions": {
+                "id": "board-no-dimensions",
+                "brand": "PG",
+                "material": "",
+                "thickness": 0,
+                "length_mm": 0,
+                "width_mm": 0,
+            },
+        },
+    )
+
+    warning_codes = {warning["code"] for warning in result["board_requirements"]["warnings"]}
+    assert {
+        "invalid_part_dimensions",
+        "missing_board_selection",
+        "missing_board_record",
+        "missing_board_dimensions",
+        "incomplete_material_data",
+    }.issubset(warning_codes)
+
+    unassigned = next(group for group in result["board_requirements"]["groups"] if group["board_type_id"] is None)
+    assert unassigned["sheet_estimate_label"] == "Needs board selection before sheets can be estimated."
+    missing_record = next(group for group in result["board_requirements"]["groups"] if group["board_type_id"] == "board-missing")
+    assert missing_record["sheet_estimate_label"] == "Needs a visible board record before sheets can be estimated."
+    missing_dimensions = next(group for group in result["board_requirements"]["groups"] if group["board_type_id"] == "board-no-dimensions")
+    assert missing_dimensions["sheet_estimate_label"] == "Needs sheet length and width before sheets can be estimated."
+    assert result["board_requirements"]["warning_count"] >= 5
 
 
 def assert_no_pricing_fields(value):

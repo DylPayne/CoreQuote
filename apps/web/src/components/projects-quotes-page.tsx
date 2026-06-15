@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
@@ -18,7 +20,7 @@ import {
   Trash2,
   XCircle,
 } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -679,8 +681,153 @@ function formatPartIdList(partIds: string[], maxVisible = 3) {
   return `${partIds.slice(0, maxVisible).join(', ')} +${partIds.length - maxVisible}`
 }
 
+function ProductionCollapsibleSection({
+  children,
+  id,
+  isOpen,
+  onToggle,
+  summary,
+  title,
+}: {
+  children: ReactNode
+  id: string
+  isOpen: boolean
+  onToggle: () => void
+  summary?: ReactNode
+  title: string
+}) {
+  const contentId = `${id}-content`
+
+  return (
+    <section className="grid gap-3 border-t border-border pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button
+          aria-controls={contentId}
+          aria-expanded={isOpen}
+          className="-ml-2 h-8 justify-start px-2 text-xs font-semibold uppercase text-muted-foreground"
+          onClick={onToggle}
+          type="button"
+          variant="ghost"
+        >
+          {isOpen ? <ChevronDown className="h-4 w-4" aria-hidden="true" /> : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
+          <span>{title}</span>
+        </Button>
+        {summary ? <div className="flex flex-wrap items-center gap-2">{summary}</div> : null}
+      </div>
+      {isOpen ? (
+        <div className="grid gap-3" id={contentId}>
+          {children}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ProductionBoardRequirementsReview({
+  isOpen,
+  onToggle,
+  requirements,
+}: {
+  isOpen: boolean
+  onToggle: () => void
+  requirements: QuoteProductionHandoff['board_requirements']
+}) {
+  if (requirements.groups.length === 0 && requirements.warnings.length === 0) return null
+
+  return (
+    <ProductionCollapsibleSection
+      id="production-board-requirements"
+      isOpen={isOpen}
+      onToggle={onToggle}
+      summary={
+        <>
+          <Badge variant="outline">{formatMaterialArea(requirements.total_area_m2)}</Badge>
+          <Badge variant={requirements.total_estimated_sheets === null ? 'warning' : 'outline'}>
+            {formatEstimatedSheets(requirements.total_estimated_sheets)}
+          </Badge>
+          <Badge variant="outline">{`${requirements.total_piece_count} ${requirements.total_piece_count === 1 ? 'piece' : 'pieces'}`}</Badge>
+          <Badge variant={requirements.warning_count > 0 ? 'warning' : 'outline'}>
+            {requirements.warning_count > 0 ? `${requirements.warning_count} warnings` : 'Estimate ready'}
+          </Badge>
+        </>
+      }
+      title="Board requirements"
+    >
+
+      <Alert className="flex items-start gap-2 text-xs" variant="warning">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{requirements.estimate_label}</span>
+      </Alert>
+
+      {requirements.warnings.length > 0 ? (
+        <div className="grid gap-2">
+          {requirements.warnings.map((warning) => (
+            <Alert className="flex items-start gap-2 text-xs" key={`${warning.code}:${warning.part_id}:${warning.unit_number}:${warning.row_desc}`} variant="warning">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{warning.message}</span>
+            </Alert>
+          ))}
+        </div>
+      ) : null}
+
+      {requirements.groups.length > 0 ? (
+        <TableContainer>
+          <Table className="min-w-[1020px] text-xs">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Board</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Sources</TableHead>
+                <TableHead>Sheet</TableHead>
+                <TableHead className="text-right">Pieces</TableHead>
+                <TableHead className="text-right">Area</TableHead>
+                <TableHead className="text-right">Est. sheets</TableHead>
+                <TableHead>Waste allowance</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {requirements.groups.map((group) => (
+                <TableRow key={group.requirement_key}>
+                  <TableCell>
+                    <div className="grid gap-1">
+                      <span>{group.board_name}</span>
+                      <span className="text-muted-foreground">{formatPartIdList(group.part_ids, 2)}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>{group.role_label}</TableCell>
+                  <TableCell>{group.source_labels.join(', ') || '-'}</TableCell>
+                  <TableCell>{formatProductionSheet(group.sheet_length_mm, group.sheet_width_mm)}</TableCell>
+                  <TableCell className="text-right">{group.piece_count}</TableCell>
+                  <TableCell className="text-right">{formatMaterialArea(group.area_m2)}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="grid gap-1 justify-items-end">
+                      <span>{formatEstimatedSheets(group.estimated_sheets)}</span>
+                      <span className="text-muted-foreground">{group.sheet_estimate_label}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{group.waste_allowance_label}</span>
+                      {group.warning_count > 0 ? <Badge variant="warning">{`${group.warning_count} review`}</Badge> : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      ) : null}
+    </ProductionCollapsibleSection>
+  )
+}
+
 function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }) {
   const warningRows = handoff.rows.filter((row) => row.warning_count > 0)
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
+
+  function toggleSection(sectionId: string) {
+    setOpenSections((current) => ({ ...current, [sectionId]: !current[sectionId] }))
+  }
 
   return (
     <div className="grid gap-5">
@@ -715,15 +862,26 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
         </Alert>
       ) : null}
 
-      <section className="grid gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs font-semibold uppercase text-muted-foreground">Grouped cutting schedule</p>
+      <ProductionBoardRequirementsReview
+        isOpen={Boolean(openSections.boardRequirements)}
+        onToggle={() => toggleSection('boardRequirements')}
+        requirements={handoff.board_requirements}
+      />
+
+      <ProductionCollapsibleSection
+        id="production-grouped-schedule"
+        isOpen={Boolean(openSections.groupedSchedule)}
+        onToggle={() => toggleSection('groupedSchedule')}
+        summary={
+          <>
           <Badge variant="outline">{`${handoff.material_summary.total_piece_count} pieces`}</Badge>
           <Badge variant={handoff.material_summary.total_estimated_sheets === null ? 'warning' : 'outline'}>
             {formatEstimatedSheets(handoff.material_summary.total_estimated_sheets)}
           </Badge>
-        </div>
-
+          </>
+        }
+        title="Grouped cutting schedule"
+      >
         {handoff.groups.length > 0 ? (
           <div className="grid gap-3">
             {handoff.groups.map((group) => (
@@ -785,15 +943,21 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
         ) : (
           <Alert className="text-xs">Production rows appear after the quote has a cutting schedule.</Alert>
         )}
-      </section>
+      </ProductionCollapsibleSection>
 
       {handoff.material_summary.groups.length > 0 ? (
-        <section className="grid gap-3 border-t border-border pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Material summary</p>
+        <ProductionCollapsibleSection
+          id="production-material-summary"
+          isOpen={Boolean(openSections.materialSummary)}
+          onToggle={() => toggleSection('materialSummary')}
+          summary={
+            <>
             <Badge variant="outline">{formatMaterialArea(handoff.material_summary.total_area_m2)}</Badge>
             <Badge variant="outline">{`${handoff.material_summary.total_piece_count} pieces`}</Badge>
-          </div>
+            </>
+          }
+          title="Material summary"
+        >
           <TableContainer>
             <Table className="min-w-[900px] text-xs">
               <TableHeader>
@@ -822,16 +986,22 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
               </TableBody>
             </Table>
           </TableContainer>
-        </section>
+        </ProductionCollapsibleSection>
       ) : null}
 
       {handoff.hardware_pick_list.items.length > 0 ? (
-        <section className="grid gap-3 border-t border-border pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Hardware pick list</p>
+        <ProductionCollapsibleSection
+          id="production-hardware-pick-list"
+          isOpen={Boolean(openSections.hardwarePickList)}
+          onToggle={() => toggleSection('hardwarePickList')}
+          summary={
+            <>
             <Badge variant="outline">{formatPickListCount(handoff.hardware_pick_list.total_item_count)}</Badge>
             <Badge variant="outline">{`${handoff.hardware_pick_list.total_quantity} ${handoff.hardware_pick_list.total_quantity === 1 ? 'item' : 'items'}`}</Badge>
-          </div>
+            </>
+          }
+          title="Hardware pick list"
+        >
           <TableContainer>
             <Table className="min-w-[900px] text-xs">
               <TableHeader>
@@ -860,15 +1030,19 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
               </TableBody>
             </Table>
           </TableContainer>
-        </section>
+        </ProductionCollapsibleSection>
       ) : null}
 
       {handoff.labels.length > 0 ? (
-        <section className="grid gap-3 border-t border-border pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Labels</p>
+        <ProductionCollapsibleSection
+          id="production-labels"
+          isOpen={Boolean(openSections.labels)}
+          onToggle={() => toggleSection('labels')}
+          summary={
             <Badge variant="outline">{`${handoff.label_count} ${handoff.label_count === 1 ? 'label' : 'labels'}`}</Badge>
-          </div>
+          }
+          title="Labels"
+        >
           <TableContainer>
             <Table className="min-w-[760px] text-xs">
               <TableHeader>
@@ -893,7 +1067,7 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
               </TableBody>
             </Table>
           </TableContainer>
-        </section>
+        </ProductionCollapsibleSection>
       ) : null}
     </div>
   )
@@ -2769,7 +2943,10 @@ export function ProjectsQuotesPage({
                     Production handoff appears after the quote has cutting-list rows and material selections.
                   </Alert>
                 ) : (
-                  <ProductionHandoffPanel handoff={quoteProductionHandoff} />
+                  <ProductionHandoffPanel
+                    handoff={quoteProductionHandoff}
+                    key={`${quoteProductionHandoff.quote_id}:${quoteProductionHandoff.revision}`}
+                  />
                 )
               ) : activeQuoteTab === 'readiness' ? (
                 isLoadingQuoteReadiness ? (

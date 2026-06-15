@@ -617,6 +617,16 @@ Rows are grouped for board-first workshop flow by board/material, thickness,
 material role, unit, and cutlist section. Quote-level custom panel rows are
 included with `source_type: "quote_panel"` and `unit_number: 0`.
 
+The response also includes `board_requirements`, a production-facing material
+ordering review derived from the same rows and material summary. It groups by
+board/material, thickness, and material role, includes quote-level custom panel
+part IDs, and labels all sheet counts as estimates because CoreQuote has not
+optimized nesting. When sheet dimensions are available, each requirement row
+includes estimated sheet area and an estimated waste allowance percentage based
+on sheet area minus part area. Missing board choices, unavailable board records,
+missing sheet dimensions, invalid part dimensions, or incomplete material data
+appear in `board_requirements.warnings` before export.
+
 Response excerpt:
 
 ```json
@@ -690,6 +700,46 @@ Response excerpt:
     "total_edge_m": 0,
     "total_estimated_sheets": 1
   },
+  "board_requirements": {
+    "estimate_label": "Sheet counts are estimates only; CoreQuote has not optimized board nesting.",
+    "groups": [
+      {
+        "requirement_key": "board-uuid::16::White::carcass",
+        "board_type_id": "board-uuid",
+        "board_name": "PG White (16mm)",
+        "brand": "PG",
+        "material": "White",
+        "thickness": 16,
+        "sheet_length_mm": 2750,
+        "sheet_width_mm": 1830,
+        "material_role": "carcass",
+        "role_label": "Carcass",
+        "row_count": 1,
+        "piece_count": 2,
+        "area_m2": 0.84,
+        "edge_m": 0,
+        "sheet_area_m2": 5.0325,
+        "estimated_sheets": 1,
+        "estimated_sheet_area_m2": 5.0325,
+        "waste_area_m2": 4.1925,
+        "waste_percent": 83.31,
+        "sheet_estimate_label": "1 estimated sheet (area estimate, not optimized nesting).",
+        "waste_allowance_label": "Estimated waste allowance 83.3% from sheet area minus part area.",
+        "part_ids": ["Q-001-R1-U01-CAR-SIDE-748X564-01"],
+        "source_labels": ["Unit 1"],
+        "warning_count": 0,
+        "warning_messages": []
+      }
+    ],
+    "warnings": [],
+    "total_area_m2": 0.84,
+    "total_piece_count": 2,
+    "total_edge_m": 0,
+    "total_estimated_sheets": 1,
+    "total_estimated_sheet_area_m2": 5.0325,
+    "total_waste_area_m2": 4.1925,
+    "warning_count": 0
+  },
   "hardware_pick_list": {
     "items": [
       {
@@ -742,6 +792,9 @@ Frontend integration notes:
   selected extras.
 - Treat the response as production-safe. Do not add pricing, customer totals,
   cost, profit, margin, or markup fields to this view.
+- Render `board_requirements.estimate_label`, `sheet_estimate_label`, and
+  `waste_allowance_label` exactly as estimate copy. Do not present sheet counts
+  as optimized nesting or final supplier board counts.
 
 ## Customer Quote PDF
 
