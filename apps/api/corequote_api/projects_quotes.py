@@ -17,6 +17,11 @@ from corequote_core.customer_quote_pdf import (
 )
 from corequote_core.hardware_pick_list import build_hardware_pick_list, canonical_unit_type
 from corequote_core.output_review import build_quote_output_review
+from corequote_core.production_export import (
+    production_handoff_export_filename,
+    render_production_handoff_csv,
+    render_production_handoff_xlsx,
+)
 from corequote_core.production_handoff import build_production_handoff
 from corequote_core.quote_readiness import evaluate_quote_readiness
 from corequote_core.workshop_schedule_pdf import (
@@ -1302,6 +1307,34 @@ class WorkspaceStore:
             hardware_pick_list=context["hardware_pick_list"],
             board_lookup=context["board_lookup"],
         )
+
+    def generate_production_handoff_export(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        export_format: str,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict[str, Any]:
+        handoff = self.get_quote_production_handoff(
+            company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+        if not handoff.get("rows"):
+            raise WorkspaceValidationError("Add production rows before exporting the production handoff.")
+
+        if export_format == "csv":
+            content = render_production_handoff_csv(handoff)
+        elif export_format == "xlsx":
+            content = render_production_handoff_xlsx(handoff)
+        else:
+            raise WorkspaceValidationError("Choose CSV or XLSX for the production handoff export.")
+
+        return {
+            "filename": production_handoff_export_filename(handoff, export_format),
+            "content": content,
+        }
 
     def generate_customer_quote_pdf(
         self,

@@ -494,6 +494,90 @@ def get_quote_production_handoff(
 
 
 @router.get(
+    "/quotes/{quote_id}/production-handoff.csv",
+    summary="Download production handoff CSV",
+    responses={
+        200: {
+            "description": "Workshop-facing production cutting schedule CSV.",
+            "content": {"text/csv": {}},
+        },
+        404: {"description": "Quote was not found or is not visible to the current company."},
+        422: {"description": "Quote has no production rows to export."},
+    },
+)
+def download_production_handoff_csv(
+    quote_id: str,
+    current_user: ProductionReader,
+    store: StoreDep,
+    runtime_service: CutlistRuntimeDep,
+) -> Response:
+    return _download_production_handoff_export(
+        quote_id=quote_id,
+        current_user=current_user,
+        store=store,
+        runtime_service=runtime_service,
+        export_format="csv",
+        media_type="text/csv",
+    )
+
+
+@router.get(
+    "/quotes/{quote_id}/production-handoff.xlsx",
+    summary="Download production handoff XLSX",
+    responses={
+        200: {
+            "description": "Workshop-facing production handoff workbook.",
+            "content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}},
+        },
+        404: {"description": "Quote was not found or is not visible to the current company."},
+        422: {"description": "Quote has no production rows to export."},
+    },
+)
+def download_production_handoff_xlsx(
+    quote_id: str,
+    current_user: ProductionReader,
+    store: StoreDep,
+    runtime_service: CutlistRuntimeDep,
+) -> Response:
+    return _download_production_handoff_export(
+        quote_id=quote_id,
+        current_user=current_user,
+        store=store,
+        runtime_service=runtime_service,
+        export_format="xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+def _download_production_handoff_export(
+    *,
+    quote_id: str,
+    current_user: AuthUserResponse,
+    store: WorkspaceStore,
+    runtime_service: CutlistRuntimeService,
+    export_format: str,
+    media_type: str,
+) -> Response:
+    try:
+        payload = store.generate_production_handoff_export(
+            current_user.company_id,
+            quote_id,
+            export_format=export_format,
+            runtime_service=runtime_service,
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+    return Response(
+        content=payload["content"],
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{payload["filename"]}"'},
+    )
+
+
+@router.get(
     "/quotes/{quote_id}/customer-quote.pdf",
     summary="Download customer quote PDF",
     responses={
