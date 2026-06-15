@@ -3,6 +3,7 @@ from pathlib import Path
 
 MIGRATION_0005 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0005_unit_configs_cutting_rulesets.sql"
 MIGRATION_0006 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0006_inline_cutting_rule_edges.sql"
+MIGRATION_0020 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0020_production_metadata.sql"
 MIGRATION_0007 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0007_simplify_default_unit_types.sql"
 MIGRATION_0008 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0008_cutting_ruleset_history.sql"
 MIGRATION_0017 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0017_default_non_drawer_cutting_formulas.sql"
@@ -43,6 +44,17 @@ def test_inline_edge_migration_migrates_and_removes_old_edge_table():
     assert "ADD COLUMN IF NOT EXISTS edge_long_1" in sql
     assert "FROM cutting_rule_row_edges" in sql
     assert "DROP TABLE IF EXISTS cutting_rule_row_edges" in sql
+
+
+def test_production_metadata_migration_is_postgres_jsonb_and_company_scoped_sources():
+    sql = MIGRATION_0020.read_text()
+
+    assert "ALTER TABLE quotes" in sql
+    assert "ADD COLUMN IF NOT EXISTS production_metadata JSONB NOT NULL DEFAULT '{}'::jsonb" in sql
+    assert "ALTER TABLE quote_units" in sql
+    assert "CHECK (jsonb_typeof(production_metadata) = 'object')" in sql
+    assert "Quote-scoped workshop production instructions by material role" in sql
+    assert "Unit-scoped workshop production instruction overrides by material role" in sql
 
 
 def test_simplified_default_units_migration_seeds_four_core_families():

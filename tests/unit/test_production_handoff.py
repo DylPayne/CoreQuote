@@ -258,6 +258,93 @@ def test_production_handoff_board_requirements_surface_material_data_warnings():
     assert result["board_requirements"]["warning_count"] >= 5
 
 
+def test_production_handoff_shows_edge_grain_metadata_and_workshop_warnings():
+    result = build_production_handoff(
+        quote={
+            **quote(),
+            "production_metadata": {
+                "door_panel": {
+                    "edge_banding": "1mm oak ABS on all exposed door edges",
+                    "grain_direction": "length",
+                    "rotation": "no_rotation",
+                    "notes": "Bookmatch adjacent doors.",
+                },
+                "visible_panel": {
+                    "edge_banding": "",
+                    "grain_direction": "none",
+                    "rotation": "none",
+                    "notes": "",
+                },
+            },
+        },
+        project=project(),
+        units=[
+            {
+                **unit(1, "Base Door", carcass_board_type_id="board-white", door_board_type_id="board-oak"),
+                "production_metadata": {
+                    "door_panel": {
+                        "edge_banding": "2mm front edge, 1mm remaining edges",
+                        "grain_direction": "width",
+                        "rotation": "no_rotation",
+                        "notes": "Keep front edge labelled.",
+                    }
+                },
+            }
+        ],
+        cutting_list={
+            "runtime_rows": [
+                {
+                    "unit_number": 1,
+                    "section": "panel",
+                    "desc": "Door",
+                    "length": 720,
+                    "width": 297,
+                    "qty": 2,
+                    "edge_long_1": True,
+                    "edge_long_2": True,
+                    "edge_short_1": False,
+                    "edge_short_2": False,
+                    "grain_direction": "length",
+                    "can_rotate": False,
+                },
+                {
+                    "unit_number": 0,
+                    "section": "extra_panel",
+                    "desc": "Feature End",
+                    "length": 2300,
+                    "width": 300,
+                    "qty": 1,
+                    "board_type_id": "board-black",
+                    "production_metadata": {
+                        "edge_banding": "",
+                        "grain_direction": "none",
+                        "rotation": "none",
+                        "notes": "",
+                    },
+                },
+            ],
+            "validation_warnings": [],
+        },
+        material_summary={"groups": [], "warnings": [], "total_area_m2": 0, "total_piece_count": 0, "total_edge_m": 0},
+        hardware_pick_list={"items": [], "warnings": [], "total_item_count": 0, "total_quantity": 0},
+        board_lookup=board_lookup(),
+    )
+
+    door = next(row for row in result["rows"] if row["desc"] == "Door")
+    assert door["edge_sides"] == ["L1", "L2"]
+    assert door["edge_banding"] == "2mm front edge, 1mm remaining edges"
+    assert door["grain_direction"] == "width"
+    assert door["rotation"] == "no_rotation"
+    assert door["production_notes"] == "Keep front edge labelled."
+    assert door["warning_count"] == 0
+
+    feature_end = next(row for row in result["rows"] if row["desc"] == "Feature End")
+    assert feature_end["warning_count"] == 2
+    assert "Add edge-banding instruction for Quote-level / Feature End." in feature_end["warning_messages"]
+    assert "Add grain direction for Quote-level / Feature End." in feature_end["warning_messages"]
+    assert result["warning_count"] == 2
+
+
 def assert_no_pricing_fields(value):
     blocked = {
         "client_quote_total_cents",
@@ -295,6 +382,20 @@ def quote() -> dict:
         "default_carcass_board_type_id": "board-white",
         "default_door_board_type_id": "board-oak",
         "default_panel_board_type_id": "board-black",
+        "production_metadata": {
+            "door_panel": {
+                "edge_banding": "1mm ABS on door edges",
+                "grain_direction": "length",
+                "rotation": "no_rotation",
+                "notes": "",
+            },
+            "visible_panel": {
+                "edge_banding": "1mm ABS on exposed quote-panel edges",
+                "grain_direction": "length",
+                "rotation": "no_rotation",
+                "notes": "",
+            },
+        },
     }
 
 

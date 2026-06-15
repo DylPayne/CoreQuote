@@ -9,6 +9,9 @@ from corequote_api.projects_quotes_errors import WorkspaceValidationError
 
 
 QUOTE_STATUSES = ("draft", "ready", "sent", "accepted", "rejected", "revised", "expired")
+MATERIAL_ROLES = ("carcass", "door_panel", "visible_panel")
+PRODUCTION_GRAIN_DIRECTIONS = ("none", "length", "width")
+PRODUCTION_ROTATION_GUIDANCE = ("none", "allow_rotation", "no_rotation")
 
 
 def _clean_project_payload(payload: dict[str, Any]) -> dict[str, str]:
@@ -50,6 +53,7 @@ def _clean_quote_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "default_tall_handle_id": _optional_uuid(payload.get("default_tall_handle_id")),
         "default_drawer_handle_id": _optional_uuid(payload.get("default_drawer_handle_id")),
         "unit_defaults": cleaned_unit_defaults,
+        "production_metadata": _clean_production_metadata_by_role(payload.get("production_metadata"), field="production_metadata"),
     }
 
 
@@ -73,7 +77,50 @@ def _clean_unit_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "carcass_board_type_id": _optional_uuid(payload.get("carcass_board_type_id")),
         "door_board_type_id": _optional_uuid(payload.get("door_board_type_id")),
         "extra_params": extra_params,
+        "production_metadata": _clean_production_metadata_by_role(payload.get("production_metadata"), field="production_metadata"),
     }
+
+
+def _default_production_metadata() -> dict[str, str]:
+    return {
+        "edge_banding": "",
+        "grain_direction": "none",
+        "rotation": "none",
+        "notes": "",
+    }
+
+
+def _clean_production_metadata(payload: Any, *, field: str) -> dict[str, str]:
+    if payload is None:
+        return _default_production_metadata()
+    if not isinstance(payload, dict):
+        raise WorkspaceValidationError(f"{field} must be an object")
+
+    grain_direction = str(payload.get("grain_direction", "none") or "none").strip().lower()
+    if grain_direction not in PRODUCTION_GRAIN_DIRECTIONS:
+        raise WorkspaceValidationError(f"{field}.grain_direction is not supported")
+
+    rotation = str(payload.get("rotation", "none") or "none").strip().lower()
+    if rotation not in PRODUCTION_ROTATION_GUIDANCE:
+        raise WorkspaceValidationError(f"{field}.rotation is not supported")
+
+    return {
+        "edge_banding": _clean_limited_optional(payload.get("edge_banding", ""), field=f"{field}.edge_banding", max_length=500),
+        "grain_direction": grain_direction,
+        "rotation": rotation,
+        "notes": _clean_limited_optional(payload.get("notes", ""), field=f"{field}.notes", max_length=1000),
+    }
+
+
+def _clean_production_metadata_by_role(payload: Any, *, field: str) -> dict[str, dict[str, str]]:
+    value = payload or {}
+    if not isinstance(value, dict):
+        raise WorkspaceValidationError(f"{field} must be an object")
+
+    cleaned: dict[str, dict[str, str]] = {}
+    for role in MATERIAL_ROLES:
+        cleaned[role] = _clean_production_metadata(value.get(role), field=f"{field}.{role}")
+    return cleaned
 
 
 def _clean_required(value: Any, *, field: str) -> str:
@@ -85,6 +132,13 @@ def _clean_required(value: Any, *, field: str) -> str:
 
 def _clean_optional(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _clean_limited_optional(value: Any, *, field: str, max_length: int) -> str:
+    text = _clean_optional(value)
+    if len(text) > max_length:
+        raise WorkspaceValidationError(f"{field} must be {max_length} characters or fewer")
+    return text
 
 
 def _optional_uuid(value: Any) -> str | None:
@@ -184,6 +238,10 @@ def _clean_custom_panels_payload(payload: Any) -> dict[str, Any]:
         cleaned_presets[key] = {
             "qty": _non_negative_int(raw.get("qty", 0), field=f"custom_panels.presets.{key}.qty"),
             "board_type_id": _optional_uuid(raw.get("board_type_id")),
+            "production_metadata": _clean_production_metadata(
+                raw.get("production_metadata"),
+                field=f"custom_panels.presets.{key}.production_metadata",
+            ),
         }
 
     raw_manual = value.get("manual") or []
@@ -199,6 +257,10 @@ def _clean_custom_panels_payload(payload: Any) -> dict[str, Any]:
             "width": _non_negative_int(row.get("width", 0), field=f"custom_panels.manual[{index}].width"),
             "qty": _non_negative_int(row.get("qty", 0), field=f"custom_panels.manual[{index}].qty"),
             "board_type_id": _optional_uuid(row.get("board_type_id")),
+            "production_metadata": _clean_production_metadata(
+                row.get("production_metadata"),
+                field=f"custom_panels.manual[{index}].production_metadata",
+            ),
         }
         if cleaned_row["length"] > 0 and cleaned_row["width"] > 0 and cleaned_row["qty"] > 0:
             cleaned_manual.append(cleaned_row)
@@ -233,6 +295,10 @@ def _clean_custom_panels_payload(payload: Any) -> dict[str, Any]:
         "pelmet_override_width": _non_negative_int(
             raw_auto.get("pelmet_override_width", 330),
             field="custom_panels.auto.pelmet_override_width",
+        ),
+        "production_metadata": _clean_production_metadata(
+            raw_auto.get("production_metadata"),
+            field="custom_panels.auto.production_metadata",
         ),
     }
 

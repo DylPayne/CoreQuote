@@ -1,4 +1,4 @@
-import { customUnitTypeValue, fallbackUnitDefaults, panelPresetFamily, panelPresetKeys } from './constants'
+import { customUnitTypeValue, defaultProductionMetadata, fallbackUnitDefaults, panelPresetFamily, panelPresetKeys } from './constants'
 import { DEFAULT_CURRENCY_CODE, formatCurrencyFromCents } from '@/lib/currency'
 import type {
   PanelPresetKey,
@@ -8,6 +8,8 @@ import type {
   QuoteDraft,
   QuoteRow,
   QuoteStatus,
+  ProductionMetadata,
+  ProductionMetadataByRole,
   UnitDefaults,
   UnitDraft,
   UnitPresetKey,
@@ -103,6 +105,7 @@ export function quotePayloadFromDraft(draft: QuoteDraft) {
         depth: parsePositiveInteger(draft.tall_door_depth, fallbackUnitDefaults['Tall Door'].depth),
       },
     },
+    production_metadata: normalizeProductionMetadataByRole(draft.production_metadata),
   }
 }
 
@@ -132,6 +135,26 @@ export function toQuoteDraft(quote: QuoteRow): QuoteDraft {
     wall_door_depth: String(wallDoor.depth),
     tall_door_height: String(tallDoor.height),
     tall_door_depth: String(tallDoor.depth),
+    production_metadata: normalizeProductionMetadataByRole(quote.production_metadata),
+  }
+}
+
+export function normalizeProductionMetadata(value: Partial<ProductionMetadata> | null | undefined): ProductionMetadata {
+  const grainDirection = value?.grain_direction
+  const rotation = value?.rotation
+  return {
+    edge_banding: String(value?.edge_banding ?? '').trim(),
+    grain_direction: grainDirection === 'length' || grainDirection === 'width' ? grainDirection : 'none',
+    rotation: rotation === 'allow_rotation' || rotation === 'no_rotation' ? rotation : 'none',
+    notes: String(value?.notes ?? '').trim(),
+  }
+}
+
+export function normalizeProductionMetadataByRole(value: Partial<ProductionMetadataByRole> | null | undefined): ProductionMetadataByRole {
+  return {
+    carcass: normalizeProductionMetadata(value?.carcass ?? defaultProductionMetadata),
+    door_panel: normalizeProductionMetadata(value?.door_panel ?? defaultProductionMetadata),
+    visible_panel: normalizeProductionMetadata(value?.visible_panel ?? defaultProductionMetadata),
   }
 }
 
@@ -180,6 +203,7 @@ export function normalizeQuoteCustomPanelsState(
     accumulator[key] = {
       qty: toNonNegativeInteger(source?.qty, defaultQty),
       board_type_id: source?.board_type_id ?? defaultPanelBoardId,
+      production_metadata: normalizeProductionMetadata(source?.production_metadata),
     }
     return accumulator
   }, {})
@@ -190,6 +214,7 @@ export function normalizeQuoteCustomPanelsState(
     width: toNonNegativeInteger(row.width, 0),
     qty: toNonNegativeInteger(row.qty, 0),
     board_type_id: row.board_type_id ?? defaultPanelBoardId,
+    production_metadata: normalizeProductionMetadata(row.production_metadata),
   }))
 
   const sourceAuto = state?.auto
@@ -206,6 +231,7 @@ export function normalizeQuoteCustomPanelsState(
     pelmet_override_qty: toNonNegativeInteger(sourceAuto?.pelmet_override_qty, 0),
     pelmet_override_length: toNonNegativeInteger(sourceAuto?.pelmet_override_length, 0),
     pelmet_override_width: toNonNegativeInteger(sourceAuto?.pelmet_override_width, wallDoorDepth || 330),
+    production_metadata: normalizeProductionMetadata(sourceAuto?.production_metadata),
   }
 
   return { presets, manual, auto }

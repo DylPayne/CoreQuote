@@ -49,13 +49,14 @@ def _compute_quote_custom_panel_rows(
 
 
 def _custom_panel_row_response(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "desc": str(row.get("Desc", "")),
-        "length": int(row.get("L", 0) or 0),
-        "width": int(row.get("W", 0) or 0),
-        "qty": int(row.get("Qty", 0) or 0),
-        "board_type_id": _optional_uuid(row.get("board_type_id")),
-    }
+        return {
+            "desc": str(row.get("Desc", "")),
+            "length": int(row.get("L", 0) or 0),
+            "width": int(row.get("W", 0) or 0),
+            "qty": int(row.get("Qty", 0) or 0),
+            "board_type_id": _optional_uuid(row.get("board_type_id")),
+            "production_metadata": dict(row.get("production_metadata") or {}),
+        }
 
 
 def _build_cutting_list_preview(
@@ -123,6 +124,9 @@ def _build_cutting_list_preview(
                 "edge_short_1": False,
                 "edge_short_2": False,
                 "board_type_id": row.get("board_type_id"),
+                "grain_direction": "none",
+                "can_rotate": True,
+                "production_metadata": dict(row.get("production_metadata") or {}),
             }
         )
 

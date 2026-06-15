@@ -107,6 +107,26 @@ Request payload (`POST` / `PATCH`):
     "Base Door": { "height": 780, "depth": 580 },
     "Wall Door": { "height": 720, "depth": 330 },
     "Tall Door": { "height": 2100, "depth": 580 }
+  },
+  "production_metadata": {
+    "carcass": {
+      "edge_banding": "",
+      "grain_direction": "none",
+      "rotation": "none",
+      "notes": ""
+    },
+    "door_panel": {
+      "edge_banding": "1mm ABS on exposed door and drawer-front edges",
+      "grain_direction": "length",
+      "rotation": "no_rotation",
+      "notes": "Keep matched faces in unit order."
+    },
+    "visible_panel": {
+      "edge_banding": "1mm ABS on all exposed panel edges",
+      "grain_direction": "length",
+      "rotation": "no_rotation",
+      "notes": ""
+    }
   }
 }
 ```
@@ -162,7 +182,7 @@ POST /api/v1/quotes/{quote_id}/duplicate
 
 Permission: `quotes:write`
 
-The API creates a new editable `draft` quote in the same project. It copies the source quote defaults, unit defaults, units, custom panel configuration, selected extras, and quote pricing settings. The duplicate receives the next project quote number, starts at revision `1`, and does not link `previous_revision_id`, so it behaves as a separate alternative rather than part of the original revision chain.
+The API creates a new editable `draft` quote in the same project. It copies the source quote defaults, production metadata, unit defaults, units, custom panel configuration, selected extras, and quote pricing settings. The duplicate receives the next project quote number, starts at revision `1`, and does not link `previous_revision_id`, so it behaves as a separate alternative rather than part of the original revision chain.
 
 The source quote is not changed. Existing customer quote PDFs, workshop schedules, readiness state, pricing, and status remain traceable through the source quote number and revision.
 
@@ -176,7 +196,7 @@ POST /api/v1/quotes/{quote_id}/revisions
 
 Permission: `quotes:write`
 
-The API copies the source quote header, defaults, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
+The API copies the source quote header, defaults, production metadata, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
 
 ## Quote Units
 
@@ -203,6 +223,26 @@ Request payload (`POST` / `PATCH`):
   "door_board_type_id": "board-uuid",
   "extra_params": {
     "num_drawers": 3
+  },
+  "production_metadata": {
+    "carcass": {
+      "edge_banding": "",
+      "grain_direction": "none",
+      "rotation": "none",
+      "notes": ""
+    },
+    "door_panel": {
+      "edge_banding": "2mm front edge, 1mm remaining edges",
+      "grain_direction": "length",
+      "rotation": "no_rotation",
+      "notes": "Keep this island unit as the reference grain direction."
+    },
+    "visible_panel": {
+      "edge_banding": "",
+      "grain_direction": "none",
+      "rotation": "none",
+      "notes": ""
+    }
   }
 }
 ```
@@ -397,7 +437,9 @@ Response shape:
       "width": 100,
       "qty": 1,
       "section": "extra_panel",
-      "board_type_id": "board-uuid"
+      "board_type_id": "board-uuid",
+      "grain_direction": "none",
+      "can_rotate": true
     }
   ],
   "runtime_mode": "legacy",
@@ -617,6 +659,16 @@ Rows are grouped for board-first workshop flow by board/material, thickness,
 material role, unit, and cutlist section. Quote-level custom panel rows are
 included with `source_type: "quote_panel"` and `unit_number: 0`.
 
+Production metadata is workshop-only and is not added to customer quote totals
+or customer PDF contracts. It can be recorded on the quote by material role, on
+individual units by material role, or on custom panel rows. Unit metadata
+overrides quote defaults for matching roles, and custom panel metadata overrides
+the quote `visible_panel` defaults for that generated row. Cutting ruleset edge
+flags are rendered as `edge_sides`; saved edge-banding text, grain direction,
+rotation guidance, and production notes are shown beside each affected part.
+Door/drawer panels and visible quote panels produce row warnings when required
+edge or grain details are missing.
+
 The response also includes `board_requirements`, a production-facing material
 ordering review derived from the same rows and material summary. It groups by
 board/material, thickness, and material role, includes quote-level custom panel
@@ -676,6 +728,15 @@ Response excerpt:
           "length": 748,
           "width": 564,
           "quantity": 2,
+          "edge_sides": [],
+          "edge_sides_label": "None",
+          "edge_banding": "",
+          "grain_direction": "none",
+          "grain_label": "Unspecified",
+          "can_rotate": true,
+          "rotation": "allow_rotation",
+          "rotation_label": "Can rotate",
+          "production_notes": "",
           "warning_count": 0,
           "warning_messages": []
         }
@@ -767,7 +828,10 @@ Response excerpt:
       "dimensions_label": "748 x 564 mm",
       "material_label": "PG White (16mm)",
       "quantity": 2,
-      "warning_count": 0
+      "warning_count": 0,
+      "edge_sides_label": "None",
+      "grain_label": "Unspecified",
+      "rotation_label": "Can rotate"
     }
   ]
 }
@@ -960,11 +1024,41 @@ Request payload for `PUT`:
 ```json
 {
   "presets": {
-    "base_side_panel": { "qty": 1, "board_type_id": "board-uuid" },
-    "wall_side_filler": { "qty": 1, "board_type_id": null }
+    "base_side_panel": {
+      "qty": 1,
+      "board_type_id": "board-uuid",
+      "production_metadata": {
+        "edge_banding": "1mm ABS on exposed side edge",
+        "grain_direction": "length",
+        "rotation": "no_rotation",
+        "notes": ""
+      }
+    },
+    "wall_side_filler": {
+      "qty": 1,
+      "board_type_id": null,
+      "production_metadata": {
+        "edge_banding": "",
+        "grain_direction": "none",
+        "rotation": "none",
+        "notes": ""
+      }
+    }
   },
   "manual": [
-    { "name": "Feature End", "length": 2300, "width": 300, "qty": 1, "board_type_id": "board-uuid" }
+    {
+      "name": "Feature End",
+      "length": 2300,
+      "width": 300,
+      "qty": 1,
+      "board_type_id": "board-uuid",
+      "production_metadata": {
+        "edge_banding": "1mm ABS all exposed edges",
+        "grain_direction": "length",
+        "rotation": "no_rotation",
+        "notes": "Visible end panel."
+      }
+    }
   ],
   "auto": {
     "kicker_board_type_id": "board-uuid",
@@ -978,7 +1072,13 @@ Request payload for `PUT`:
     "pelmet_override_on": false,
     "pelmet_override_qty": 0,
     "pelmet_override_length": 0,
-    "pelmet_override_width": 330
+    "pelmet_override_width": 330,
+    "production_metadata": {
+      "edge_banding": "1mm ABS on visible kicker and pelmet edges",
+      "grain_direction": "length",
+      "rotation": "no_rotation",
+      "notes": ""
+    }
   }
 }
 ```
@@ -988,6 +1088,9 @@ Behavior notes:
 - `kicker_return_count` and `kicker_return_depth_mm` add optional kicker return segments on top of total base-run width.
 - Manual rows with non-positive length, width, or qty are ignored at save time.
 - Any supplied `board_type_id` must be visible to the current company.
+- `production_metadata` is optional on presets, manual rows, and auto rows. Missing
+  metadata defaults to empty edge notes, `grain_direction: "none"`, and
+  `rotation: "none"` before the production handoff applies quote-level defaults.
 
 Response shape (`GET` and `PUT`):
 

@@ -35,6 +35,8 @@ RULE_ROW_RUNTIME_SELECT = """
     width_formula,
     qty_formula,
     condition_formula,
+    grain_direction,
+    can_rotate,
     edge_long_1,
     edge_long_2,
     edge_short_1,
@@ -497,6 +499,8 @@ class CutlistRuntimeService:
                     "edge_long_2": False,
                     "edge_short_1": False,
                     "edge_short_2": False,
+                    "grain_direction": "none",
+                    "can_rotate": True,
                 }
             )
 
@@ -517,6 +521,8 @@ class CutlistRuntimeService:
                     "edge_long_2": False,
                     "edge_short_1": False,
                     "edge_short_2": False,
+                    "grain_direction": "none",
+                    "can_rotate": True,
                 }
             )
 
@@ -636,6 +642,8 @@ class CutlistRuntimeService:
                     "edge_long_2": bool(row.get("edge_long_2", False)),
                     "edge_short_1": bool(row.get("edge_short_1", False)),
                     "edge_short_2": bool(row.get("edge_short_2", False)),
+                    "grain_direction": str(row.get("grain_direction") or "none"),
+                    "can_rotate": bool(row.get("can_rotate", True)),
                 }
             )
         return generated_rows

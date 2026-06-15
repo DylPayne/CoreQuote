@@ -57,6 +57,8 @@ QuoteReadinessActionTarget = Literal[
 QuoteOutputActionId = Literal["client_quote_pdf", "workshop_schedule", "material_summary", "hardware_pick_list"]
 QuoteOutputGroup = Literal["client", "workshop"]
 MaterialRole = Literal["carcass", "door_panel", "visible_panel"]
+ProductionGrainDirection = Literal["none", "length", "width"]
+ProductionRotationGuidance = Literal["none", "allow_rotation", "no_rotation"]
 MaterialSummaryWarningCode = Literal["missing_board_selection", "missing_board_record", "missing_board_dimensions"]
 ProductionBoardRequirementWarningCode = Literal[
     "missing_board_selection",
@@ -218,6 +220,23 @@ class UnitDefaultsDimensions(BaseModel):
     depth: int = Field(gt=0)
 
 
+class ProductionMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    edge_banding: str = Field(default="", max_length=500)
+    grain_direction: ProductionGrainDirection = "none"
+    rotation: ProductionRotationGuidance = "none"
+    notes: str = Field(default="", max_length=1000)
+
+
+class ProductionMetadataByRole(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    carcass: ProductionMetadata = Field(default_factory=ProductionMetadata)
+    door_panel: ProductionMetadata = Field(default_factory=ProductionMetadata)
+    visible_panel: ProductionMetadata = Field(default_factory=ProductionMetadata)
+
+
 class ProjectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -252,6 +271,7 @@ class QuoteRequest(BaseModel):
     default_tall_handle_id: str | None = None
     default_drawer_handle_id: str | None = None
     unit_defaults: dict[str, UnitDefaultsDimensions] = Field(default_factory=dict)
+    production_metadata: ProductionMetadataByRole = Field(default_factory=ProductionMetadataByRole)
 
 
 class QuoteStatusRequest(BaseModel):
@@ -288,6 +308,7 @@ class QuoteUnitRequest(BaseModel):
     carcass_board_type_id: str | None = None
     door_board_type_id: str | None = None
     extra_params: dict[str, Any] = Field(default_factory=dict)
+    production_metadata: ProductionMetadataByRole = Field(default_factory=ProductionMetadataByRole)
 
 
 class QuoteUnitResponse(QuoteUnitRequest):
@@ -371,6 +392,7 @@ class QuoteCustomPanelPresetConfig(BaseModel):
 
     qty: int = Field(default=0, ge=0)
     board_type_id: str | None = None
+    production_metadata: ProductionMetadata = Field(default_factory=ProductionMetadata)
 
 
 class QuoteCustomPanelManualRow(BaseModel):
@@ -381,6 +403,7 @@ class QuoteCustomPanelManualRow(BaseModel):
     width: int = Field(default=0, ge=0)
     qty: int = Field(default=0, ge=0)
     board_type_id: str | None = None
+    production_metadata: ProductionMetadata = Field(default_factory=ProductionMetadata)
 
 
 class QuoteCustomPanelAutoConfig(BaseModel):
@@ -398,6 +421,7 @@ class QuoteCustomPanelAutoConfig(BaseModel):
     pelmet_override_qty: int = Field(default=0, ge=0)
     pelmet_override_length: int = Field(default=0, ge=0)
     pelmet_override_width: int = Field(default=330, ge=0)
+    production_metadata: ProductionMetadata = Field(default_factory=ProductionMetadata)
 
 
 class QuoteCustomPanelsRequest(BaseModel):
@@ -414,6 +438,7 @@ class QuoteCustomPanelComputedRowResponse(BaseModel):
     width: int = Field(ge=0)
     qty: int = Field(ge=0)
     board_type_id: str | None = None
+    production_metadata: ProductionMetadata = Field(default_factory=ProductionMetadata)
 
 
 class QuoteCustomPanelsResponse(BaseModel):
@@ -454,6 +479,8 @@ class CutlistRuntimeRowResponse(CutlistRowResponse):
     edge_long_2: bool = False
     edge_short_1: bool = False
     edge_short_2: bool = False
+    grain_direction: ProductionGrainDirection = "none"
+    can_rotate: bool = True
     board_type_id: str | None = None
 
 
@@ -677,6 +704,15 @@ class ProductionHandoffRowResponse(BaseModel):
     length: int = Field(ge=0)
     width: int = Field(ge=0)
     quantity: int = Field(ge=0)
+    edge_sides: list[str] = Field(default_factory=list)
+    edge_sides_label: str = "None"
+    edge_banding: str = ""
+    grain_direction: ProductionGrainDirection = "none"
+    grain_label: str = "Unspecified"
+    can_rotate: bool = True
+    rotation: ProductionRotationGuidance = "none"
+    rotation_label: str = "Unspecified"
+    production_notes: str = ""
     warning_count: int = Field(default=0, ge=0)
     warning_messages: list[str] = Field(default_factory=list)
 
@@ -699,6 +735,7 @@ class ProductionHandoffGroupResponse(BaseModel):
     row_count: int = Field(default=0, ge=0)
     piece_count: int = Field(default=0, ge=0)
     warning_count: int = Field(default=0, ge=0)
+    production_warning_count: int = Field(default=0, ge=0)
     part_ids: list[str] = Field(default_factory=list)
     rows: list[ProductionHandoffRowResponse] = Field(default_factory=list)
 
@@ -818,6 +855,9 @@ class ProductionHandoffLabelResponse(BaseModel):
     material_label: str
     quantity: int = Field(ge=0)
     warning_count: int = Field(default=0, ge=0)
+    edge_sides_label: str = "None"
+    grain_label: str = "Unspecified"
+    rotation_label: str = "Unspecified"
 
 
 class QuoteProductionHandoffResponse(BaseModel):

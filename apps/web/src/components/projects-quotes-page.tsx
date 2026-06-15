@@ -34,13 +34,13 @@ import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, Ta
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, apiRequestBlob } from '@/components/projects-quotes/api'
 import type { LibraryTab } from '@/components/libraries/types'
-import { customUnitTypeValue, defaultProjectDraft, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
+import { customUnitTypeValue, defaultProjectDraft, defaultProductionMetadata, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProductionGrainDirection, ProductionMetadata, ProductionRotationGuidance, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -681,6 +681,62 @@ function formatPartIdList(partIds: string[], maxVisible = 3) {
   return `${partIds.slice(0, maxVisible).join(', ')} +${partIds.length - maxVisible}`
 }
 
+function ProductionMetadataControls({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: ProductionMetadata
+  onChange: (next: ProductionMetadata) => void
+}) {
+  return (
+    <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3">
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+      <Label className="grid gap-1.5">
+        Edge banding
+        <Input
+          onChange={(event) => onChange({ ...value, edge_banding: event.target.value })}
+          placeholder="1mm ABS on exposed edges"
+          value={value.edge_banding}
+        />
+      </Label>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Label className="grid gap-1.5">
+          Grain
+          <Select
+            onChange={(event) => onChange({ ...value, grain_direction: event.target.value as ProductionGrainDirection })}
+            value={value.grain_direction}
+          >
+            <option value="none">Unspecified</option>
+            <option value="length">Length grain</option>
+            <option value="width">Width grain</option>
+          </Select>
+        </Label>
+        <Label className="grid gap-1.5">
+          Rotation
+          <Select
+            onChange={(event) => onChange({ ...value, rotation: event.target.value as ProductionRotationGuidance })}
+            value={value.rotation}
+          >
+            <option value="none">Unspecified</option>
+            <option value="allow_rotation">Can rotate</option>
+            <option value="no_rotation">No rotation</option>
+          </Select>
+        </Label>
+      </div>
+      <Label className="grid gap-1.5">
+        Notes
+        <Textarea
+          onChange={(event) => onChange({ ...value, notes: event.target.value })}
+          rows={2}
+          value={value.notes}
+        />
+      </Label>
+    </div>
+  )
+}
+
 function ProductionCollapsibleSection({
   children,
   id,
@@ -899,7 +955,7 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
                   </div>
                 </div>
                 <TableContainer>
-                  <Table className="min-w-[980px] text-xs">
+                  <Table className="min-w-[1180px] text-xs">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Part ID</TableHead>
@@ -909,6 +965,9 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
                         <TableHead className="text-right">L</TableHead>
                         <TableHead className="text-right">W</TableHead>
                         <TableHead className="text-right">Qty</TableHead>
+                        <TableHead>Edge</TableHead>
+                        <TableHead>Grain</TableHead>
+                        <TableHead>Rotation</TableHead>
                         <TableHead>State</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -927,6 +986,16 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
                           <TableCell className="text-right">{row.length}</TableCell>
                           <TableCell className="text-right">{row.width}</TableCell>
                           <TableCell className="text-right">{row.quantity}</TableCell>
+                          <TableCell>
+                            <div className="grid gap-1">
+                              <span>{row.edge_banding || row.edge_sides_label}</span>
+                              {row.edge_banding && row.edge_sides_label !== 'None' ? (
+                                <span className="text-muted-foreground">{row.edge_sides_label}</span>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>{row.grain_label}</TableCell>
+                          <TableCell>{row.rotation_label}</TableCell>
                           <TableCell>
                             <Badge variant={row.warning_count > 0 ? 'warning' : 'outline'}>
                               {row.warning_count > 0 ? 'Review' : 'Ready'}
@@ -3781,6 +3850,38 @@ export function ProjectsQuotesPage({
                 onChange={(value) => setQuoteDraft((current) => ({ ...current, default_panel_board_type_id: value }))}
                 value={quoteDraft.default_panel_board_type_id}
               />
+            </div>
+
+            <div className="grid gap-3">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">Production defaults</p>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <ProductionMetadataControls
+                  label="Door and drawer panels"
+                  onChange={(next) =>
+                    setQuoteDraft((current) => ({
+                      ...current,
+                      production_metadata: {
+                        ...current.production_metadata,
+                        door_panel: next,
+                      },
+                    }))
+                  }
+                  value={quoteDraft.production_metadata?.door_panel ?? defaultProductionMetadata}
+                />
+                <ProductionMetadataControls
+                  label="Visible quote panels"
+                  onChange={(next) =>
+                    setQuoteDraft((current) => ({
+                      ...current,
+                      production_metadata: {
+                        ...current.production_metadata,
+                        visible_panel: next,
+                      },
+                    }))
+                  }
+                  value={quoteDraft.production_metadata?.visible_panel ?? defaultProductionMetadata}
+                />
+              </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">

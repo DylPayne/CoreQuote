@@ -12,6 +12,11 @@ from corequote_api.routers import auth, projects_quotes
 
 client = TestClient(app)
 NOW = datetime(2026, 6, 1, 10, 30, tzinfo=UTC)
+DEFAULT_PRODUCTION_METADATA = {
+    "carcass": {"edge_banding": "", "grain_direction": "none", "rotation": "none", "notes": ""},
+    "door_panel": {"edge_banding": "", "grain_direction": "none", "rotation": "none", "notes": ""},
+    "visible_panel": {"edge_banding": "", "grain_direction": "none", "rotation": "none", "notes": ""},
+}
 
 
 class FakeAuthStore:
@@ -1732,6 +1737,7 @@ def quote(
             "Wall Door": {"height": 720, "depth": 330},
             "Tall Door": {"height": 2100, "depth": 580},
         },
+        "production_metadata": DEFAULT_PRODUCTION_METADATA,
         "unit_count": unit_count,
         "created_at": NOW,
         "updated_at": NOW,
@@ -1765,6 +1771,7 @@ def unit(
         "carcass_board_type_id": carcass_board_type_id,
         "door_board_type_id": door_board_type_id,
         "extra_params": extra_params or {},
+        "production_metadata": DEFAULT_PRODUCTION_METADATA,
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -1796,6 +1803,7 @@ def quote_payload(*, name: str = "Kitchen Quote") -> dict:
             "Base Draw": {"height": 780, "depth": 580},
             "Base Door": {"height": 780, "depth": 580},
         },
+        "production_metadata": DEFAULT_PRODUCTION_METADATA,
     }
 
 
@@ -1808,17 +1816,25 @@ def unit_payload(*, unit_type_key: str = "Base Draw", width: int = 900) -> dict:
         "carcass_board_type_id": None,
         "door_board_type_id": None,
         "extra_params": {"num_drawers": 3},
+        "production_metadata": DEFAULT_PRODUCTION_METADATA,
     }
 
 
 def quote_custom_panels_state() -> dict:
     return {
         "presets": {
-            "base_side_panel": {"qty": 1, "board_type_id": None},
-            "wall_side_filler": {"qty": 1, "board_type_id": None},
+            "base_side_panel": {"qty": 1, "board_type_id": None, "production_metadata": DEFAULT_PRODUCTION_METADATA["visible_panel"]},
+            "wall_side_filler": {"qty": 1, "board_type_id": None, "production_metadata": DEFAULT_PRODUCTION_METADATA["visible_panel"]},
         },
         "manual": [
-            {"name": "Feature End", "length": 2300, "width": 300, "qty": 1, "board_type_id": None},
+            {
+                "name": "Feature End",
+                "length": 2300,
+                "width": 300,
+                "qty": 1,
+                "board_type_id": None,
+                "production_metadata": DEFAULT_PRODUCTION_METADATA["visible_panel"],
+            },
         ],
         "auto": {
             "kicker_board_type_id": None,
@@ -1833,6 +1849,7 @@ def quote_custom_panels_state() -> dict:
             "pelmet_override_qty": 0,
             "pelmet_override_length": 0,
             "pelmet_override_width": 330,
+            "production_metadata": DEFAULT_PRODUCTION_METADATA["visible_panel"],
         },
     }
 

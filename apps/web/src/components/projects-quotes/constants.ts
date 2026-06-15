@@ -1,4 +1,4 @@
-import type { PanelPresetKey, ProjectDraft, QuoteDraft, QuoteStatus, UnitDefaults, UnitDraft, UnitPresetKey } from './types'
+import type { PanelPresetKey, ProductionMetadata, ProductionMetadataByRole, ProjectDraft, QuoteDraft, QuoteStatus, UnitDefaults, UnitDraft, UnitPresetKey } from './types'
 
 export const unitPresets: UnitPresetKey[] = ['Base Draw', 'Base Door', 'Wall Door', 'Tall Door']
 export const customUnitTypeValue = '__custom_unit_type__'
@@ -47,6 +47,19 @@ export const fallbackUnitDefaults: UnitDefaults = {
   'Tall Door': { height: 2100, depth: 580 },
 }
 
+export const defaultProductionMetadata: ProductionMetadata = {
+  edge_banding: '',
+  grain_direction: 'none',
+  rotation: 'none',
+  notes: '',
+}
+
+export const defaultProductionMetadataByRole: ProductionMetadataByRole = {
+  carcass: { ...defaultProductionMetadata },
+  door_panel: { ...defaultProductionMetadata },
+  visible_panel: { ...defaultProductionMetadata },
+}
+
 export const defaultProjectDraft: ProjectDraft = {
   name: '',
   client: '',
@@ -74,6 +87,7 @@ export const defaultQuoteDraft: QuoteDraft = {
   wall_door_depth: String(fallbackUnitDefaults['Wall Door'].depth),
   tall_door_height: String(fallbackUnitDefaults['Tall Door'].height),
   tall_door_depth: String(fallbackUnitDefaults['Tall Door'].depth),
+  production_metadata: defaultProductionMetadataByRole,
 }
 
 export const defaultUnitDraft: UnitDraft = {

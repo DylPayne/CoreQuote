@@ -2,6 +2,19 @@ import type { ProjectPricingSettingsRow, QuotePricingSettingsRow } from '@/compo
 
 export type UnitDefaults = Record<string, { height: number; depth: number }>
 export type QuoteStatus = 'draft' | 'ready' | 'sent' | 'accepted' | 'rejected' | 'revised' | 'expired'
+export type ProductionGrainDirection = 'none' | 'length' | 'width'
+export type ProductionRotationGuidance = 'none' | 'allow_rotation' | 'no_rotation'
+export type ProductionMetadata = {
+  edge_banding: string
+  grain_direction: ProductionGrainDirection
+  rotation: ProductionRotationGuidance
+  notes: string
+}
+export type ProductionMetadataByRole = {
+  carcass: ProductionMetadata
+  door_panel: ProductionMetadata
+  visible_panel: ProductionMetadata
+}
 
 export type ProjectRow = {
   id: string
@@ -37,6 +50,7 @@ export type QuoteRow = {
   default_tall_handle_id: string | null
   default_drawer_handle_id: string | null
   unit_defaults: UnitDefaults
+  production_metadata: ProductionMetadataByRole
   unit_count: number
   created_at: string
   updated_at: string
@@ -55,6 +69,7 @@ export type UnitRow = {
   carcass_board_type_id: string | null
   door_board_type_id: string | null
   extra_params: Record<string, unknown>
+  production_metadata: ProductionMetadataByRole
   created_at: string
   updated_at: string
 }
@@ -226,6 +241,7 @@ export type PanelPresetKey =
 export type QuoteCustomPanelPresetConfig = {
   qty: number
   board_type_id: string | null
+  production_metadata: ProductionMetadata
 }
 
 export type QuoteCustomPanelManualRow = {
@@ -234,6 +250,7 @@ export type QuoteCustomPanelManualRow = {
   width: number
   qty: number
   board_type_id: string | null
+  production_metadata: ProductionMetadata
 }
 
 export type QuoteCustomPanelAutoConfig = {
@@ -249,6 +266,7 @@ export type QuoteCustomPanelAutoConfig = {
   pelmet_override_qty: number
   pelmet_override_length: number
   pelmet_override_width: number
+  production_metadata: ProductionMetadata
 }
 
 export type QuoteCustomPanelsState = {
@@ -263,6 +281,7 @@ export type QuoteCustomPanelComputedRow = {
   width: number
   qty: number
   board_type_id: string | null
+  production_metadata: ProductionMetadata
 }
 
 export type QuoteCustomPanelsResponse = {
@@ -405,6 +424,15 @@ export type ProductionHandoffRow = {
   length: number
   width: number
   quantity: number
+  edge_sides: string[]
+  edge_sides_label: string
+  edge_banding: string
+  grain_direction: ProductionGrainDirection
+  grain_label: string
+  can_rotate: boolean
+  rotation: ProductionRotationGuidance
+  rotation_label: string
+  production_notes: string
   warning_count: number
   warning_messages: string[]
 }
@@ -427,6 +455,7 @@ export type ProductionHandoffGroup = {
   row_count: number
   piece_count: number
   warning_count: number
+  production_warning_count: number
   part_ids: string[]
   rows: ProductionHandoffRow[]
 }
@@ -551,6 +580,9 @@ export type ProductionHandoffLabel = {
   material_label: string
   quantity: number
   warning_count: number
+  edge_sides_label: string
+  grain_label: string
+  rotation_label: string
 }
 
 export type QuoteProductionHandoff = {
@@ -683,6 +715,7 @@ export type QuoteDraft = {
   wall_door_depth: string
   tall_door_height: string
   tall_door_depth: string
+  production_metadata: ProductionMetadataByRole
 }
 
 export type UnitDraft = {
