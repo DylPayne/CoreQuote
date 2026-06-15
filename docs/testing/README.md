@@ -14,3 +14,7 @@ real cabinetry acceptance evidence.
 - [Smith Kitchen Phase 4 Library Refresh](smith-kitchen-phase-4-library-refresh.md):
   shared Phase 4 import fixture and real-stack QA scenario for library refresh,
   active prices, readiness, pricing, and quote outputs.
+- [Smith Kitchen Phase 5 Workshop Handoff](smith-kitchen-phase-5-workshop-handoff.md):
+  shared Phase 5 scenario for production grouping, stable part IDs, labels,
+  board requirements, hardware pick list, warning review, and production-safe
+  CSV/XLSX exports.
