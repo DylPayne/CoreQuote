@@ -50,11 +50,19 @@ QuoteReadinessActionTarget = Literal[
     "units",
     "panels",
     "cutting-lists",
+    "production",
     "pricing",
     "outputs",
     "libraries-pricing",
 ]
-QuoteOutputActionId = Literal["client_quote_pdf", "workshop_schedule", "material_summary", "hardware_pick_list"]
+QuoteOutputActionId = Literal[
+    "client_quote_pdf",
+    "workshop_schedule",
+    "production_handoff_csv",
+    "production_handoff_xlsx",
+    "material_summary",
+    "hardware_pick_list",
+]
 QuoteOutputGroup = Literal["client", "workshop"]
 MaterialRole = Literal["carcass", "door_panel", "visible_panel"]
 ProductionGrainDirection = Literal["none", "length", "width"]

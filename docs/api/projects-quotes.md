@@ -613,6 +613,26 @@ Response excerpt:
       "warning": "Cutting-list warnings will be included in the workshop schedule.",
       "hides_internal_costs": false,
       "action_target": "cutting-lists"
+    },
+    {
+      "id": "production_handoff_csv",
+      "group": "workshop",
+      "label": "Production CSV",
+      "description": "Cutting schedule rows for downstream workshop tools.",
+      "enabled": true,
+      "warning": "Cutting-list warnings will be included in the workshop schedule.",
+      "hides_internal_costs": false,
+      "action_target": "production"
+    },
+    {
+      "id": "production_handoff_xlsx",
+      "group": "workshop",
+      "label": "Production workbook",
+      "description": "XLSX handoff with cutting rows, materials, board requirements, hardware, labels, and warnings.",
+      "enabled": true,
+      "warning": "Cutting-list warnings will be included in the workshop schedule.",
+      "hides_internal_costs": false,
+      "action_target": "production"
     }
   ]
 }
@@ -859,6 +879,89 @@ Frontend integration notes:
 - Render `board_requirements.estimate_label`, `sheet_estimate_label`, and
   `waste_allowance_label` exactly as estimate copy. Do not present sheet counts
   as optimized nesting or final supplier board counts.
+
+## Production Handoff CSV/XLSX
+
+```http
+GET /api/v1/quotes/{quote_id}/production-handoff.csv
+GET /api/v1/quotes/{quote_id}/production-handoff.xlsx
+```
+
+Permission: `production:read`
+
+These endpoints export the same production-safe packet built by
+`GET /quotes/{quote_id}/production-handoff`. They reuse stable `part_id` values
+from the production packet and labels, include quote-level custom panel rows,
+and include warnings when export is allowed with unresolved cutting or
+production issues.
+
+CSV response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="production-Smith-Kitchen-Phase-5-Workshop-Handoff-Q-001-rev-1.csv"
+```
+
+The CSV is a single cutting schedule table with workshop-facing headers:
+`Project`, `Quote`, `Quote Number`, `Revision`, `Source`, `Unit`, `Unit Type`,
+`Section`, `Part ID`, `Part`, `Material Role`, `Board`, `Brand`, `Material`,
+`Thickness (mm)`, `Sheet Length (mm)`, `Sheet Width (mm)`, `Length (mm)`,
+`Width (mm)`, `Quantity`, `Edge Sides`, `Edge Banding`, `Grain Direction`,
+`Rotation`, `Production Notes`, `Warning State`, and `Warning Messages`.
+
+Example CSV row:
+
+```csv
+Project,Quote,Quote Number,Revision,Source,Unit,Unit Type,Section,Part ID,Part,Material Role,Board,Brand,Material,Thickness (mm),Sheet Length (mm),Sheet Width (mm),Length (mm),Width (mm),Quantity,Edge Sides,Edge Banding,Grain Direction,Rotation,Production Notes,Warning State,Warning Messages
+Smith Kitchen Phase 5 Workshop Handoff,Workshop Handoff,Q-001,1,Quote panel,Quote-level,,Quote Panel,Q-001-R1-QP-EXT-KICKER-2400X100-01,Kicker,Visible Panel,PG Black (16mm),PG,Black,16,2750,1830,2400,100,1,None,1mm ABS on exposed quote-panel edges,Length grain,No rotation,,Review,Confirm kicker split before cutting.
+```
+
+XLSX response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+Content-Disposition: attachment; filename="production-Smith-Kitchen-Phase-5-Workshop-Handoff-Q-001-rev-1.xlsx"
+```
+
+The workbook contains these sheets:
+
+- `Cutting Schedule`: the same columns as the CSV export.
+- `Material Summary`: board, material role, sheet dimensions, piece count,
+  area, edge length, estimated sheets, and part IDs.
+- `Board Requirements`: production material-ordering review with source
+  labels, sheet estimate labels, waste allowance labels, warning state, and
+  part IDs.
+- `Hardware Pick List`: hardware part IDs, item details, supplier/code,
+  quantity, usage, unit numbers, and related production part IDs.
+- `Labels`: label-ready part IDs, dimensions, material labels, quantity, edge,
+  grain, rotation, and warning state.
+- `Warnings`: cutting schedule, board requirement, material summary, and
+  hardware pick-list warnings in one review sheet.
+
+Protected pricing and customer-facing totals are never written to either
+export. Excluded fields include customer quote totals, sell totals, internal
+cost, profit, margin, markup, and price-list line amounts.
+
+Errors:
+
+- `401` for missing/invalid bearer sessions.
+- `403` for roles without `production:read`.
+- `404` when the quote is not visible to the current company.
+- `422` when the production handoff cannot be built or has no production rows
+  to export.
+
+Frontend integration notes:
+
+- The output review actions `production_handoff_csv` and
+  `production_handoff_xlsx` download these endpoints as blobs when `enabled` is
+  true.
+- Show `actions[].warning` beside the download button when export is allowed
+  with warnings.
+- The Production tab may also expose direct CSV/XLSX buttons after the handoff
+  response has loaded.
+- Use the response `Content-Disposition` filename when available.
 
 ## Customer Quote PDF
 

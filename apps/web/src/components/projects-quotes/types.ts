@@ -156,6 +156,7 @@ export type QuoteReadinessActionTarget =
   | 'units'
   | 'panels'
   | 'cutting-lists'
+  | 'production'
   | 'pricing'
   | 'outputs'
   | 'libraries-pricing'
@@ -189,7 +190,13 @@ export type QuoteOutputStatus = {
 }
 
 export type QuoteOutputAction = {
-  id: 'client_quote_pdf' | 'workshop_schedule' | 'material_summary' | 'hardware_pick_list'
+  id:
+    | 'client_quote_pdf'
+    | 'workshop_schedule'
+    | 'production_handoff_csv'
+    | 'production_handoff_xlsx'
+    | 'material_summary'
+    | 'hardware_pick_list'
   group: 'client' | 'workshop'
   label: string
   description: string

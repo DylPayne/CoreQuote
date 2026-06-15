@@ -18,6 +18,8 @@ def test_output_review_enables_actions_for_complete_quote():
     assert actions["client_quote_pdf"]["enabled"] is True
     assert actions["client_quote_pdf"]["hides_internal_costs"] is True
     assert actions["workshop_schedule"]["enabled"] is True
+    assert actions["production_handoff_csv"]["enabled"] is True
+    assert actions["production_handoff_xlsx"]["enabled"] is True
     assert actions["material_summary"]["enabled"] is True
     assert actions["hardware_pick_list"]["enabled"] is True
 
@@ -62,6 +64,10 @@ def test_output_review_disables_actions_and_warns_for_incomplete_quote():
     assert actions["client_quote_pdf"]["warning"] == "Resolve readiness warnings before generating the client quote."
     assert actions["workshop_schedule"]["enabled"] is True
     assert actions["workshop_schedule"]["warning"] == "Cutting-list warnings will be included in the workshop schedule."
+    assert actions["production_handoff_csv"]["enabled"] is True
+    assert actions["production_handoff_csv"]["warning"] == "Cutting-list warnings will be included in the workshop schedule."
+    assert actions["production_handoff_xlsx"]["enabled"] is True
+    assert actions["production_handoff_xlsx"]["warning"] == "Cutting-list warnings will be included in the workshop schedule."
     assert actions["material_summary"]["enabled"] is False
     assert actions["material_summary"]["warning"] == "Resolve material summary warnings before generating the material summary."
     assert actions["hardware_pick_list"]["enabled"] is False
