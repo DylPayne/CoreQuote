@@ -21,6 +21,7 @@ SECTION_LABELS = {
 }
 
 MATERIAL_SECTIONS = {"carcass", "panel", "extra_panel"}
+BOARD_REQUIREMENT_ESTIMATE_LABEL = "Sheet counts are estimates only; CoreQuote has not optimized board nesting."
 
 
 def build_production_handoff(
@@ -59,6 +60,11 @@ def build_production_handoff(
         rows=rows,
     )
     safe_material_summary = _safe_material_summary(material_summary or {}, rows)
+    board_requirements = _board_requirements(
+        rows=rows,
+        material_summary=safe_material_summary,
+        board_lookup=board_lookup,
+    )
 
     warning_count = sum(int(row["warning_count"]) for row in rows)
     return {
@@ -76,6 +82,7 @@ def build_production_handoff(
         "groups": groups,
         "rows": rows,
         "material_summary": safe_material_summary,
+        "board_requirements": board_requirements,
         "hardware_pick_list": {
             "items": hardware,
             "warnings": list(hardware_pick_list.get("warnings") or []) if isinstance(hardware_pick_list, dict) else [],
@@ -84,6 +91,318 @@ def build_production_handoff(
         },
         "labels": labels,
     }
+
+
+def _board_requirements(
+    *,
+    rows: list[dict[str, Any]],
+    material_summary: dict[str, Any],
+    board_lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    summary_groups = {
+        (str(group.get("board_type_id") or "").strip(), str(group.get("material_role") or "").strip()): group
+        for group in material_summary.get("groups") or []
+    }
+    warnings: list[dict[str, Any]] = []
+    warning_keys: set[tuple[Any, ...]] = set()
+    groups_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+    for row in rows:
+        board_id = str(row.get("board_type_id") or "").strip()
+        material_role = str(row.get("material_role") or "").strip()
+        key = (
+            board_id,
+            material_role,
+            _non_negative_int(row.get("thickness"), 0),
+            str(row.get("brand") or ""),
+            str(row.get("material") or ""),
+        )
+        group = groups_by_key.get(key)
+        board = board_lookup.get(board_id) if board_id else None
+        if group is None:
+            group = {
+                "requirement_key": _requirement_key(row),
+                "board_type_id": board_id or None,
+                "board_name": row.get("board_name") or "Unassigned material",
+                "brand": row.get("brand") or "",
+                "material": row.get("material") or "",
+                "thickness": row.get("thickness"),
+                "sheet_length_mm": row.get("sheet_length_mm"),
+                "sheet_width_mm": row.get("sheet_width_mm"),
+                "material_role": material_role,
+                "role_label": row.get("role_label") or MATERIAL_ROLE_LABELS.get(material_role, _title_words(material_role)),
+                "row_count": 0,
+                "piece_count": 0,
+                "area_m2": 0.0,
+                "edge_m": 0.0,
+                "sheet_area_m2": None,
+                "estimated_sheets": None,
+                "estimated_sheet_area_m2": None,
+                "waste_area_m2": None,
+                "waste_percent": None,
+                "sheet_estimate_label": "",
+                "waste_allowance_label": "",
+                "part_ids": [],
+                "source_labels": [],
+                "warning_count": 0,
+                "warning_messages": [],
+                "_area_mm2": 0,
+                "_piece_areas_mm2": [],
+                "_board_record_available": bool(board),
+            }
+            groups_by_key[key] = group
+
+        length = _non_negative_int(row.get("length"), 0)
+        width = _non_negative_int(row.get("width"), 0)
+        quantity = _non_negative_int(row.get("quantity"), 0)
+        group["row_count"] += 1
+        group["piece_count"] += quantity
+        _append_unique(group["part_ids"], str(row.get("part_id") or ""))
+        _append_unique(group["source_labels"], str(row.get("unit_label") or ""))
+
+        if length <= 0 or width <= 0 or quantity <= 0:
+            _append_requirement_warning(
+                warnings,
+                warning_keys,
+                group,
+                code="invalid_part_dimensions",
+                row=row,
+                message=f"{row.get('part_id') or row.get('desc')}: length, width, and quantity must be greater than zero.",
+            )
+        else:
+            piece_area = length * width
+            group["_area_mm2"] += piece_area * quantity
+            group["_piece_areas_mm2"].extend([piece_area] * quantity)
+
+        if not board_id:
+            _append_requirement_warning(
+                warnings,
+                warning_keys,
+                group,
+                code="missing_board_selection",
+                row=row,
+                message=f"Choose a board for {row.get('unit_label') or 'this source'} / {row.get('desc') or 'part'} before ordering material.",
+            )
+        elif board is None:
+            _append_requirement_warning(
+                warnings,
+                warning_keys,
+                group,
+                code="missing_board_record",
+                row=row,
+                message=f"Board {board_id} is not available in the company board library.",
+            )
+        else:
+            if not _optional_positive_int(board.get("length_mm")) or not _optional_positive_int(board.get("width_mm")):
+                _append_requirement_warning(
+                    warnings,
+                    warning_keys,
+                    group,
+                    code="missing_board_dimensions",
+                    row=row,
+                    message=f"Add sheet length and width for {_board_description(board)} to estimate sheets.",
+                )
+            if not str(board.get("brand") or "").strip() or not str(board.get("material") or "").strip() or not _optional_positive_int(board.get("thickness")):
+                _append_requirement_warning(
+                    warnings,
+                    warning_keys,
+                    group,
+                    code="incomplete_material_data",
+                    row=row,
+                    message=f"Complete brand, material, and thickness for {_board_description(board)} before ordering material.",
+                )
+
+    for warning in material_summary.get("warnings") or []:
+        if not isinstance(warning, dict):
+            continue
+        code = str(warning.get("code") or "").strip()
+        if code not in {"missing_board_selection", "missing_board_record", "missing_board_dimensions"}:
+            continue
+        _append_requirement_warning(
+            warnings,
+            warning_keys,
+            None,
+            code=code,
+            row={
+                "part_id": "",
+                "unit_number": warning.get("unit_number"),
+                "desc": warning.get("row_desc"),
+                "material_role": warning.get("material_role"),
+                "role_label": warning.get("role_label"),
+                "board_type_id": warning.get("board_type_id"),
+            },
+            message=str(warning.get("message") or ""),
+        )
+
+    groups = []
+    for group in groups_by_key.values():
+        board_id = str(group.get("board_type_id") or "")
+        material_role = str(group.get("material_role") or "")
+        summary_group = summary_groups.get((board_id, material_role))
+        group["area_m2"] = round(int(group.pop("_area_mm2")) / 1_000_000.0, 4)
+        piece_areas = list(group.pop("_piece_areas_mm2"))
+        board_record_available = bool(group.pop("_board_record_available"))
+
+        if summary_group:
+            group["piece_count"] = _non_negative_int(summary_group.get("piece_count"), group["piece_count"])
+            group["area_m2"] = _non_negative_float(summary_group.get("area_m2"), group["area_m2"])
+            group["edge_m"] = _non_negative_float(summary_group.get("edge_m"), 0.0)
+            group["estimated_sheets"] = _optional_positive_int(summary_group.get("estimated_sheets"), allow_zero=True)
+            group["sheet_length_mm"] = group.get("sheet_length_mm") or _optional_positive_int(summary_group.get("length_mm"))
+            group["sheet_width_mm"] = group.get("sheet_width_mm") or _optional_positive_int(summary_group.get("width_mm"))
+
+        sheet_length = _optional_positive_int(group.get("sheet_length_mm"))
+        sheet_width = _optional_positive_int(group.get("sheet_width_mm"))
+        sheet_area_mm2 = (sheet_length or 0) * (sheet_width or 0)
+        sheet_area_m2 = round(sheet_area_mm2 / 1_000_000.0, 4) if sheet_area_mm2 > 0 else None
+        group["sheet_area_m2"] = sheet_area_m2
+        if group["estimated_sheets"] is None and sheet_area_mm2 > 0:
+            group["estimated_sheets"] = _estimate_boards_used(piece_areas, sheet_area_mm2)
+
+        estimated_sheets = group["estimated_sheets"]
+        if estimated_sheets is not None and sheet_area_m2 is not None:
+            group["estimated_sheet_area_m2"] = round(int(estimated_sheets) * sheet_area_m2, 4)
+            group["waste_area_m2"] = round(max(0.0, group["estimated_sheet_area_m2"] - group["area_m2"]), 4)
+            group["waste_percent"] = (
+                round(group["waste_area_m2"] / group["estimated_sheet_area_m2"] * 100.0, 2)
+                if group["estimated_sheet_area_m2"] > 0
+                else 0.0
+            )
+        group["sheet_estimate_label"] = _sheet_estimate_label(group, board_record_available=board_record_available)
+        group["waste_allowance_label"] = _waste_allowance_label(group)
+        groups.append(group)
+
+    groups = sorted(groups, key=_requirement_sort_key)
+    total_estimated_sheets: int | None = None
+    total_estimated_sheet_area_m2: float | None = None
+    total_waste_area_m2: float | None = None
+    if groups and all(group.get("estimated_sheets") is not None for group in groups):
+        total_estimated_sheets = sum(int(group["estimated_sheets"]) for group in groups)
+    if groups and all(group.get("estimated_sheet_area_m2") is not None for group in groups):
+        total_estimated_sheet_area_m2 = round(sum(float(group["estimated_sheet_area_m2"]) for group in groups), 4)
+    if groups and all(group.get("waste_area_m2") is not None for group in groups):
+        total_waste_area_m2 = round(sum(float(group["waste_area_m2"]) for group in groups), 4)
+
+    return {
+        "estimate_label": BOARD_REQUIREMENT_ESTIMATE_LABEL,
+        "groups": groups,
+        "warnings": sorted(warnings, key=_requirement_warning_sort_key),
+        "total_area_m2": round(sum(float(group["area_m2"]) for group in groups), 4),
+        "total_piece_count": sum(int(group["piece_count"]) for group in groups),
+        "total_edge_m": round(sum(float(group["edge_m"]) for group in groups), 3),
+        "total_estimated_sheets": total_estimated_sheets,
+        "total_estimated_sheet_area_m2": total_estimated_sheet_area_m2,
+        "total_waste_area_m2": total_waste_area_m2,
+        "warning_count": len(warnings),
+    }
+
+
+def _requirement_key(row: dict[str, Any]) -> str:
+    return "::".join(
+        [
+            str(row.get("board_type_id") or "unassigned"),
+            str(row.get("thickness") or 0),
+            str(row.get("material") or ""),
+            str(row.get("material_role") or ""),
+        ]
+    )
+
+
+def _append_requirement_warning(
+    warnings: list[dict[str, Any]],
+    seen: set[tuple[Any, ...]],
+    group: dict[str, Any] | None,
+    *,
+    code: str,
+    row: dict[str, Any],
+    message: str,
+) -> None:
+    clean_message = message.strip()
+    key = (
+        code,
+        str(row.get("part_id") or ""),
+        _non_negative_int(row.get("unit_number"), 0),
+        str(row.get("material_role") or ""),
+        str(row.get("board_type_id") or ""),
+        str(row.get("desc") or row.get("row_desc") or ""),
+        clean_message,
+    )
+    if key in seen:
+        return
+    seen.add(key)
+    material_role = str(row.get("material_role") or "")
+    warning = {
+        "severity": "warning",
+        "code": code,
+        "material_role": material_role,
+        "role_label": str(row.get("role_label") or MATERIAL_ROLE_LABELS.get(material_role, _title_words(material_role))),
+        "unit_number": _non_negative_int(row.get("unit_number"), 0),
+        "row_desc": str(row.get("desc") or row.get("row_desc") or ""),
+        "board_type_id": str(row.get("board_type_id") or "").strip() or None,
+        "part_id": str(row.get("part_id") or ""),
+        "message": clean_message,
+    }
+    warnings.append(warning)
+    if group is not None:
+        _append_unique(group["warning_messages"], clean_message)
+        group["warning_count"] = len(group["warning_messages"])
+
+
+def _requirement_warning_sort_key(warning: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        str(warning.get("code") or ""),
+        str(warning.get("material_role") or ""),
+        _non_negative_int(warning.get("unit_number"), 0),
+        str(warning.get("row_desc") or ""),
+        str(warning.get("message") or ""),
+    )
+
+
+def _sheet_estimate_label(group: dict[str, Any], *, board_record_available: bool) -> str:
+    if not group.get("board_type_id"):
+        return "Needs board selection before sheets can be estimated."
+    if not board_record_available:
+        return "Needs a visible board record before sheets can be estimated."
+    if not group.get("sheet_length_mm") or not group.get("sheet_width_mm"):
+        return "Needs sheet length and width before sheets can be estimated."
+    estimated_sheets = group.get("estimated_sheets")
+    if estimated_sheets is None:
+        return "Needs material data before sheets can be estimated."
+    suffix = "sheet" if int(estimated_sheets) == 1 else "sheets"
+    return f"{estimated_sheets} estimated {suffix} (area estimate, not optimized nesting)."
+
+
+def _waste_allowance_label(group: dict[str, Any]) -> str:
+    if group.get("waste_percent") is None:
+        return "Waste allowance unavailable until sheet estimates can be calculated."
+    return f"Estimated waste allowance {float(group['waste_percent']):.1f}% from sheet area minus part area."
+
+
+def _estimate_boards_used(piece_areas_mm2: list[int], sheet_area_mm2: int) -> int:
+    if sheet_area_mm2 <= 0 or not piece_areas_mm2:
+        return 0
+    bins: list[int] = []
+    for area in sorted((int(value) for value in piece_areas_mm2 if int(value) > 0), reverse=True):
+        for index, remaining in enumerate(bins):
+            if area <= remaining:
+                bins[index] = remaining - area
+                break
+        else:
+            bins.append(max(0, sheet_area_mm2 - area))
+    return len(bins)
+
+
+def _requirement_sort_key(group: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        _board_sort_label(group),
+        _material_role_sort(str(group.get("material_role") or "")),
+        str(group.get("requirement_key") or ""),
+    )
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    if value and value not in values:
+        values.append(value)
 
 
 def _production_rows(

@@ -58,6 +58,13 @@ QuoteOutputActionId = Literal["client_quote_pdf", "workshop_schedule", "material
 QuoteOutputGroup = Literal["client", "workshop"]
 MaterialRole = Literal["carcass", "door_panel", "visible_panel"]
 MaterialSummaryWarningCode = Literal["missing_board_selection", "missing_board_record", "missing_board_dimensions"]
+ProductionBoardRequirementWarningCode = Literal[
+    "missing_board_selection",
+    "missing_board_record",
+    "missing_board_dimensions",
+    "invalid_part_dimensions",
+    "incomplete_material_data",
+]
 HardwarePickListItemType = Literal["slide", "hinge", "handle", "extra"]
 HardwarePickListWarningCode = Literal[
     "missing_slide_selection",
@@ -722,6 +729,59 @@ class ProductionHandoffMaterialSummaryResponse(BaseModel):
     total_estimated_sheets: int | None = Field(default=None, ge=0)
 
 
+class ProductionBoardRequirementWarningResponse(BaseModel):
+    severity: Literal["warning"] = "warning"
+    code: ProductionBoardRequirementWarningCode
+    material_role: MaterialRole
+    role_label: str
+    unit_number: int = Field(ge=0)
+    row_desc: str
+    board_type_id: str | None = None
+    part_id: str = ""
+    message: str
+
+
+class ProductionBoardRequirementGroupResponse(BaseModel):
+    requirement_key: str
+    board_type_id: str | None = None
+    board_name: str
+    brand: str = ""
+    material: str = ""
+    thickness: int | None = Field(default=None, ge=0)
+    sheet_length_mm: int | None = Field(default=None, ge=0)
+    sheet_width_mm: int | None = Field(default=None, ge=0)
+    material_role: MaterialRole
+    role_label: str
+    row_count: int = Field(default=0, ge=0)
+    piece_count: int = Field(default=0, ge=0)
+    area_m2: float = Field(default=0, ge=0)
+    edge_m: float = Field(default=0, ge=0)
+    sheet_area_m2: float | None = Field(default=None, ge=0)
+    estimated_sheets: int | None = Field(default=None, ge=0)
+    estimated_sheet_area_m2: float | None = Field(default=None, ge=0)
+    waste_area_m2: float | None = Field(default=None, ge=0)
+    waste_percent: float | None = Field(default=None, ge=0)
+    sheet_estimate_label: str
+    waste_allowance_label: str
+    part_ids: list[str] = Field(default_factory=list)
+    source_labels: list[str] = Field(default_factory=list)
+    warning_count: int = Field(default=0, ge=0)
+    warning_messages: list[str] = Field(default_factory=list)
+
+
+class ProductionBoardRequirementsResponse(BaseModel):
+    estimate_label: str = "Sheet counts are estimates only; CoreQuote has not optimized board nesting."
+    groups: list[ProductionBoardRequirementGroupResponse] = Field(default_factory=list)
+    warnings: list[ProductionBoardRequirementWarningResponse] = Field(default_factory=list)
+    total_area_m2: float = Field(default=0, ge=0)
+    total_piece_count: int = Field(default=0, ge=0)
+    total_edge_m: float = Field(default=0, ge=0)
+    total_estimated_sheets: int | None = Field(default=None, ge=0)
+    total_estimated_sheet_area_m2: float | None = Field(default=None, ge=0)
+    total_waste_area_m2: float | None = Field(default=None, ge=0)
+    warning_count: int = Field(default=0, ge=0)
+
+
 class ProductionHandoffHardwareItemResponse(BaseModel):
     part_id: str
     item_type: HardwarePickListItemType
@@ -775,6 +835,7 @@ class QuoteProductionHandoffResponse(BaseModel):
     groups: list[ProductionHandoffGroupResponse] = Field(default_factory=list)
     rows: list[ProductionHandoffRowResponse] = Field(default_factory=list)
     material_summary: ProductionHandoffMaterialSummaryResponse = Field(default_factory=ProductionHandoffMaterialSummaryResponse)
+    board_requirements: ProductionBoardRequirementsResponse = Field(default_factory=ProductionBoardRequirementsResponse)
     hardware_pick_list: ProductionHandoffHardwarePickListResponse = Field(default_factory=ProductionHandoffHardwarePickListResponse)
     labels: list[ProductionHandoffLabelResponse] = Field(default_factory=list)
 

@@ -1131,6 +1131,7 @@ def test_get_quote_production_handoff_returns_client_safe_grouped_packet():
     payload = quote_production_handoff("quote-1")
     payload["client_quote_total_cents"] = 999999
     payload["material_summary"]["groups"][0]["cost_total_cents"] = 120000
+    payload["board_requirements"]["groups"][0]["cost_total_cents"] = 120000
     store = FakeWorkspaceStore(quote_production_handoff_payload=payload)
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
     app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
@@ -1146,9 +1147,13 @@ def test_get_quote_production_handoff_returns_client_safe_grouped_packet():
     assert body["groups"][0]["board_name"] == "PG White (16mm)"
     assert body["groups"][0]["rows"][0]["part_id"] == "Q-001-R1-U01-CAR-SIDE-748X564-01"
     assert body["material_summary"]["groups"][0]["part_ids"] == ["Q-001-R1-U01-CAR-SIDE-748X564-01"]
+    assert body["board_requirements"]["estimate_label"] == "Sheet counts are estimates only; CoreQuote has not optimized board nesting."
+    assert body["board_requirements"]["groups"][0]["part_ids"] == ["Q-001-R1-U01-CAR-SIDE-748X564-01"]
+    assert body["board_requirements"]["groups"][0]["sheet_estimate_label"] == "1 estimated sheet (area estimate, not optimized nesting)."
     assert body["hardware_pick_list"]["items"][0]["related_part_ids"] == ["Q-001-R1-U01-CAR-SIDE-748X564-01"]
     assert "client_quote_total_cents" not in body
     assert "cost_total_cents" not in body["material_summary"]["groups"][0]
+    assert "cost_total_cents" not in body["board_requirements"]["groups"][0]
     assert store.requested_quote_production_handoff == ("company-1", "quote-1")
 
 
@@ -2064,6 +2069,46 @@ def quote_production_handoff(quote_id: str) -> dict:
             "total_piece_count": 2,
             "total_edge_m": 0,
             "total_estimated_sheets": 1,
+        },
+        "board_requirements": {
+            "estimate_label": "Sheet counts are estimates only; CoreQuote has not optimized board nesting.",
+            "groups": [
+                {
+                    "requirement_key": "board-1::carcass",
+                    "board_type_id": "board-1",
+                    "board_name": "PG White (16mm)",
+                    "brand": "PG",
+                    "material": "White",
+                    "thickness": 16,
+                    "sheet_length_mm": 2750,
+                    "sheet_width_mm": 1830,
+                    "material_role": "carcass",
+                    "role_label": "Carcass",
+                    "row_count": 1,
+                    "piece_count": 2,
+                    "area_m2": 0.84,
+                    "edge_m": 0,
+                    "sheet_area_m2": 5.0325,
+                    "estimated_sheets": 1,
+                    "estimated_sheet_area_m2": 5.0325,
+                    "waste_area_m2": 4.1925,
+                    "waste_percent": 83.31,
+                    "sheet_estimate_label": "1 estimated sheet (area estimate, not optimized nesting).",
+                    "waste_allowance_label": "Estimated waste allowance 83.3% from sheet area minus part area.",
+                    "part_ids": [part_id],
+                    "source_labels": ["Unit 1"],
+                    "warning_count": 0,
+                    "warning_messages": [],
+                }
+            ],
+            "warnings": [],
+            "total_area_m2": 0.84,
+            "total_piece_count": 2,
+            "total_edge_m": 0,
+            "total_estimated_sheets": 1,
+            "total_estimated_sheet_area_m2": 5.0325,
+            "total_waste_area_m2": 4.1925,
+            "warning_count": 0,
         },
         "hardware_pick_list": {
             "items": [

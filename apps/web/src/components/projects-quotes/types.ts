@@ -457,6 +457,64 @@ export type ProductionHandoffMaterialSummary = {
   total_estimated_sheets: number | null
 }
 
+export type ProductionBoardRequirementWarning = {
+  severity: 'warning'
+  code:
+    | 'missing_board_selection'
+    | 'missing_board_record'
+    | 'missing_board_dimensions'
+    | 'invalid_part_dimensions'
+    | 'incomplete_material_data'
+  material_role: MaterialRole
+  role_label: string
+  unit_number: number
+  row_desc: string
+  board_type_id: string | null
+  part_id: string
+  message: string
+}
+
+export type ProductionBoardRequirementGroup = {
+  requirement_key: string
+  board_type_id: string | null
+  board_name: string
+  brand: string
+  material: string
+  thickness: number | null
+  sheet_length_mm: number | null
+  sheet_width_mm: number | null
+  material_role: MaterialRole
+  role_label: string
+  row_count: number
+  piece_count: number
+  area_m2: number
+  edge_m: number
+  sheet_area_m2: number | null
+  estimated_sheets: number | null
+  estimated_sheet_area_m2: number | null
+  waste_area_m2: number | null
+  waste_percent: number | null
+  sheet_estimate_label: string
+  waste_allowance_label: string
+  part_ids: string[]
+  source_labels: string[]
+  warning_count: number
+  warning_messages: string[]
+}
+
+export type ProductionBoardRequirements = {
+  estimate_label: string
+  groups: ProductionBoardRequirementGroup[]
+  warnings: ProductionBoardRequirementWarning[]
+  total_area_m2: number
+  total_piece_count: number
+  total_edge_m: number
+  total_estimated_sheets: number | null
+  total_estimated_sheet_area_m2: number | null
+  total_waste_area_m2: number | null
+  warning_count: number
+}
+
 export type ProductionHandoffHardwareItem = {
   part_id: string
   item_type: HardwarePickListItemType
@@ -510,6 +568,7 @@ export type QuoteProductionHandoff = {
   groups: ProductionHandoffGroup[]
   rows: ProductionHandoffRow[]
   material_summary: ProductionHandoffMaterialSummary
+  board_requirements: ProductionBoardRequirements
   hardware_pick_list: ProductionHandoffHardwarePickList
   labels: ProductionHandoffLabel[]
 }
