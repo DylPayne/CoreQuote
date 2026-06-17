@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import csv
 from datetime import UTC, datetime
+from io import StringIO
 
 from fastapi.testclient import TestClient
 
@@ -13,6 +15,11 @@ from corequote_api.routers import auth, projects_quotes
 
 client = TestClient(app)
 NOW = datetime(2026, 6, 1, 10, 30, tzinfo=UTC)
+DEFAULT_PRODUCTION_METADATA = {
+    "carcass": {"edge_banding": "", "grain_direction": "none", "rotation": "none", "notes": ""},
+    "door_panel": {"edge_banding": "", "grain_direction": "none", "rotation": "none", "notes": ""},
+    "visible_panel": {"edge_banding": "", "grain_direction": "none", "rotation": "none", "notes": ""},
+}
 
 
 class FakeAuthStore:
@@ -69,6 +76,7 @@ class FakeWorkspaceStore:
         self.requested_quote_production_handoff: tuple[str, str] | None = None
         self.generated_customer_quote_pdf: tuple[str, str, dict] | None = None
         self.generated_workshop_schedule_pdf: tuple[str, str, dict] | None = None
+        self.generated_production_handoff_export: tuple[str, str, str] | None = None
         self.requested_quote_custom_panels: tuple[str, str] | None = None
         self.requested_project_pricing: tuple[str, str] | None = None
         self.requested_project_pricing_settings: tuple[str, str] | None = None
@@ -348,6 +356,25 @@ class FakeWorkspaceStore:
         return {
             "filename": "workshop-Smith-Kitchen-Quote-v1-Q-001-rev-1.pdf",
             "content": b"%PDF-1.3 workshop schedule",
+        }
+
+    def generate_production_handoff_export(self, company_id: str, quote_id: str, *, export_format: str, runtime_service=None) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        if quote_id == "empty":
+            raise WorkspaceValidationError("Add production rows before exporting the production handoff.")
+        self.generated_production_handoff_export = (company_id, quote_id, export_format)
+        if export_format == "xlsx":
+            return {
+                "filename": "production-Smith-Kitchen-Q-001-rev-1.xlsx",
+                "content": b"PK\x03\x04 production workbook",
+            }
+        return {
+            "filename": "production-Smith-Kitchen-Q-001-rev-1.csv",
+            "content": (
+                "Project,Quote,Quote Number,Revision,Source,Unit,Part ID,Warning State\n"
+                "Main Kitchen,Kitchen Quote,Q-001,1,Unit,Unit 1,Q-001-R1-U01-CAR-SIDE-748X564-01,Ready\n"
+            ).encode("utf-8"),
         }
 
     def list_quote_extras(self, company_id: str, quote_id: str) -> list[dict]:
@@ -1337,6 +1364,71 @@ def test_download_workshop_schedule_pdf_surfaces_empty_schedule_blocker():
     assert response.json() == {"detail": "Add cabinet units before generating the workshop schedule."}
 
 
+def test_download_production_handoff_csv_returns_attachment_and_uses_company_scope():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+
+    try:
+        response = client.get("/api/v1/quotes/quote-1/production-handoff.csv", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == 'attachment; filename="production-Smith-Kitchen-Q-001-rev-1.csv"'
+    rows = list(csv.DictReader(StringIO(response.content.decode("utf-8"))))
+    assert rows[0]["Part ID"] == "Q-001-R1-U01-CAR-SIDE-748X564-01"
+    assert store.generated_production_handoff_export == ("company-1", "quote-1", "csv")
+
+
+def test_download_production_handoff_xlsx_returns_workbook_attachment():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+
+    try:
+        response = client.get("/api/v1/quotes/quote-1/production-handoff.xlsx", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert response.headers["content-disposition"] == 'attachment; filename="production-Smith-Kitchen-Q-001-rev-1.xlsx"'
+    assert response.content.startswith(b"PK")
+    assert store.generated_production_handoff_export == ("company-1", "quote-1", "xlsx")
+
+
+def test_download_production_handoff_export_requires_production_read_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+
+    try:
+        response = client.get("/api/v1/quotes/quote-1/production-handoff.csv", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: production:read"}
+    assert store.generated_production_handoff_export is None
+
+
+def test_download_production_handoff_export_returns_404_if_quote_not_visible():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+
+    try:
+        response = client.get("/api/v1/quotes/missing/production-handoff.xlsx", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Quote not found"}
+    assert store.generated_production_handoff_export is None
+
+
 def test_quote_extras_read_and_replace():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
@@ -1792,6 +1884,7 @@ def quote(
             "Wall Door": {"height": 720, "depth": 330},
             "Tall Door": {"height": 2100, "depth": 580},
         },
+        "production_metadata": DEFAULT_PRODUCTION_METADATA,
         "unit_count": unit_count,
         "created_at": NOW,
         "updated_at": NOW,
@@ -1825,6 +1918,7 @@ def unit(
         "carcass_board_type_id": carcass_board_type_id,
         "door_board_type_id": door_board_type_id,
         "extra_params": extra_params or {},
+        "production_metadata": DEFAULT_PRODUCTION_METADATA,
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -1856,6 +1950,7 @@ def quote_payload(*, name: str = "Kitchen Quote") -> dict:
             "Base Draw": {"height": 780, "depth": 580},
             "Base Door": {"height": 780, "depth": 580},
         },
+        "production_metadata": DEFAULT_PRODUCTION_METADATA,
     }
 
 
@@ -1868,17 +1963,25 @@ def unit_payload(*, unit_type_key: str = "Base Draw", width: int = 900) -> dict:
         "carcass_board_type_id": None,
         "door_board_type_id": None,
         "extra_params": {"num_drawers": 3},
+        "production_metadata": DEFAULT_PRODUCTION_METADATA,
     }
 
 
 def quote_custom_panels_state() -> dict:
     return {
         "presets": {
-            "base_side_panel": {"qty": 1, "board_type_id": None},
-            "wall_side_filler": {"qty": 1, "board_type_id": None},
+            "base_side_panel": {"qty": 1, "board_type_id": None, "production_metadata": DEFAULT_PRODUCTION_METADATA["visible_panel"]},
+            "wall_side_filler": {"qty": 1, "board_type_id": None, "production_metadata": DEFAULT_PRODUCTION_METADATA["visible_panel"]},
         },
         "manual": [
-            {"name": "Feature End", "length": 2300, "width": 300, "qty": 1, "board_type_id": None},
+            {
+                "name": "Feature End",
+                "length": 2300,
+                "width": 300,
+                "qty": 1,
+                "board_type_id": None,
+                "production_metadata": DEFAULT_PRODUCTION_METADATA["visible_panel"],
+            },
         ],
         "auto": {
             "kicker_board_type_id": None,
@@ -1893,6 +1996,7 @@ def quote_custom_panels_state() -> dict:
             "pelmet_override_qty": 0,
             "pelmet_override_length": 0,
             "pelmet_override_width": 330,
+            "production_metadata": DEFAULT_PRODUCTION_METADATA["visible_panel"],
         },
     }
 

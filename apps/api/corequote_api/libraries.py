@@ -40,13 +40,13 @@ class ResourceConfig:
 
 BOARD_CONFIG = ResourceConfig(
     table="board_types",
-    fields=("brand", "material", "thickness", "length_mm", "width_mm", "costing_mode"),
+    fields=("brand", "material", "thickness", "length_mm", "width_mm", "costing_mode", "grain_policy"),
     select_clause=(
-        "id::text, brand, material, thickness, length_mm, width_mm, costing_mode, "
+        "id::text, brand, material, thickness, length_mm, width_mm, costing_mode, grain_policy, "
         "created_at, updated_at"
     ),
     order_by="brand ASC, material ASC, thickness ASC",
-    search_fields=("brand", "material", "costing_mode"),
+    search_fields=("brand", "material", "costing_mode", "grain_policy"),
 )
 
 SLIDE_CONFIG = ResourceConfig(
@@ -132,7 +132,7 @@ CATALOG_BULK_CONFIGS: dict[str, ResourceConfig] = {
 }
 
 CATALOG_BULK_ALLOWED_FIELDS: dict[str, set[str]] = {
-    "boards": {"costing_mode"},
+    "boards": {"costing_mode", "grain_policy"},
     "slides": {"brand", "code"},
     "hinges": {"brand", "code"},
     "handles": {"supplier", "code"},
@@ -186,6 +186,7 @@ PRICING_SETTINGS_SELECT = ", ".join(PRICING_SETTINGS_COLUMNS)
 DEFAULT_VAT_RATE_BPS = 1500
 DEFAULT_MARKUP_BPS = 2500
 PRICE_EFFECTIVE_STATUS_VALUES = {"current", "future", "retired"}
+GRAIN_POLICY_VALUES = {"none", "optional", "required"}
 
 
 class LibraryStore:
@@ -2772,6 +2773,10 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
     data = {key: _clean(value) for key, value in payload.items()}
     if "costing_mode" in data:
         data["costing_mode"] = str(data["costing_mode"] or "sheet").strip().lower()
+    if "grain_policy" in data:
+        data["grain_policy"] = str(data["grain_policy"] or "required").strip().lower()
+        if data["grain_policy"] not in GRAIN_POLICY_VALUES:
+            raise LibraryValidationError("Grain policy must be none, optional, or required")
     if "price_component" in data:
         data["price_component"] = str(data["price_component"] or "unit").strip().lower()
     if "cost_source" in data:

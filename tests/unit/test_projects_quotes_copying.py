@@ -51,6 +51,14 @@ def test_insert_quote_copy_copies_payload_units_extras_and_pricing_without_sourc
         "default_tall_handle_id": "handle-tall",
         "default_drawer_handle_id": "handle-drawer",
         "unit_defaults": {"Base Door": {"height": 780, "depth": 580}},
+        "production_metadata": {
+            "door_panel": {
+                "edge_banding": "1mm ABS",
+                "grain_direction": "length",
+                "rotation": "no_rotation",
+                "notes": "No rotate",
+            }
+        },
         "custom_panels": {
             "presets": {"base_side_panel": {"enabled": True, "qty": 2, "board_type_id": "board-panel"}},
             "manual": [{"label": "Sink filler", "length": 720, "width": 80, "qty": 1, "board_type_id": "board-panel"}],
@@ -83,7 +91,8 @@ def test_insert_quote_copy_copies_payload_units_extras_and_pricing_without_sourc
         1,
         None,
     )
-    assert quote_params[-2].obj == source["unit_defaults"]
+    assert quote_params[-3].obj == source["unit_defaults"]
+    assert quote_params[-2].obj == source["production_metadata"]
     assert quote_params[-1].obj == source["custom_panels"]
 
     unit_copy = next((call for call in conn.calls if "INSERT INTO quote_units" in call[0]), None)
@@ -122,6 +131,7 @@ def test_insert_quote_copy_preserves_revision_link_when_requested():
         "default_tall_handle_id": None,
         "default_drawer_handle_id": None,
         "unit_defaults": {},
+        "production_metadata": {},
         "custom_panels": {},
     }
 

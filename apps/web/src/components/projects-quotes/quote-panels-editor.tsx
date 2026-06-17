@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
-import { panelPresetFamily, panelPresetKeys, panelPresetLabels } from './constants'
+import { defaultProductionMetadata, panelPresetFamily, panelPresetKeys, panelPresetLabels } from './constants'
 import { optionalId, parseNonNegativeInteger, resolveDefaultDims } from './helpers'
 import { LibrarySelect } from './shared-ui'
 import type {
@@ -20,6 +20,8 @@ import type {
   QuoteCustomPanelPresetConfig,
   QuoteCustomPanelsState,
   QuoteRow,
+  ProductionGrainDirection,
+  ProductionRotationGuidance,
 } from './types'
 
 export function QuotePanelsEditor({
@@ -51,6 +53,13 @@ export function QuotePanelsEditor({
   const wallDoor = resolveDefaultDims(selectedQuote.unit_defaults, 'Wall Door')
   const tallDoor = resolveDefaultDims(selectedQuote.unit_defaults, 'Tall Door')
   const defaultReturnDepth = baseDoor.depth
+  const grainPolicyForBoardId = useCallback(
+    (boardId: string | null | undefined) => {
+      const effectiveBoardId = boardId ?? defaultPanelBoardId
+      return boards.find((board) => board.id === effectiveBoardId)?.grain_policy ?? 'required'
+    },
+    [boards, defaultPanelBoardId],
+  )
 
   const defaultPresetConfig = useCallback(
     (key: PanelPresetKey): QuoteCustomPanelPresetConfig => {
@@ -59,6 +68,7 @@ export function QuotePanelsEditor({
       return {
         qty: defaultQty,
         board_type_id: defaultPanelBoardId,
+        production_metadata: { ...defaultProductionMetadata },
       }
     },
     [defaultPanelBoardId, presetFamilyCounts],
@@ -362,6 +372,7 @@ export function QuotePanelsEditor({
                     width: 0,
                     qty: 1,
                     board_type_id: defaultPanelBoardId,
+                    production_metadata: { ...defaultProductionMetadata },
                   },
                 ],
               })
@@ -389,6 +400,9 @@ export function QuotePanelsEditor({
                   <TableHead className="w-28">W (mm)</TableHead>
                   <TableHead className="w-24">Qty</TableHead>
                   <TableHead>Board</TableHead>
+                  <TableHead>Edge</TableHead>
+                  <TableHead className="w-36">Grain</TableHead>
+                  <TableHead className="w-36">Rotation</TableHead>
                   <TableHead className="w-16" />
                 </TableRow>
               </TableHeader>
@@ -459,7 +473,19 @@ export function QuotePanelsEditor({
                           onChange({
                             ...panelState,
                             manual: panelState.manual.map((current, currentIndex) =>
-                              currentIndex === index ? { ...current, board_type_id: optionalId(event.target.value) } : current,
+                              currentIndex === index
+                                ? {
+                                    ...current,
+                                    board_type_id: optionalId(event.target.value),
+                                    production_metadata:
+                                      grainPolicyForBoardId(optionalId(event.target.value)) === 'none'
+                                        ? {
+                                            ...(current.production_metadata ?? defaultProductionMetadata),
+                                            grain_direction: 'none',
+                                          }
+                                        : current.production_metadata,
+                                  }
+                                : current,
                             ),
                           })
                         }
@@ -471,6 +497,78 @@ export function QuotePanelsEditor({
                             {`${board.brand} ${board.material} (${board.thickness}mm)`}
                           </option>
                         ))}
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        onChange={(event) =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.map((current, currentIndex) =>
+                              currentIndex === index
+                                ? {
+                                    ...current,
+                                    production_metadata: {
+                                      ...(current.production_metadata ?? defaultProductionMetadata),
+                                      edge_banding: event.target.value,
+                                    },
+                                  }
+                                : current,
+                            ),
+                          })
+                        }
+                        value={(row.production_metadata ?? defaultProductionMetadata).edge_banding}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        disabled={grainPolicyForBoardId(row.board_type_id) === 'none'}
+                        onChange={(event) =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.map((current, currentIndex) =>
+                              currentIndex === index
+                                ? {
+                                    ...current,
+                                    production_metadata: {
+                                      ...(current.production_metadata ?? defaultProductionMetadata),
+                                      grain_direction: event.target.value as ProductionGrainDirection,
+                                    },
+                                  }
+                                : current,
+                            ),
+                          })
+                        }
+                        value={grainPolicyForBoardId(row.board_type_id) === 'none' ? 'none' : (row.production_metadata ?? defaultProductionMetadata).grain_direction}
+                      >
+                        <option value="none">{grainPolicyForBoardId(row.board_type_id) === 'none' ? 'Not applicable' : 'Unspecified'}</option>
+                        <option value="length">Length</option>
+                        <option value="width">Width</option>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        onChange={(event) =>
+                          onChange({
+                            ...panelState,
+                            manual: panelState.manual.map((current, currentIndex) =>
+                              currentIndex === index
+                                ? {
+                                    ...current,
+                                    production_metadata: {
+                                      ...(current.production_metadata ?? defaultProductionMetadata),
+                                      rotation: event.target.value as ProductionRotationGuidance,
+                                    },
+                                  }
+                                : current,
+                            ),
+                          })
+                        }
+                        value={(row.production_metadata ?? defaultProductionMetadata).rotation}
+                      >
+                        <option value="none">Unspecified</option>
+                        <option value="allow_rotation">Can rotate</option>
+                        <option value="no_rotation">No rotation</option>
                       </Select>
                     </TableCell>
                     <TableCell>

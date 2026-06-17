@@ -16,8 +16,8 @@ def test_split_run_into_rows_with_board_length_breaks_into_full_and_remainder():
     )
 
     assert rows == [
-        {"Desc": "Kicker", "L": 1200, "W": 100, "Qty": 2, "board_type_id": 7},
-        {"Desc": "Kicker", "L": 100, "W": 100, "Qty": 1, "board_type_id": 7},
+        {"Desc": "Kicker", "L": 1200, "W": 100, "Qty": 2, "board_type_id": 7, "production_metadata": {}},
+        {"Desc": "Kicker", "L": 100, "W": 100, "Qty": 1, "board_type_id": 7, "production_metadata": {}},
     ]
 
 

@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Copy,
   Download,
+  FileSpreadsheet,
   FileText,
   GitBranch,
   Hammer,
@@ -34,13 +35,15 @@ import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, Ta
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, apiRequestBlob } from '@/components/projects-quotes/api'
 import type { LibraryTab } from '@/components/libraries/types'
-import { customUnitTypeValue, defaultProjectDraft, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
+import { customUnitTypeValue, defaultProjectDraft, defaultProductionMetadata, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, DrawerSplitMode, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, DrawerSplitMode, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProductionGrainDirection, ProductionMetadata, ProductionRotationGuidance, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+
+type ProductionExportFormat = 'csv' | 'xlsx'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -593,7 +596,17 @@ function OutputStatusSummary({ status }: { status: QuoteOutputStatus }) {
 function OutputActionIcon({ action }: { action: QuoteOutputAction }) {
   if (action.id === 'client_quote_pdf') return <FileText className="h-4 w-4" aria-hidden="true" />
   if (action.id === 'workshop_schedule') return <Hammer className="h-4 w-4" aria-hidden="true" />
+  if (action.id === 'production_handoff_csv' || action.id === 'production_handoff_xlsx') {
+    return <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+  }
   return <ClipboardList className="h-4 w-4" aria-hidden="true" />
+}
+
+function outputActionDownloadLabel(action: QuoteOutputAction) {
+  if (action.id === 'client_quote_pdf' || action.id === 'workshop_schedule') return 'PDF'
+  if (action.id === 'production_handoff_csv') return 'CSV'
+  if (action.id === 'production_handoff_xlsx') return 'XLSX'
+  return null
 }
 
 function OutputActionCard({
@@ -607,7 +620,7 @@ function OutputActionCard({
   onGenerateAction: (action: QuoteOutputAction) => void
   onReviewAction: (action: QuoteOutputAction) => void
 }) {
-  const isPdfExport = action.id === 'client_quote_pdf' || action.id === 'workshop_schedule'
+  const downloadLabel = outputActionDownloadLabel(action)
   const isGenerating = generatingActionId === action.id
   const actionBadgeLabel = action.enabled
     ? action.warning
@@ -635,18 +648,18 @@ function OutputActionCard({
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
           <Button
             disabled={!action.enabled || isGenerating}
-            onClick={() => (isPdfExport ? onGenerateAction(action) : onReviewAction(action))}
+            onClick={() => (downloadLabel ? onGenerateAction(action) : onReviewAction(action))}
             size="sm"
             type="button"
           >
             {isGenerating ? (
               <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : isPdfExport ? (
+            ) : downloadLabel ? (
               <Download className="h-4 w-4" aria-hidden="true" />
             ) : (
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             )}
-            {isPdfExport ? (isGenerating ? 'Generating PDF' : 'Download PDF') : 'Review output'}
+            {downloadLabel ? (isGenerating ? `Generating ${downloadLabel}` : `Download ${downloadLabel}`) : 'Review output'}
           </Button>
           {action.warning ? (
             <Button onClick={() => onReviewAction(action)} size="sm" type="button" variant="outline">
@@ -828,6 +841,62 @@ function formatPartIdList(partIds: string[], maxVisible = 3) {
   return `${partIds.slice(0, maxVisible).join(', ')} +${partIds.length - maxVisible}`
 }
 
+function ProductionMetadataControls({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: ProductionMetadata
+  onChange: (next: ProductionMetadata) => void
+}) {
+  return (
+    <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3">
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+      <Label className="grid gap-1.5">
+        Edge banding
+        <Input
+          onChange={(event) => onChange({ ...value, edge_banding: event.target.value })}
+          placeholder="1mm ABS on exposed edges"
+          value={value.edge_banding}
+        />
+      </Label>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Label className="grid gap-1.5">
+          Grain
+          <Select
+            onChange={(event) => onChange({ ...value, grain_direction: event.target.value as ProductionGrainDirection })}
+            value={value.grain_direction}
+          >
+            <option value="none">Unspecified</option>
+            <option value="length">Length grain</option>
+            <option value="width">Width grain</option>
+          </Select>
+        </Label>
+        <Label className="grid gap-1.5">
+          Rotation
+          <Select
+            onChange={(event) => onChange({ ...value, rotation: event.target.value as ProductionRotationGuidance })}
+            value={value.rotation}
+          >
+            <option value="none">Unspecified</option>
+            <option value="allow_rotation">Can rotate</option>
+            <option value="no_rotation">No rotation</option>
+          </Select>
+        </Label>
+      </div>
+      <Label className="grid gap-1.5">
+        Notes
+        <Textarea
+          onChange={(event) => onChange({ ...value, notes: event.target.value })}
+          rows={2}
+          value={value.notes}
+        />
+      </Label>
+    </div>
+  )
+}
+
 function ProductionCollapsibleSection({
   children,
   id,
@@ -968,7 +1037,15 @@ function ProductionBoardRequirementsReview({
   )
 }
 
-function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }) {
+function ProductionHandoffPanel({
+  exportingFormat,
+  handoff,
+  onDownloadExport,
+}: {
+  exportingFormat: ProductionExportFormat | null
+  handoff: QuoteProductionHandoff
+  onDownloadExport: (format: ProductionExportFormat) => void
+}) {
   const warningRows = handoff.rows.filter((row) => row.warning_count > 0)
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
 
@@ -989,12 +1066,40 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
             </div>
             <p className="mt-1 text-sm text-muted-foreground">{handoff.quote_name}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Badge variant="outline">{`${handoff.group_count} ${handoff.group_count === 1 ? 'group' : 'groups'}`}</Badge>
             <Badge variant="outline">{`${handoff.row_count} ${handoff.row_count === 1 ? 'row' : 'rows'}`}</Badge>
             <Badge variant={handoff.warning_count > 0 ? 'warning' : 'outline'}>
               {handoff.warning_count > 0 ? `${handoff.warning_count} warnings` : `${handoff.label_count} labels`}
             </Badge>
+            <Button
+              disabled={handoff.row_count === 0 || exportingFormat !== null}
+              onClick={() => onDownloadExport('csv')}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {exportingFormat === 'csv' ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Download className="h-4 w-4" aria-hidden="true" />
+              )}
+              CSV
+            </Button>
+            <Button
+              disabled={handoff.row_count === 0 || exportingFormat !== null}
+              onClick={() => onDownloadExport('xlsx')}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {exportingFormat === 'xlsx' ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
+              )}
+              XLSX
+            </Button>
           </div>
         </div>
       </div>
@@ -1046,7 +1151,7 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
                   </div>
                 </div>
                 <TableContainer>
-                  <Table className="min-w-[980px] text-xs">
+                  <Table className="min-w-[1180px] text-xs">
                     <TableHeader>
                       <TableRow>
                         <TableHead>Part ID</TableHead>
@@ -1056,6 +1161,9 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
                         <TableHead className="text-right">L</TableHead>
                         <TableHead className="text-right">W</TableHead>
                         <TableHead className="text-right">Qty</TableHead>
+                        <TableHead>Edge</TableHead>
+                        <TableHead>Grain</TableHead>
+                        <TableHead>Rotation</TableHead>
                         <TableHead>State</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1074,6 +1182,16 @@ function ProductionHandoffPanel({ handoff }: { handoff: QuoteProductionHandoff }
                           <TableCell className="text-right">{row.length}</TableCell>
                           <TableCell className="text-right">{row.width}</TableCell>
                           <TableCell className="text-right">{row.quantity}</TableCell>
+                          <TableCell>
+                            <div className="grid gap-1">
+                              <span>{row.edge_banding || row.edge_sides_label}</span>
+                              {row.edge_banding && row.edge_sides_label !== 'None' ? (
+                                <span className="text-muted-foreground">{row.edge_sides_label}</span>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>{row.grain_label}</TableCell>
+                          <TableCell>{row.rotation_label}</TableCell>
                           <TableCell>
                             <Badge variant={row.warning_count > 0 ? 'warning' : 'outline'}>
                               {row.warning_count > 0 ? 'Review' : 'Ready'}
@@ -1551,6 +1669,25 @@ export function ProjectsQuotesPage({
     [authToken, loadQuoteOutputReview],
   )
 
+  const downloadProductionHandoffExport = useCallback(
+    async (quoteId: string, format: ProductionExportFormat) => {
+      const actionId: QuoteOutputAction['id'] = format === 'csv' ? 'production_handoff_csv' : 'production_handoff_xlsx'
+      setGeneratingOutputActionId(actionId)
+      setError(null)
+      try {
+        const { blob, filename } = await apiRequestBlob(`/api/v1/quotes/${quoteId}/production-handoff.${format}`, { token: authToken })
+        downloadBlob(blob, filename, `production-handoff.${format}`)
+        await loadQuoteOutputReview(quoteId)
+      } catch (downloadError) {
+        setError(downloadError instanceof Error ? downloadError.message : 'Could not download the production handoff export.')
+        void loadQuoteOutputReview(quoteId)
+      } finally {
+        setGeneratingOutputActionId(null)
+      }
+    },
+    [authToken, loadQuoteOutputReview],
+  )
+
   const loadQuoteExtras = useCallback(
     async (quoteId: string) => {
       setIsLoadingQuoteExtras(true)
@@ -1808,6 +1945,11 @@ export function ProjectsQuotesPage({
       openQuoteCuttingListTab()
       return
     }
+    if (check.action_target === 'production') {
+      setActiveProjectTab('quotes')
+      setActiveQuoteTab('production')
+      return
+    }
     if (check.action_target === 'pricing') {
       openQuotePricingTab()
       return
@@ -1841,6 +1983,11 @@ export function ProjectsQuotesPage({
       openQuoteCuttingListTab()
       return
     }
+    if (action.action_target === 'production') {
+      setActiveProjectTab('quotes')
+      setActiveQuoteTab('production')
+      return
+    }
     if (action.action_target === 'pricing') {
       openQuotePricingTab()
       return
@@ -1859,6 +2006,14 @@ export function ProjectsQuotesPage({
     }
     if (action.id === 'workshop_schedule' && selectedQuoteId) {
       void downloadWorkshopSchedulePdf(selectedQuoteId)
+      return
+    }
+    if (action.id === 'production_handoff_csv' && selectedQuoteId) {
+      void downloadProductionHandoffExport(selectedQuoteId, 'csv')
+      return
+    }
+    if (action.id === 'production_handoff_xlsx' && selectedQuoteId) {
+      void downloadProductionHandoffExport(selectedQuoteId, 'xlsx')
       return
     }
     handleOutputReviewAction(action)
@@ -3135,8 +3290,18 @@ export function ProjectsQuotesPage({
                   </Alert>
                 ) : (
                   <ProductionHandoffPanel
+                    exportingFormat={
+                      generatingOutputActionId === 'production_handoff_csv'
+                        ? 'csv'
+                        : generatingOutputActionId === 'production_handoff_xlsx'
+                          ? 'xlsx'
+                          : null
+                    }
                     handoff={quoteProductionHandoff}
                     key={`${quoteProductionHandoff.quote_id}:${quoteProductionHandoff.revision}`}
+                    onDownloadExport={(format) => {
+                      if (selectedQuoteId) void downloadProductionHandoffExport(selectedQuoteId, format)
+                    }}
                   />
                 )
               ) : activeQuoteTab === 'readiness' ? (
@@ -3972,6 +4137,38 @@ export function ProjectsQuotesPage({
                 onChange={(value) => setQuoteDraft((current) => ({ ...current, default_panel_board_type_id: value }))}
                 value={quoteDraft.default_panel_board_type_id}
               />
+            </div>
+
+            <div className="grid gap-3">
+              <p className="text-xs font-semibold uppercase text-muted-foreground">Production defaults</p>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <ProductionMetadataControls
+                  label="Door and drawer panels"
+                  onChange={(next) =>
+                    setQuoteDraft((current) => ({
+                      ...current,
+                      production_metadata: {
+                        ...current.production_metadata,
+                        door_panel: next,
+                      },
+                    }))
+                  }
+                  value={quoteDraft.production_metadata?.door_panel ?? defaultProductionMetadata}
+                />
+                <ProductionMetadataControls
+                  label="Visible quote panels"
+                  onChange={(next) =>
+                    setQuoteDraft((current) => ({
+                      ...current,
+                      production_metadata: {
+                        ...current.production_metadata,
+                        visible_panel: next,
+                      },
+                    }))
+                  }
+                  value={quoteDraft.production_metadata?.visible_panel ?? defaultProductionMetadata}
+                />
+              </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">

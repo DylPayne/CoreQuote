@@ -89,6 +89,8 @@ def test_smith_kitchen_phase4_import_fixture_prices_complete_output_package():
     assert {action["id"]: action["enabled"] for action in review["actions"]} == {
         "client_quote_pdf": True,
         "workshop_schedule": True,
+        "production_handoff_csv": True,
+        "production_handoff_xlsx": True,
         "material_summary": True,
         "hardware_pick_list": True,
     }

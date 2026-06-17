@@ -10,8 +10,14 @@ import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 
-import { formatHingeLabel, formatSlideLabel } from './helpers'
-import type { BoardTypeRow, ExtraCategoryRow, ExtraRow, HandleRow, HingeRow, SlideRow } from './types'
+import { formatBoardGrainPolicy, formatHingeLabel, formatSlideLabel } from './helpers'
+import type { BoardGrainPolicy, BoardTypeRow, ExtraCategoryRow, ExtraRow, HandleRow, HingeRow, SlideRow } from './types'
+
+const boardGrainPolicyOptions: Array<{ label: string; value: BoardGrainPolicy }> = [
+  { label: 'Grain required', value: 'required' },
+  { label: 'Optional grain', value: 'optional' },
+  { label: 'No grain', value: 'none' },
+]
 
 type RowSelectionProps = {
   onSelectionChange?: (itemId: string, checked: boolean) => void
@@ -67,13 +73,14 @@ export function LibraryBoardsTable({
                 <TableHead>Length</TableHead>
                 <TableHead>Width</TableHead>
                 <TableHead>Mode</TableHead>
+                <TableHead>Grain</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {boards.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={onSelectionChange ? 8 : 7}>
+                  <TableCell colSpan={onSelectionChange ? 9 : 8}>
                     <EmptyTableMessage
                       title="Add the boards you cut most often."
                       detail="Board sheets drive material takeoffs, quote defaults, and cutlist pricing. Start with your everyday carcass board, then add door and panel boards."
@@ -97,6 +104,7 @@ export function LibraryBoardsTable({
                     <TableCell>{row.length_mm}</TableCell>
                     <TableCell>{row.width_mm}</TableCell>
                     <TableCell>{row.costing_mode}</TableCell>
+                    <TableCell>{formatBoardGrainPolicy(row.grain_policy)}</TableCell>
                     <TableCell className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => onEdit({ ...row })}>
                         Edit
@@ -129,6 +137,16 @@ export function LibraryBoardsTable({
               <Select value={editingBoard.costing_mode} onChange={(event) => onEditChange({ ...editingBoard, costing_mode: event.target.value as 'sheet' | 'sqm' })}>
                 <option value="sheet">sheet</option>
                 <option value="sqm">sqm</option>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
+              Grain
+              <Select value={editingBoard.grain_policy} onChange={(event) => onEditChange({ ...editingBoard, grain_policy: event.target.value as BoardGrainPolicy })}>
+                {boardGrainPolicyOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </Select>
             </Label>
             <Label className="grid gap-1.5">

@@ -19,6 +19,7 @@ export const defaultBoardDraft: BoardDraft = {
   length_mm: '2750',
   width_mm: '1830',
   costing_mode: 'sheet',
+  grain_policy: 'required',
 }
 
 export const defaultSlideDraft: SlideDraft = {

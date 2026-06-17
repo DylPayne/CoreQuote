@@ -17,6 +17,11 @@ from corequote_core.customer_quote_pdf import (
 )
 from corequote_core.hardware_pick_list import build_hardware_pick_list, canonical_unit_type
 from corequote_core.output_review import build_quote_output_review
+from corequote_core.production_export import (
+    production_handoff_export_filename,
+    render_production_handoff_csv,
+    render_production_handoff_xlsx,
+)
 from corequote_core.production_handoff import build_production_handoff
 from corequote_core.quote_readiness import evaluate_quote_readiness
 from corequote_core.workshop_schedule_pdf import (
@@ -92,6 +97,7 @@ QUOTE_SELECT = """
     q.default_tall_handle_id::text,
     q.default_drawer_handle_id::text,
     q.unit_defaults,
+    q.production_metadata,
     q.custom_panels,
     COALESCE(count(qu.id), 0)::int AS unit_count,
     q.created_at,
@@ -134,6 +140,7 @@ UNIT_SELECT = """
     u.carcass_board_type_id::text,
     u.door_board_type_id::text,
     u.extra_params,
+    u.production_metadata,
     u.created_at,
     u.updated_at
 """
@@ -391,9 +398,10 @@ class WorkspaceStore:
                         default_wall_handle_id,
                         default_tall_handle_id,
                         default_drawer_handle_id,
-                        unit_defaults
+                        unit_defaults,
+                        production_metadata
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id::text
                     """,
                     (
@@ -414,6 +422,7 @@ class WorkspaceStore:
                         data["default_tall_handle_id"],
                         data["default_drawer_handle_id"],
                         Jsonb(data["unit_defaults"]),
+                        Jsonb(data["production_metadata"]),
                     ),
                 ).fetchone()
                 self._insert_quote_pricing_settings(conn, company_id, row["id"], project_pricing_settings)
@@ -463,7 +472,8 @@ class WorkspaceStore:
                         default_wall_handle_id = %s,
                         default_tall_handle_id = %s,
                         default_drawer_handle_id = %s,
-                        unit_defaults = %s
+                        unit_defaults = %s,
+                        production_metadata = %s
                     WHERE company_id = %s
                       AND id = %s
                     RETURNING id::text
@@ -481,6 +491,7 @@ class WorkspaceStore:
                         data["default_tall_handle_id"],
                         data["default_drawer_handle_id"],
                         Jsonb(data["unit_defaults"]),
+                        Jsonb(data["production_metadata"]),
                         company_id,
                         quote_id,
                     ),
@@ -590,9 +601,10 @@ class WorkspaceStore:
                 default_tall_handle_id,
                 default_drawer_handle_id,
                 unit_defaults,
+                production_metadata,
                 custom_panels
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id::text
             """,
             (
@@ -614,6 +626,7 @@ class WorkspaceStore:
                 source["default_tall_handle_id"],
                 source["default_drawer_handle_id"],
                 Jsonb(source.get("unit_defaults") or {}),
+                Jsonb(source.get("production_metadata") or {}),
                 Jsonb(source.get("custom_panels") or {}),
             ),
         ).fetchone()
@@ -631,7 +644,8 @@ class WorkspaceStore:
                 thickness,
                 carcass_board_type_id,
                 door_board_type_id,
-                extra_params
+                extra_params,
+                production_metadata
             )
             SELECT
                 company_id,
@@ -644,7 +658,8 @@ class WorkspaceStore:
                 thickness,
                 carcass_board_type_id,
                 door_board_type_id,
-                extra_params
+                extra_params,
+                production_metadata
             FROM quote_units
             WHERE company_id = %s
               AND quote_id = %s
@@ -737,9 +752,10 @@ class WorkspaceStore:
                         thickness,
                         carcass_board_type_id,
                         door_board_type_id,
-                        extra_params
+                        extra_params,
+                        production_metadata
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id::text
                     """,
                     (
@@ -754,6 +770,7 @@ class WorkspaceStore:
                         data["carcass_board_type_id"],
                         data["door_board_type_id"],
                         Jsonb(data["extra_params"]),
+                        Jsonb(data["production_metadata"]),
                     ),
                 ).fetchone()
         return self.get_unit(company_id, quote_id, row["id"])
@@ -798,9 +815,10 @@ class WorkspaceStore:
                         thickness,
                         carcass_board_type_id,
                         door_board_type_id,
-                        extra_params
+                        extra_params,
+                        production_metadata
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id::text
                     """,
                     (
@@ -815,6 +833,7 @@ class WorkspaceStore:
                         source["carcass_board_type_id"],
                         source["door_board_type_id"],
                         Jsonb(source["extra_params"] or {}),
+                        Jsonb(source.get("production_metadata") or {}),
                     ),
                 ).fetchone()
         return self.get_unit(company_id, quote_id, row["id"])
@@ -884,7 +903,8 @@ class WorkspaceStore:
                                 thickness = %s,
                                 carcass_board_type_id = %s,
                                 door_board_type_id = %s,
-                                extra_params = %s
+                                extra_params = %s,
+                                production_metadata = %s
                             WHERE company_id = %s
                               AND quote_id = %s
                               AND id = %s
@@ -898,6 +918,7 @@ class WorkspaceStore:
                                 data["carcass_board_type_id"],
                                 data["door_board_type_id"],
                                 Jsonb(data["extra_params"]),
+                                Jsonb(data["production_metadata"]),
                                 company_id,
                                 quote_id,
                                 row["id"],
@@ -917,9 +938,10 @@ class WorkspaceStore:
                                 thickness,
                                 carcass_board_type_id,
                                 door_board_type_id,
-                                extra_params
+                                extra_params,
+                                production_metadata
                             )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                             (
                                 company_id,
@@ -933,6 +955,7 @@ class WorkspaceStore:
                                 data["carcass_board_type_id"],
                                 data["door_board_type_id"],
                                 Jsonb(data["extra_params"]),
+                                Jsonb(data["production_metadata"]),
                             ),
                         )
                         next_unit_number += 1
@@ -1001,6 +1024,7 @@ class WorkspaceStore:
                         ),
                         "door_board_type_id": cleaned.get("door_board_type_id", row["door_board_type_id"]),
                         "extra_params": dict(row.get("extra_params") or {}),
+                        "production_metadata": row.get("production_metadata") or {},
                     }
                     unit_family = canonical_unit_type(str(row["unit_type_key"]))
                     if "handle_id" in cleaned and unit_family in {"Base Draw", "Base Door", "Wall Door", "Tall Door"}:
@@ -1029,7 +1053,8 @@ class WorkspaceStore:
                             thickness = %s,
                             carcass_board_type_id = %s,
                             door_board_type_id = %s,
-                            extra_params = %s
+                            extra_params = %s,
+                            production_metadata = %s
                         WHERE company_id = %s
                           AND quote_id = %s
                           AND id = %s
@@ -1043,6 +1068,7 @@ class WorkspaceStore:
                             data["carcass_board_type_id"],
                             data["door_board_type_id"],
                             Jsonb(data["extra_params"]),
+                            Jsonb(data["production_metadata"]),
                             company_id,
                             quote_id,
                             row["id"],
@@ -1133,7 +1159,8 @@ class WorkspaceStore:
                         thickness = %s,
                         carcass_board_type_id = %s,
                         door_board_type_id = %s,
-                        extra_params = %s
+                        extra_params = %s,
+                        production_metadata = %s
                     WHERE company_id = %s
                       AND quote_id = %s
                       AND id = %s
@@ -1148,6 +1175,7 @@ class WorkspaceStore:
                         data["carcass_board_type_id"],
                         data["door_board_type_id"],
                         Jsonb(data["extra_params"]),
+                        Jsonb(data["production_metadata"]),
                         company_id,
                         quote_id,
                         unit_id,
@@ -1279,6 +1307,34 @@ class WorkspaceStore:
             hardware_pick_list=context["hardware_pick_list"],
             board_lookup=context["board_lookup"],
         )
+
+    def generate_production_handoff_export(
+        self,
+        company_id: str,
+        quote_id: str,
+        *,
+        export_format: str,
+        runtime_service: CutlistRuntimeService,
+    ) -> dict[str, Any]:
+        handoff = self.get_quote_production_handoff(
+            company_id,
+            quote_id,
+            runtime_service=runtime_service,
+        )
+        if not handoff.get("rows"):
+            raise WorkspaceValidationError("Add production rows before exporting the production handoff.")
+
+        if export_format == "csv":
+            content = render_production_handoff_csv(handoff)
+        elif export_format == "xlsx":
+            content = render_production_handoff_xlsx(handoff)
+        else:
+            raise WorkspaceValidationError("Choose CSV or XLSX for the production handoff export.")
+
+        return {
+            "filename": production_handoff_export_filename(handoff, export_format),
+            "content": content,
+        }
 
     def generate_customer_quote_pdf(
         self,
@@ -1996,7 +2052,7 @@ class WorkspaceStore:
             row["id"]: row
             for row in conn.execute(
                 """
-                SELECT id::text, brand, material, thickness, length_mm, width_mm, costing_mode
+                SELECT id::text, brand, material, thickness, length_mm, width_mm, costing_mode, grain_policy
                 FROM board_types
                 WHERE company_id = %s
                 ORDER BY brand ASC, material ASC, thickness ASC

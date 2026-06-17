@@ -107,6 +107,26 @@ Request payload (`POST` / `PATCH`):
     "Base Door": { "height": 780, "depth": 580 },
     "Wall Door": { "height": 720, "depth": 330 },
     "Tall Door": { "height": 2100, "depth": 580 }
+  },
+  "production_metadata": {
+    "carcass": {
+      "edge_banding": "",
+      "grain_direction": "none",
+      "rotation": "none",
+      "notes": ""
+    },
+    "door_panel": {
+      "edge_banding": "1mm ABS on exposed door and drawer-front edges",
+      "grain_direction": "length",
+      "rotation": "no_rotation",
+      "notes": "Keep matched faces in unit order."
+    },
+    "visible_panel": {
+      "edge_banding": "1mm ABS on all exposed panel edges",
+      "grain_direction": "length",
+      "rotation": "no_rotation",
+      "notes": ""
+    }
   }
 }
 ```
@@ -162,7 +182,7 @@ POST /api/v1/quotes/{quote_id}/duplicate
 
 Permission: `quotes:write`
 
-The API creates a new editable `draft` quote in the same project. It copies the source quote defaults, unit defaults, units, custom panel configuration, selected extras, and quote pricing settings. The duplicate receives the next project quote number, starts at revision `1`, and does not link `previous_revision_id`, so it behaves as a separate alternative rather than part of the original revision chain.
+The API creates a new editable `draft` quote in the same project. It copies the source quote defaults, production metadata, unit defaults, units, custom panel configuration, selected extras, and quote pricing settings. The duplicate receives the next project quote number, starts at revision `1`, and does not link `previous_revision_id`, so it behaves as a separate alternative rather than part of the original revision chain.
 
 The source quote is not changed. Existing customer quote PDFs, workshop schedules, readiness state, pricing, and status remain traceable through the source quote number and revision.
 
@@ -176,7 +196,7 @@ POST /api/v1/quotes/{quote_id}/revisions
 
 Permission: `quotes:write`
 
-The API copies the source quote header, defaults, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
+The API copies the source quote header, defaults, production metadata, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
 
 ## Quote Units
 
@@ -205,6 +225,26 @@ Request payload (`POST` / `PATCH`):
     "num_drawers": 3,
     "drawer_split_mode": "ratio",
     "drawer_face_ratios": [1, 1, 2]
+  },
+  "production_metadata": {
+    "carcass": {
+      "edge_banding": "",
+      "grain_direction": "none",
+      "rotation": "none",
+      "notes": ""
+    },
+    "door_panel": {
+      "edge_banding": "2mm front edge, 1mm remaining edges",
+      "grain_direction": "length",
+      "rotation": "no_rotation",
+      "notes": "Keep this island unit as the reference grain direction."
+    },
+    "visible_panel": {
+      "edge_banding": "",
+      "grain_direction": "none",
+      "rotation": "none",
+      "notes": ""
+    }
   }
 }
 ```
@@ -413,7 +453,9 @@ Response shape:
       "width": 100,
       "qty": 1,
       "section": "extra_panel",
-      "board_type_id": "board-uuid"
+      "board_type_id": "board-uuid",
+      "grain_direction": "none",
+      "can_rotate": true
     }
   ],
   "runtime_mode": "legacy",
@@ -587,6 +629,26 @@ Response excerpt:
       "warning": "Cutting-list warnings will be included in the workshop schedule.",
       "hides_internal_costs": false,
       "action_target": "cutting-lists"
+    },
+    {
+      "id": "production_handoff_csv",
+      "group": "workshop",
+      "label": "Production CSV",
+      "description": "Cutting schedule rows for downstream workshop tools.",
+      "enabled": true,
+      "warning": "Cutting-list warnings will be included in the workshop schedule.",
+      "hides_internal_costs": false,
+      "action_target": "production"
+    },
+    {
+      "id": "production_handoff_xlsx",
+      "group": "workshop",
+      "label": "Production workbook",
+      "description": "XLSX handoff with cutting rows, materials, board requirements, hardware, labels, and warnings.",
+      "enabled": true,
+      "warning": "Cutting-list warnings will be included in the workshop schedule.",
+      "hides_internal_costs": false,
+      "action_target": "production"
     }
   ]
 }
@@ -632,6 +694,19 @@ profit, margin, or markup fields.
 Rows are grouped for board-first workshop flow by board/material, thickness,
 material role, unit, and cutlist section. Quote-level custom panel rows are
 included with `source_type: "quote_panel"` and `unit_number: 0`.
+
+Production metadata is workshop-only and is not added to customer quote totals
+or customer PDF contracts. It can be recorded on the quote by material role, on
+individual units by material role, or on custom panel rows. Unit metadata
+overrides quote defaults for matching roles, and custom panel metadata overrides
+the quote `visible_panel` defaults for that generated row. Cutting ruleset edge
+flags are rendered as `edge_sides`; saved edge-banding text, grain direction,
+rotation guidance, and production notes are shown beside each affected part.
+Grain warnings respect the selected board type's `grain_policy`: `required`
+keeps missing-grain warnings, `optional` allows grain notes without requiring
+them, and `none` marks grain as not applicable in the handoff, labels, and
+exports. Door/drawer panels and visible quote panels produce row warnings when
+required edge or applicable grain details are missing.
 
 The response also includes `board_requirements`, a production-facing material
 ordering review derived from the same rows and material summary. It groups by
@@ -688,10 +763,20 @@ Response excerpt:
           "material_role": "carcass",
           "board_type_id": "board-uuid",
           "board_name": "PG White (16mm)",
+          "grain_policy": "required",
           "desc": "Side",
           "length": 748,
           "width": 564,
           "quantity": 2,
+          "edge_sides": [],
+          "edge_sides_label": "None",
+          "edge_banding": "",
+          "grain_direction": "none",
+          "grain_label": "Unspecified",
+          "can_rotate": true,
+          "rotation": "allow_rotation",
+          "rotation_label": "Can rotate",
+          "production_notes": "",
           "warning_count": 0,
           "warning_messages": []
         }
@@ -783,7 +868,10 @@ Response excerpt:
       "dimensions_label": "748 x 564 mm",
       "material_label": "PG White (16mm)",
       "quantity": 2,
-      "warning_count": 0
+      "warning_count": 0,
+      "edge_sides_label": "None",
+      "grain_label": "Unspecified",
+      "rotation_label": "Can rotate"
     }
   ]
 }
@@ -811,6 +899,89 @@ Frontend integration notes:
 - Render `board_requirements.estimate_label`, `sheet_estimate_label`, and
   `waste_allowance_label` exactly as estimate copy. Do not present sheet counts
   as optimized nesting or final supplier board counts.
+
+## Production Handoff CSV/XLSX
+
+```http
+GET /api/v1/quotes/{quote_id}/production-handoff.csv
+GET /api/v1/quotes/{quote_id}/production-handoff.xlsx
+```
+
+Permission: `production:read`
+
+These endpoints export the same production-safe packet built by
+`GET /quotes/{quote_id}/production-handoff`. They reuse stable `part_id` values
+from the production packet and labels, include quote-level custom panel rows,
+and include warnings when export is allowed with unresolved cutting or
+production issues.
+
+CSV response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="production-Smith-Kitchen-Phase-5-Workshop-Handoff-Q-001-rev-1.csv"
+```
+
+The CSV is a single cutting schedule table with workshop-facing headers:
+`Project`, `Quote`, `Quote Number`, `Revision`, `Source`, `Unit`, `Unit Type`,
+`Section`, `Part ID`, `Part`, `Material Role`, `Board`, `Brand`, `Material`,
+`Thickness (mm)`, `Sheet Length (mm)`, `Sheet Width (mm)`, `Length (mm)`,
+`Width (mm)`, `Quantity`, `Edge Sides`, `Edge Banding`, `Grain Direction`,
+`Rotation`, `Production Notes`, `Warning State`, and `Warning Messages`.
+
+Example CSV row:
+
+```csv
+Project,Quote,Quote Number,Revision,Source,Unit,Unit Type,Section,Part ID,Part,Material Role,Board,Brand,Material,Thickness (mm),Sheet Length (mm),Sheet Width (mm),Length (mm),Width (mm),Quantity,Edge Sides,Edge Banding,Grain Direction,Rotation,Production Notes,Warning State,Warning Messages
+Smith Kitchen Phase 5 Workshop Handoff,Workshop Handoff,Q-001,1,Quote panel,Quote-level,,Quote Panel,Q-001-R1-QP-EXT-KICKER-2400X100-01,Kicker,Visible Panel,PG Black (16mm),PG,Black,16,2750,1830,2400,100,1,None,1mm ABS on exposed quote-panel edges,Length grain,No rotation,,Review,Confirm kicker split before cutting.
+```
+
+XLSX response:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+Content-Disposition: attachment; filename="production-Smith-Kitchen-Phase-5-Workshop-Handoff-Q-001-rev-1.xlsx"
+```
+
+The workbook contains these sheets:
+
+- `Cutting Schedule`: the same columns as the CSV export.
+- `Material Summary`: board, material role, sheet dimensions, piece count,
+  area, edge length, estimated sheets, and part IDs.
+- `Board Requirements`: production material-ordering review with source
+  labels, sheet estimate labels, waste allowance labels, warning state, and
+  part IDs.
+- `Hardware Pick List`: hardware part IDs, item details, supplier/code,
+  quantity, usage, unit numbers, and related production part IDs.
+- `Labels`: label-ready part IDs, dimensions, material labels, quantity, edge,
+  grain, rotation, and warning state.
+- `Warnings`: cutting schedule, board requirement, material summary, and
+  hardware pick-list warnings in one review sheet.
+
+Protected pricing and customer-facing totals are never written to either
+export. Excluded fields include customer quote totals, sell totals, internal
+cost, profit, margin, markup, and price-list line amounts.
+
+Errors:
+
+- `401` for missing/invalid bearer sessions.
+- `403` for roles without `production:read`.
+- `404` when the quote is not visible to the current company.
+- `422` when the production handoff cannot be built or has no production rows
+  to export.
+
+Frontend integration notes:
+
+- The output review actions `production_handoff_csv` and
+  `production_handoff_xlsx` download these endpoints as blobs when `enabled` is
+  true.
+- Show `actions[].warning` beside the download button when export is allowed
+  with warnings.
+- The Production tab may also expose direct CSV/XLSX buttons after the handoff
+  response has loaded.
+- Use the response `Content-Disposition` filename when available.
 
 ## Customer Quote PDF
 
@@ -976,11 +1147,41 @@ Request payload for `PUT`:
 ```json
 {
   "presets": {
-    "base_side_panel": { "qty": 1, "board_type_id": "board-uuid" },
-    "wall_side_filler": { "qty": 1, "board_type_id": null }
+    "base_side_panel": {
+      "qty": 1,
+      "board_type_id": "board-uuid",
+      "production_metadata": {
+        "edge_banding": "1mm ABS on exposed side edge",
+        "grain_direction": "length",
+        "rotation": "no_rotation",
+        "notes": ""
+      }
+    },
+    "wall_side_filler": {
+      "qty": 1,
+      "board_type_id": null,
+      "production_metadata": {
+        "edge_banding": "",
+        "grain_direction": "none",
+        "rotation": "none",
+        "notes": ""
+      }
+    }
   },
   "manual": [
-    { "name": "Feature End", "length": 2300, "width": 300, "qty": 1, "board_type_id": "board-uuid" }
+    {
+      "name": "Feature End",
+      "length": 2300,
+      "width": 300,
+      "qty": 1,
+      "board_type_id": "board-uuid",
+      "production_metadata": {
+        "edge_banding": "1mm ABS all exposed edges",
+        "grain_direction": "length",
+        "rotation": "no_rotation",
+        "notes": "Visible end panel."
+      }
+    }
   ],
   "auto": {
     "kicker_board_type_id": "board-uuid",
@@ -994,7 +1195,13 @@ Request payload for `PUT`:
     "pelmet_override_on": false,
     "pelmet_override_qty": 0,
     "pelmet_override_length": 0,
-    "pelmet_override_width": 330
+    "pelmet_override_width": 330,
+    "production_metadata": {
+      "edge_banding": "1mm ABS on visible kicker and pelmet edges",
+      "grain_direction": "length",
+      "rotation": "no_rotation",
+      "notes": ""
+    }
   }
 }
 ```
@@ -1004,6 +1211,9 @@ Behavior notes:
 - `kicker_return_count` and `kicker_return_depth_mm` add optional kicker return segments on top of total base-run width.
 - Manual rows with non-positive length, width, or qty are ignored at save time.
 - Any supplied `board_type_id` must be visible to the current company.
+- `production_metadata` is optional on presets, manual rows, and auto rows. Missing
+  metadata defaults to empty edge notes, `grain_direction: "none"`, and
+  `rotation: "none"` before the production handoff applies quote-level defaults.
 
 Response shape (`GET` and `PUT`):
 
