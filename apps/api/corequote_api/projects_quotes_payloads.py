@@ -73,8 +73,19 @@ def _clean_unit_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     unit_type_key = _clean_required(payload.get("unit_type_key"), field="unit_type_key")
     height = _positive_int(payload.get("height"), field="height")
+    slide_id = _optional_uuid(payload.get("slide_id")) or _optional_uuid(extra_params.get("slide_id"))
+    hinge_id = _optional_uuid(payload.get("hinge_id")) or _optional_uuid(extra_params.get("hinge_id"))
     if _is_drawer_unit(unit_type_key):
         extra_params = _clean_drawer_extra_params(extra_params, height=height)
+        _set_optional_extra_param(extra_params, "slide_id", slide_id)
+        extra_params.pop("hinge_id", None)
+    else:
+        extra_params = dict(extra_params)
+        extra_params.pop("slide_id", None)
+        if _is_hinged_unit(unit_type_key):
+            _set_optional_extra_param(extra_params, "hinge_id", hinge_id)
+        else:
+            extra_params.pop("hinge_id", None)
 
     return {
         "unit_type_key": unit_type_key,
@@ -167,6 +178,18 @@ def _positive_int(value: Any, *, field: str) -> int:
 
 def _is_drawer_unit(unit_type_key: str) -> bool:
     return "draw" in unit_type_key.lower()
+
+
+def _is_hinged_unit(unit_type_key: str) -> bool:
+    value = unit_type_key.lower()
+    return "door" in value or "hinge" in value or value.startswith("tall")
+
+
+def _set_optional_extra_param(extra_params: dict[str, Any], key: str, value: str | None) -> None:
+    if value:
+        extra_params[key] = value
+    else:
+        extra_params.pop(key, None)
 
 
 def _clean_drawer_extra_params(extra_params: dict[str, Any], *, height: int) -> dict[str, Any]:

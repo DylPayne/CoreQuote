@@ -4,6 +4,7 @@ import csv
 from datetime import UTC, datetime
 from io import StringIO
 
+import pytest
 from fastapi.testclient import TestClient
 
 from corequote_api.auth import AuthenticatedUser
@@ -718,6 +719,56 @@ def test_create_unit_cleans_drawer_split_payload():
         "drawer_split_mode": "manual",
         "drawer_face_heights": [194, 194, 383],
     }
+
+
+def test_create_and_update_units_persist_selector_fields_as_unit_overrides():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    drawer_payload = {
+        **unit_payload(unit_type_key="Base Draw", width=900),
+        "slide_id": "slide-500",
+    }
+    door_payload = {
+        **unit_payload(unit_type_key="Base Door", width=600),
+        "extra_params": {"num_doors": 2, "num_shelves": 1},
+        "hinge_id": "hinge-110",
+    }
+    try:
+        create_response = client.post("/api/v1/quotes/quote-1/units", json=drawer_payload, headers=auth_header())
+        update_response = client.patch(
+            "/api/v1/quotes/quote-1/units/unit-1",
+            json=door_payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert create_response.status_code == 201
+    assert update_response.status_code == 200
+    assert store.created_unit_payload is not None
+    assert store.updated_unit_payload is not None
+    assert store.created_unit_payload[2]["extra_params"]["slide_id"] == "slide-500"
+    assert store.updated_unit_payload[3]["extra_params"]["hinge_id"] == "hinge-110"
+    assert create_response.json()["slide_id"] == "slide-500"
+    assert update_response.json()["hinge_id"] == "hinge-110"
+
+
+def test_workspace_store_rejects_drawer_depth_shallower_than_effective_slide():
+    store = WorkspaceStore(database_url="postgresql://unused")
+    conn = SlideValidationConn({"slide-500": {"id": "slide-500", "length": 500}})
+    data = _clean_unit_payload(
+        {
+            **unit_payload(unit_type_key="Base Draw", width=900),
+            "depth": 450,
+        }
+    )
+
+    with pytest.raises(
+        WorkspaceValidationError,
+        match="Selected 500 mm slide requires a carcass depth of at least 500 mm internally.",
+    ):
+        store._validate_unit_hardware(conn, "company-1", {"default_slide_id": "slide-500"}, data)
 
 
 def test_create_unit_rejects_manual_drawer_split_total_mismatch():
@@ -1792,6 +1843,20 @@ class RecordingPricingConn:
         ]
 
 
+class SlideValidationConn:
+    def __init__(self, slides: dict[str, dict]):
+        self.slides = slides
+        self.params: tuple | None = None
+
+    def execute(self, sql: str, params: tuple):
+        self.params = params
+        return self
+
+    def fetchone(self):
+        slide_id = str((self.params or ("", ""))[1])
+        return self.slides.get(slide_id)
+
+
 def test_quote_pricing_as_of_prefers_quote_updated_at():
     created_at = datetime(2026, 5, 1, 9, 0, tzinfo=UTC)
     updated_at = datetime(2026, 6, 1, 10, 30, tzinfo=UTC)
@@ -1905,6 +1970,7 @@ def unit(
     door_board_type_id: str | None = None,
     extra_params: dict | None = None,
 ) -> dict:
+    extra_params = extra_params or {}
     return {
         "id": item_id,
         "company_id": "company-1",
@@ -1917,7 +1983,9 @@ def unit(
         "thickness": thickness,
         "carcass_board_type_id": carcass_board_type_id,
         "door_board_type_id": door_board_type_id,
-        "extra_params": extra_params or {},
+        "slide_id": extra_params.get("slide_id"),
+        "hinge_id": extra_params.get("hinge_id"),
+        "extra_params": extra_params,
         "production_metadata": DEFAULT_PRODUCTION_METADATA,
         "created_at": NOW,
         "updated_at": NOW,

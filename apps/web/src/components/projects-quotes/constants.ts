@@ -98,6 +98,8 @@ export const defaultUnitDraft: UnitDraft = {
   depth: String(fallbackUnitDefaults['Base Draw'].depth),
   carcass_board_type_id: '',
   door_board_type_id: '',
+  slide_id: '',
+  hinge_id: '',
   num_drawers: '3',
   drawer_split_mode: 'equal',
   drawer_face_heights: ['257', '257', '257'],

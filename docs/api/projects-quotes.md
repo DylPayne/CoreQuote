@@ -221,6 +221,8 @@ Request payload (`POST` / `PATCH`):
   "depth": 580,
   "carcass_board_type_id": "board-uuid",
   "door_board_type_id": "board-uuid",
+  "slide_id": "slide-uuid",
+  "hinge_id": null,
   "extra_params": {
     "num_drawers": 3,
     "drawer_split_mode": "ratio",
@@ -251,6 +253,8 @@ Request payload (`POST` / `PATCH`):
 
 `thickness` is not accepted in unit create/update requests. The API resolves it from the unit `carcass_board_type_id`, falling back to the quote `default_carcass_board_type_id` when the unit does not override the carcass board. An effective carcass board is required.
 
+`slide_id` and `hinge_id` are unit-level hardware selectors. Drawer units store `slide_id` as an `extra_params` override, and door/hinged units store `hinge_id` as an `extra_params` override. Empty values fall back to the quote default. Drawer units are rejected when the effective slide length is greater than the unit carcass depth; for example, a selected 500 mm slide requires a carcass depth of at least 500 mm internally.
+
 Response shape:
 
 ```json
@@ -266,8 +270,11 @@ Response shape:
   "thickness": 16,
   "carcass_board_type_id": "board-uuid",
   "door_board_type_id": "board-uuid",
+  "slide_id": "slide-uuid",
+  "hinge_id": null,
   "extra_params": {
     "num_drawers": 3,
+    "slide_id": "slide-uuid",
     "drawer_split_mode": "ratio",
     "drawer_face_ratios": [1, 1, 2]
   },
@@ -285,6 +292,8 @@ Drawer units may include split data in `extra_params`:
 - `drawer_split_mode: "manual"` stores exact millimetre fronts such as `drawer_face_heights: [194, 194, 383]`.
 
 For drawer split arrays, the API validates that the array length matches `num_drawers` and every value is positive. Manual `drawer_face_heights` must total the available face height after 3 mm drawer gaps; for a 780 mm high, 3-drawer unit this is `780 - (3 * 3) = 771 mm`. Stale split arrays from another mode are removed during cleaning.
+
+Create, edit, duplicate, bulk save, and bulk apply all validate the effective drawer slide length against drawer unit depth before writing. Existing saved units that become invalid after a slide library change are surfaced as cutting-list validation warnings during recalculation.
 
 Duplicating a unit:
 
@@ -341,7 +350,7 @@ Request payload:
 }
 ```
 
-Rows without `id` create new units at the end of the quote order. Rows with `id` update existing units on the same quote. The batch validates quote visibility, unit visibility, dimensions, board defaults/overrides, and effective carcass thickness before any row is written, so invalid batches do not create partial units.
+Rows without `id` create new units at the end of the quote order. Rows with `id` update existing units on the same quote. The batch validates quote visibility, unit visibility, dimensions, board defaults/overrides, effective hardware selections, slide-depth compatibility, and effective carcass thickness before any row is written, so invalid batches do not create partial units.
 
 Response: `200` with the refreshed unit list in quote/workshop order.
 
@@ -382,7 +391,7 @@ Board and dimension fields apply to every selected unit. Hardware fields are sto
 - `hinge_id` applies to door units.
 - `handle_id` applies to drawer, base door, wall door, and tall door units.
 
-Unsupported hardware fields are ignored for a selected unit rather than changing unrelated cabinet types. The API validates quote visibility, selected unit visibility, library item visibility, positive dimensions, board defaults/overrides, and effective carcass thickness before writing the batch.
+Unsupported hardware fields are ignored for a selected unit rather than changing unrelated cabinet types. The API validates quote visibility, selected unit visibility, library item visibility, positive dimensions, board defaults/overrides, effective hardware selections, slide-depth compatibility, and effective carcass thickness before writing the batch.
 
 Response: `200` with the refreshed unit list in quote/workshop order.
 
@@ -477,7 +486,7 @@ Response shape:
 }
 ```
 
-Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, and on rows that cannot be tied to a usable board/material choice. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
+Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, rows that cannot be tied to a usable board/material choice, and drawer units whose effective slide length is greater than carcass depth. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
 
 ## Quote Readiness
 

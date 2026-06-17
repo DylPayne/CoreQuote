@@ -33,6 +33,44 @@ def test_quote_cutting_list_validation_flags_missing_unit_board_choice():
     assert result["readiness"] == {"cutlist_valid": False, "warning_count": 1}
 
 
+def test_quote_cutting_list_validation_flags_drawer_slide_depth_mismatch():
+    result = _build_cutting_list_preview(
+        company_id="company-1",
+        quote={
+            "id": "quote-1",
+            "default_carcass_board_type_id": "board-1",
+            "default_panel_board_type_id": "board-1",
+        },
+        units=[
+            {
+                "unit_number": 1,
+                "unit_type_key": "Base Draw",
+                "height": 780,
+                "width": 900,
+                "depth": 450,
+                "carcass_board_type_id": "board-1",
+                "extra_params": {"num_drawers": 3, "slide_id": "slide-500"},
+            }
+        ],
+        runtime_service=FakeRuntimeService(_preview_with_carcass_row()),
+        use_rulesets=False,
+        board_lookup={"board-1": {"thickness": 16, "length_mm": 2750}},
+        slide_lookup={"slide-500": {"length": 500}},
+    )
+
+    assert result["validation_warnings"] == [
+        {
+            "severity": "warning",
+            "source": "unit",
+            "unit_number": 1,
+            "section": "hardware",
+            "row_desc": "Drawer slide",
+            "reason": "Selected 500 mm slide requires a carcass depth of at least 500 mm internally.",
+        }
+    ]
+    assert result["readiness"] == {"cutlist_valid": False, "warning_count": 1}
+
+
 def test_quote_pricing_readiness_includes_cutlist_validation_warnings():
     result = _price_quote(
         quote={

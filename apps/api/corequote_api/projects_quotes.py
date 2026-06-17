@@ -139,6 +139,8 @@ UNIT_SELECT = """
     )::int AS thickness,
     u.carcass_board_type_id::text,
     u.door_board_type_id::text,
+    u.extra_params->>'slide_id' AS slide_id,
+    u.extra_params->>'hinge_id' AS hinge_id,
     u.extra_params,
     u.production_metadata,
     u.created_at,
@@ -221,6 +223,10 @@ def _set_optional_extra_param(extra_params: dict[str, Any], key: str, value: str
         extra_params[key] = value
     else:
         extra_params.pop(key, None)
+
+
+def _slide_depth_validation_message(slide_length: int) -> str:
+    return f"Selected {slide_length} mm slide requires a carcass depth of at least {slide_length} mm internally."
 
 
 class WorkspaceStore:
@@ -729,6 +735,7 @@ class WorkspaceStore:
             with conn.transaction():
                 quote = self._ensure_quote_visible(conn, company_id, quote_id)
                 self._validate_unit_defaults(conn, company_id, data)
+                self._validate_unit_hardware(conn, company_id, quote, data)
                 thickness = self._resolve_unit_thickness(conn, company_id, quote, data)
                 next_number_row = conn.execute(
                     """
@@ -778,7 +785,7 @@ class WorkspaceStore:
     def duplicate_unit(self, company_id: str, quote_id: str, unit_id: str) -> dict:
         with self._connect() as conn:
             with conn.transaction():
-                self._ensure_quote_visible(conn, company_id, quote_id)
+                quote = self._ensure_quote_visible(conn, company_id, quote_id)
                 source = conn.execute(
                     """
                     SELECT *
@@ -792,6 +799,18 @@ class WorkspaceStore:
                 ).fetchone()
                 if not source:
                     raise WorkspaceNotFound("Unit not found")
+
+                source_data = {
+                    "unit_type_key": source["unit_type_key"],
+                    "height": source["height"],
+                    "width": source["width"],
+                    "depth": source["depth"],
+                    "carcass_board_type_id": source["carcass_board_type_id"],
+                    "door_board_type_id": source["door_board_type_id"],
+                    "extra_params": dict(source["extra_params"] or {}),
+                    "production_metadata": source.get("production_metadata") or {},
+                }
+                self._validate_unit_hardware(conn, company_id, quote, source_data)
 
                 next_number_row = conn.execute(
                     """
@@ -875,6 +894,7 @@ class WorkspaceStore:
                 for index, row in enumerate(cleaned_rows):
                     try:
                         self._validate_unit_defaults(conn, company_id, row["data"])
+                        self._validate_unit_hardware(conn, company_id, quote, row["data"])
                         thickness = self._resolve_unit_thickness(conn, company_id, quote, row["data"])
                     except WorkspaceValidationError as exc:
                         raise WorkspaceValidationError(f"units[{index}]: {exc}") from exc
@@ -1036,6 +1056,7 @@ class WorkspaceStore:
 
                     try:
                         self._validate_unit_defaults(conn, company_id, data)
+                        self._validate_unit_hardware(conn, company_id, quote, data)
                         thickness = self._resolve_unit_thickness(conn, company_id, quote, data)
                     except WorkspaceValidationError as exc:
                         raise WorkspaceValidationError(f"Unit {row['unit_number']}: {exc}") from exc
@@ -1148,6 +1169,7 @@ class WorkspaceStore:
             with conn.transaction():
                 quote = self._ensure_quote_visible(conn, company_id, quote_id)
                 self._validate_unit_defaults(conn, company_id, data)
+                self._validate_unit_hardware(conn, company_id, quote, data)
                 thickness = self._resolve_unit_thickness(conn, company_id, quote, data)
                 row = conn.execute(
                     """
@@ -2161,6 +2183,48 @@ class WorkspaceStore:
             "Unit door board",
         )
 
+    def _validate_unit_hardware(self, conn, company_id: str, quote: dict[str, Any], data: dict[str, Any]) -> None:
+        unit_type_key = str(data.get("unit_type_key") or "")
+        unit_type_normalized = unit_type_key.lower()
+        canonical_type = canonical_unit_type(unit_type_key)
+        extra_params = data.get("extra_params") or {}
+        if not isinstance(extra_params, dict):
+            extra_params = {}
+
+        if canonical_type == "Base Draw" or "draw" in unit_type_normalized:
+            slide_id = str(extra_params.get("slide_id") or quote.get("default_slide_id") or "").strip()
+            if not slide_id:
+                return
+            slide = self._get_slide_for_validation(conn, company_id, slide_id)
+            slide_length = int(slide.get("length", 0) or 0)
+            unit_depth = int(data.get("depth", 0) or 0)
+            if slide_length > 0 and unit_depth < slide_length:
+                raise WorkspaceValidationError(_slide_depth_validation_message(slide_length))
+            return
+
+        if canonical_type in {"Base Door", "Wall Door", "Tall Door"} or "door" in unit_type_normalized or "hinge" in unit_type_normalized:
+            self._ensure_library_item_visible(
+                conn,
+                company_id,
+                "hinges",
+                str(extra_params.get("hinge_id") or "").strip() or None,
+                "Unit hinge",
+            )
+
+    def _get_slide_for_validation(self, conn, company_id: str, slide_id: str) -> dict[str, Any]:
+        row = conn.execute(
+            """
+            SELECT id::text, length
+            FROM slides
+            WHERE company_id = %s
+              AND id = %s
+            """,
+            (company_id, slide_id),
+        ).fetchone()
+        if not row:
+            raise WorkspaceValidationError("Unit slide is not visible for this company")
+        return row
+
     def _resolve_unit_thickness(self, conn, company_id: str, quote: dict[str, Any], data: dict[str, Any]) -> int:
         board_id = data["carcass_board_type_id"] or quote.get("default_carcass_board_type_id")
         thickness = self._board_thickness_for_id(conn, company_id, board_id)
@@ -2256,6 +2320,8 @@ class WorkspaceStore:
                 id::text,
                 project_id::text,
                 default_carcass_board_type_id::text,
+                default_slide_id::text,
+                default_hinge_id::text,
                 created_at,
                 updated_at
             FROM quotes

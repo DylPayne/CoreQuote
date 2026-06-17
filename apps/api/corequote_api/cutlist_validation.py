@@ -19,6 +19,7 @@ def validate_cutlist_preview(
     quote: dict[str, Any] | None = None,
     units: list[dict[str, Any]] | None = None,
     board_lookup: dict[str, dict[str, Any]] | None = None,
+    slide_lookup: dict[str, dict[str, Any]] | None = None,
     require_materials: bool = False,
 ) -> list[dict[str, Any]]:
     warnings: list[dict[str, Any]] = []
@@ -48,6 +49,7 @@ def validate_cutlist_preview(
                     )
                 )
 
+    warnings.extend(_slide_depth_warnings(quote=quote or {}, units=units or [], slide_lookup=slide_lookup or {}))
     return warnings
 
 
@@ -64,6 +66,7 @@ def preview_with_validation(
     quote: dict[str, Any] | None = None,
     units: list[dict[str, Any]] | None = None,
     board_lookup: dict[str, dict[str, Any]] | None = None,
+    slide_lookup: dict[str, dict[str, Any]] | None = None,
     require_materials: bool = False,
 ) -> dict[str, Any]:
     warnings = validate_cutlist_preview(
@@ -71,6 +74,7 @@ def preview_with_validation(
         quote=quote,
         units=units,
         board_lookup=board_lookup,
+        slide_lookup=slide_lookup,
         require_materials=require_materials,
     )
     return {
@@ -141,6 +145,44 @@ def _missing_material_reason(section: str, row: dict[str, Any]) -> str:
     if _int_value(row.get("unit_number")) == 0:
         return "Choose a board for this quote-level panel."
     return "Choose a board for this extra panel row."
+
+
+def _slide_depth_warnings(
+    *,
+    quote: dict[str, Any],
+    units: list[dict[str, Any]],
+    slide_lookup: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    default_slide_id = _clean_id(quote.get("default_slide_id"))
+    for unit in units:
+        unit_type = str(unit.get("unit_type_key") or unit.get("unit_type") or "")
+        if "draw" not in unit_type.lower():
+            continue
+        extra_params = unit.get("extra_params") or {}
+        if not isinstance(extra_params, dict):
+            extra_params = {}
+        slide_id = _clean_id(extra_params.get("slide_id") or default_slide_id)
+        if not slide_id:
+            continue
+        slide = slide_lookup.get(slide_id)
+        if not slide:
+            continue
+        slide_length = _int_value(slide.get("length"))
+        unit_depth = _int_value(unit.get("depth"))
+        if slide_length <= 0 or unit_depth >= slide_length:
+            continue
+        warnings.append(
+            {
+                "severity": "warning",
+                "source": "unit",
+                "unit_number": _int_value(unit.get("unit_number")),
+                "section": "hardware",
+                "row_desc": "Drawer slide",
+                "reason": f"Selected {slide_length} mm slide requires a carcass depth of at least {slide_length} mm internally.",
+            }
+        )
+    return warnings
 
 
 def _clean_id(value: Any) -> str:

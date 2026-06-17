@@ -316,6 +316,8 @@ class QuoteUnitRequest(BaseModel):
     depth: int = Field(gt=0)
     carcass_board_type_id: str | None = None
     door_board_type_id: str | None = None
+    slide_id: str | None = None
+    hinge_id: str | None = None
     extra_params: dict[str, Any] = Field(default_factory=dict)
     production_metadata: ProductionMetadataByRole = Field(default_factory=ProductionMetadataByRole)
 
