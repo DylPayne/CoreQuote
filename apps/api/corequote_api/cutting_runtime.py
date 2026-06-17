@@ -382,6 +382,20 @@ class CutlistRuntimeService:
                 )
                 continue
 
+            if _has_split_drawer_faces(unit, unit_type_key):
+                self._append_legacy_unit_rows(
+                    unit=unit,
+                    unit_type_key=unit_type_key,
+                    carcass_rows=carcass_rows,
+                    panel_rows=panel_rows,
+                    runtime_rows=runtime_rows,
+                    unit_sources=unit_sources,
+                    note="Split drawer fronts use legacy strategy output.",
+                    unit_config_id=ruleset.get("unit_config_id") or (unit_config["id"] if unit_config else None),
+                    ruleset_id=ruleset.get("id"),
+                )
+                continue
+
             try:
                 context = self._build_formula_context(
                     unit=unit,
@@ -691,6 +705,15 @@ def _default_num_shelves(unit_type_key: str) -> int:
     if canonical in {"Base Door", "Wall Door"}:
         return 1
     return 0
+
+
+def _has_split_drawer_faces(unit: Mapping[str, Any], unit_type_key: str) -> bool:
+    if canonical_unit_type_key(unit_type_key) != "Base Draw":
+        return False
+    extra_params = unit.get("extra_params", {}) or {}
+    if not isinstance(extra_params, Mapping):
+        return False
+    return isinstance(extra_params.get("drawer_face_heights"), list) or isinstance(extra_params.get("drawer_face_ratios"), list)
 
 
 def _number_or_default(value: Any, fallback: int | float) -> int | float:

@@ -1,6 +1,7 @@
 import { customUnitTypeValue, fallbackUnitDefaults, panelPresetFamily, panelPresetKeys } from './constants'
 import { DEFAULT_CURRENCY_CODE, formatCurrencyFromCents } from '@/lib/currency'
 import type {
+  DrawerSplitMode,
   PanelPresetKey,
   QuoteCustomPanelAutoConfig,
   QuoteCustomPanelPresetConfig,
@@ -54,6 +55,7 @@ export function resolvedUnitType(draft: UnitDraft): string {
 export function unitPayloadFromDraft(draft: UnitDraft) {
   const unitType = resolvedUnitType(draft)
   const isDrawer = unitType.toLowerCase().includes('draw')
+  const numDrawers = parsePositiveInteger(draft.num_drawers, 3)
   return {
     unit_type_key: unitType,
     height: parsePositiveInteger(draft.height, 780),
@@ -62,14 +64,43 @@ export function unitPayloadFromDraft(draft: UnitDraft) {
     carcass_board_type_id: optionalId(draft.carcass_board_type_id),
     door_board_type_id: optionalId(draft.door_board_type_id),
     extra_params: isDrawer
-      ? {
-          num_drawers: parsePositiveInteger(draft.num_drawers, 3),
-        }
+      ? drawerExtraParamsFromDraft(draft, numDrawers)
       : {
           num_doors: parsePositiveInteger(draft.num_doors, 2),
           num_shelves: parseNonNegativeInteger(draft.num_shelves, 1),
         },
   }
+}
+
+function drawerExtraParamsFromDraft(draft: UnitDraft, numDrawers: number) {
+  const mode = drawerSplitMode(draft.drawer_split_mode)
+  const extraParams: Record<string, unknown> = {
+    num_drawers: numDrawers,
+    drawer_split_mode: mode,
+  }
+  if (mode === 'manual') {
+    extraParams.drawer_face_heights = normalizedStringNumberList(draft.drawer_face_heights, numDrawers).map((value) =>
+      parsePositiveInteger(value, 0),
+    )
+    return extraParams
+  }
+  extraParams.drawer_face_ratios = mode === 'equal'
+    ? Array.from({ length: numDrawers }, () => 1)
+    : normalizedStringNumberList(draft.drawer_face_ratios, numDrawers).map((value) => {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+      })
+  return extraParams
+}
+
+function drawerSplitMode(value: DrawerSplitMode | string): DrawerSplitMode {
+  return value === 'manual' || value === 'ratio' || value === 'equal' ? value : 'equal'
+}
+
+function normalizedStringNumberList(values: string[], length: number): string[] {
+  const next = values.slice(0, length)
+  while (next.length < length) next.push('')
+  return next
 }
 
 export function quotePayloadFromDraft(draft: QuoteDraft) {

@@ -198,6 +198,92 @@ def test_runtime_service_warns_when_drawer_side_dimension_collapses_to_zero():
     assert result["readiness"] == {"cutlist_valid": False, "warning_count": 1}
 
 
+def test_runtime_service_uses_legacy_output_for_split_drawer_units():
+    store = FakeRuntimeStore(
+        unit_configs={
+            (None, "Base Draw"): {
+                "id": "global-config",
+                "unit_type_key": "Base Draw",
+                "variant_config": {"num_drawers": 3, "panel_gap_mm": 3},
+            }
+        },
+        rulesets={
+            (None, "Base Draw"): {
+                "id": "global-ruleset",
+                "unit_type_key": "Base Draw",
+                "unit_config_id": "global-config",
+                "rows": [
+                    {
+                        "sort_order": 10,
+                        "section": "carcass",
+                        "description": "Drawer Front/Back",
+                        "length_formula": "drawer_width",
+                        "width_formula": "drawer_front_back_height",
+                        "qty_formula": "num_drawers * 2",
+                        "condition_formula": "num_drawers > 0",
+                        "edge_long_1": False,
+                        "edge_long_2": False,
+                        "edge_short_1": False,
+                        "edge_short_2": False,
+                    },
+                    {
+                        "sort_order": 20,
+                        "section": "panel",
+                        "description": "Drawer Front",
+                        "length_formula": "drawer_front_height",
+                        "width_formula": "w - panel_gap_mm",
+                        "qty_formula": "num_drawers",
+                        "condition_formula": "num_drawers > 0",
+                        "edge_long_1": False,
+                        "edge_long_2": False,
+                        "edge_short_1": False,
+                        "edge_short_2": False,
+                    },
+                ],
+            }
+        },
+    )
+    service = CutlistRuntimeService(store=store)
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[
+            {
+                "unit_number": 2,
+                "unit_type": "Base Draw",
+                "height": 780,
+                "width": 600,
+                "depth": 580,
+                "thickness": 16,
+                "extra_params": {
+                    "num_drawers": 3,
+                    "drawer_split_mode": "manual",
+                    "drawer_face_heights": [194, 194, 383],
+                    "slide_side_length": 490,
+                    "slide_side_clearance_total": 10,
+                },
+            }
+        ],
+        use_db_rulesets=True,
+    )
+
+    assert result["runtime_mode"] == "legacy"
+    assert result["unit_sources"] == [
+        {
+            "unit_number": 2,
+            "unit_type_key": "Base Draw",
+            "source": "legacy",
+            "ruleset_id": "global-ruleset",
+            "unit_config_id": "global-config",
+            "note": "Split drawer fronts use legacy strategy output.",
+        }
+    ]
+    assert {"unit_number": 2, "desc": "Drawer Front/Back", "length": 548, "width": 94, "qty": 4} in result["carcass"]
+    assert {"unit_number": 2, "desc": "Drawer Front/Back", "length": 548, "width": 283, "qty": 2} in result["carcass"]
+    assert {"unit_number": 2, "desc": "Drawer Front", "length": 194, "width": 597, "qty": 2} in result["panels"]
+    assert {"unit_number": 2, "desc": "Drawer Front", "length": 383, "width": 597, "qty": 1} in result["panels"]
+
+
 def test_runtime_service_falls_back_to_legacy_when_ruleset_missing():
     store = FakeRuntimeStore()
     service = CutlistRuntimeService(store=store)

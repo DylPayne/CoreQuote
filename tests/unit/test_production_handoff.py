@@ -174,6 +174,35 @@ def test_production_handoff_uses_workspace_cutlist_rows_and_unassigned_warnings(
     assert result["groups"][0]["board_name"] == "Unassigned material"
 
 
+def test_production_handoff_keeps_split_drawer_rows_distinct():
+    result = build_production_handoff(
+        quote=quote(),
+        project=project(),
+        units=[unit(1, "Base Draw", carcass_board_type_id="board-white", door_board_type_id="board-oak")],
+        cutting_list={
+            "runtime_rows": [
+                {"unit_number": 1, "section": "carcass", "desc": "Drawer Front/Back", "length": 548, "width": 94, "qty": 4},
+                {"unit_number": 1, "section": "carcass", "desc": "Drawer Front/Back", "length": 548, "width": 283, "qty": 2},
+                {"unit_number": 1, "section": "panel", "desc": "Drawer Front", "length": 194, "width": 597, "qty": 2},
+                {"unit_number": 1, "section": "panel", "desc": "Drawer Front", "length": 383, "width": 597, "qty": 1},
+            ],
+            "validation_warnings": [],
+        },
+        material_summary={"groups": [], "warnings": [], "total_area_m2": 0, "total_piece_count": 0, "total_edge_m": 0},
+        hardware_pick_list={"items": [], "warnings": [], "total_item_count": 0, "total_quantity": 0},
+        board_lookup=board_lookup(),
+    )
+
+    assert [(row["section"], row["desc"], row["length"], row["width"], row["quantity"]) for row in result["rows"]] == [
+        ("carcass", "Drawer Front/Back", 548, 94, 4),
+        ("carcass", "Drawer Front/Back", 548, 283, 2),
+        ("panel", "Drawer Front", 194, 597, 2),
+        ("panel", "Drawer Front", 383, 597, 1),
+    ]
+    assert {row["board_name"] for row in result["rows"] if row["section"] == "panel"} == {"Seno Oak (18mm)"}
+    assert result["label_count"] == 4
+
+
 def test_production_handoff_board_requirements_surface_material_data_warnings():
     result = build_production_handoff(
         quote={

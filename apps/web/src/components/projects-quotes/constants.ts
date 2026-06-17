@@ -85,6 +85,9 @@ export const defaultUnitDraft: UnitDraft = {
   carcass_board_type_id: '',
   door_board_type_id: '',
   num_drawers: '3',
+  drawer_split_mode: 'equal',
+  drawer_face_heights: ['257', '257', '257'],
+  drawer_face_ratios: ['1', '1', '1'],
   num_doors: '2',
   num_shelves: '1',
 }

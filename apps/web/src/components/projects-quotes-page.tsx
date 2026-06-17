@@ -40,7 +40,7 @@ import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } f
 import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, DrawerSplitMode, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
 
 function formatBucketLabel(bucket: string) {
   return bucket
@@ -128,6 +128,11 @@ type BulkUnitTemplate = {
   width: string
 }
 
+type DrawerSplitPreset = {
+  mode: DrawerSplitMode
+  label: string
+}
+
 type BulkApplyDraft = {
   apply_carcass_board_type_id: boolean
   carcass_board_type_id: string
@@ -153,6 +158,148 @@ const smithKitchenBulkTemplates: BulkUnitTemplate[] = [
   { unit_type_key: 'Wall Door', width: '600' },
   { unit_type_key: 'Tall Door', width: '600' },
 ]
+
+const drawerPanelGapMm = 3
+const drawerSplitPresets: DrawerSplitPreset[] = [
+  { mode: 'equal', label: 'Equal' },
+  { mode: 'ratio', label: 'Deep bottom' },
+  { mode: 'manual', label: 'Custom' },
+]
+
+function positiveIntegerFromValue(value: string | number, fallback: number) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback
+  return Math.floor(parsed)
+}
+
+function drawerCountFromDraft(draft: Pick<UnitDraft, 'num_drawers'>) {
+  return positiveIntegerFromValue(draft.num_drawers, 3)
+}
+
+function drawerAvailableFaceHeight(height: string | number, numDrawers: string | number) {
+  const cabinetHeight = positiveIntegerFromValue(height, 780)
+  const drawers = positiveIntegerFromValue(numDrawers, 3)
+  return Math.max(0, cabinetHeight - drawerPanelGapMm * drawers)
+}
+
+function drawerRatiosForMode(mode: DrawerSplitMode, numDrawers: number) {
+  if (mode === 'equal' || numDrawers <= 1) return Array.from({ length: numDrawers }, () => '1')
+  return Array.from({ length: numDrawers }, (_, index) => (index === numDrawers - 1 ? '2' : '1'))
+}
+
+function drawerHeightsForRatios(height: string | number, numDrawers: string | number, ratios: Array<string | number>) {
+  const drawers = positiveIntegerFromValue(numDrawers, 3)
+  const available = drawerAvailableFaceHeight(height, drawers)
+  const safeRatios = Array.from({ length: drawers }, (_, index) => {
+    const parsed = Number(ratios[index])
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+  })
+  const ratioTotal = safeRatios.reduce((total, value) => total + value, 0) || drawers
+  const raw = safeRatios.map((ratio) => (ratio / ratioTotal) * available)
+  const floors = raw.map((value) => Math.floor(value))
+  const remainder = available - floors.reduce((total, value) => total + value, 0)
+  const order = raw
+    .map((value, index) => ({ index, fraction: value - floors[index] }))
+    .sort((left, right) => right.fraction - left.fraction)
+  for (let index = 0; index < remainder && order.length > 0; index += 1) {
+    floors[order[index % order.length].index] += 1
+  }
+  return floors
+}
+
+function drawerEqualHeights(height: string | number, numDrawers: string | number) {
+  const drawers = positiveIntegerFromValue(numDrawers, 3)
+  return drawerHeightsForRatios(height, drawers, Array.from({ length: drawers }, () => 1)).map(String)
+}
+
+function fitDrawerList(values: string[], length: number, fallback: string[]) {
+  const next = values.slice(0, length)
+  while (next.length < length) next.push(fallback[next.length] ?? fallback[fallback.length - 1] ?? '')
+  return next
+}
+
+function drawerSplitModeFromValue(value: unknown): DrawerSplitMode {
+  return value === 'manual' || value === 'ratio' || value === 'equal' ? value : 'equal'
+}
+
+function drawerArrayFromExtra(extra: Record<string, unknown>, key: string) {
+  const value = extra[key]
+  return Array.isArray(value) ? value.map((item) => String(item)) : []
+}
+
+function drawerSplitDraftFromExtra(extra: Record<string, unknown>, height: string, numDrawers: string) {
+  const drawers = positiveIntegerFromValue(numDrawers, 3)
+  const storedMode = drawerSplitModeFromValue(extra.drawer_split_mode)
+  const mode: DrawerSplitMode = Array.isArray(extra.drawer_face_heights)
+    ? 'manual'
+    : Array.isArray(extra.drawer_face_ratios)
+      ? storedMode === 'manual'
+        ? 'ratio'
+        : storedMode
+      : storedMode
+  const equalHeights = drawerEqualHeights(height, drawers)
+  const ratios = mode === 'equal'
+    ? drawerRatiosForMode('equal', drawers)
+    : fitDrawerList(drawerArrayFromExtra(extra, 'drawer_face_ratios'), drawers, drawerRatiosForMode('ratio', drawers))
+  return {
+    drawer_split_mode: mode,
+    drawer_face_heights: fitDrawerList(drawerArrayFromExtra(extra, 'drawer_face_heights'), drawers, equalHeights),
+    drawer_face_ratios: ratios,
+  }
+}
+
+function syncDrawerSplitDraft<T extends UnitDraft>(draft: T, reason: 'mode' | 'count' | 'height' | 'type' | 'none' = 'none'): T {
+  const mode = drawerSplitModeFromValue(draft.drawer_split_mode)
+  const drawers = drawerCountFromDraft(draft)
+  const equalHeights = drawerEqualHeights(draft.height, drawers)
+  const shouldReset = reason === 'mode' || reason === 'count' || reason === 'type'
+  return {
+    ...draft,
+    drawer_split_mode: mode,
+    drawer_face_heights: shouldReset || draft.drawer_face_heights.length !== drawers
+      ? equalHeights
+      : fitDrawerList(draft.drawer_face_heights, drawers, equalHeights),
+    drawer_face_ratios: shouldReset || draft.drawer_face_ratios.length !== drawers
+      ? drawerRatiosForMode(mode, drawers)
+      : fitDrawerList(draft.drawer_face_ratios, drawers, drawerRatiosForMode(mode, drawers)),
+  }
+}
+
+function drawerManualHeights(draft: UnitDraft) {
+  return fitDrawerList(draft.drawer_face_heights, drawerCountFromDraft(draft), drawerEqualHeights(draft.height, draft.num_drawers))
+}
+
+function drawerComputedFaceHeights(draft: UnitDraft) {
+  if (draft.drawer_split_mode === 'manual') {
+    return drawerManualHeights(draft).map((value) => positiveIntegerFromValue(value, 1))
+  }
+  const ratios = draft.drawer_split_mode === 'equal'
+    ? drawerRatiosForMode('equal', drawerCountFromDraft(draft))
+    : fitDrawerList(draft.drawer_face_ratios, drawerCountFromDraft(draft), drawerRatiosForMode('ratio', drawerCountFromDraft(draft)))
+  return drawerHeightsForRatios(draft.height, draft.num_drawers, ratios)
+}
+
+function drawerSplitValidationMessage(draft: UnitDraft) {
+  const drawers = drawerCountFromDraft(draft)
+  if (draft.drawer_split_mode === 'manual') {
+    const heights = drawerManualHeights(draft).map((value) => Number(value))
+    if (heights.some((value) => !Number.isInteger(value) || value <= 0)) {
+      return 'Drawer face heights must be positive whole millimetres.'
+    }
+    const available = drawerAvailableFaceHeight(draft.height, drawers)
+    const total = heights.reduce((sum, value) => sum + value, 0)
+    if (total !== available) {
+      return `Drawer face heights must total ${available} mm.`
+    }
+  }
+  if (draft.drawer_split_mode === 'ratio') {
+    const ratios = fitDrawerList(draft.drawer_face_ratios, drawers, drawerRatiosForMode('ratio', drawers)).map((value) => Number(value))
+    if (ratios.some((value) => !Number.isFinite(value) || value <= 0)) {
+      return 'Drawer ratios must be positive numbers.'
+    }
+  }
+  return null
+}
 
 let bulkUnitRowCounter = 0
 
@@ -1116,6 +1263,7 @@ export function ProjectsQuotesPage({
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft)
   const [quoteDraft, setQuoteDraft] = useState<QuoteDraft>(defaultQuoteDraft)
   const [unitDraft, setUnitDraft] = useState<UnitDraft>(defaultUnitDraft)
+  const [drawerPreviewHeights, setDrawerPreviewHeights] = useState<number[]>(drawerComputedFaceHeights(defaultUnitDraft))
   const [bulkUnitRows, setBulkUnitRows] = useState<BulkUnitGridRow[]>([])
   const [bulkUnitErrors, setBulkUnitErrors] = useState<Record<string, string>>({})
   const [bulkApplyDraft, setBulkApplyDraft] = useState<BulkApplyDraft>(defaultBulkApplyDraft)
@@ -1198,6 +1346,11 @@ export function ProjectsQuotesPage({
   )
 
   const isDrawerUnitDraft = resolvedUnitType(unitDraft).toLowerCase().includes('draw')
+  const drawerAvailableHeight = drawerAvailableFaceHeight(unitDraft.height, unitDraft.num_drawers)
+  const drawerHeightValues = drawerManualHeights(unitDraft)
+  const drawerHeightTotal = drawerHeightValues.reduce((total, value) => total + positiveIntegerFromValue(value, 0), 0)
+  const drawerHeightRemaining = drawerAvailableHeight - drawerHeightTotal
+  const drawerSplitError = isDrawerUnitDraft ? drawerSplitValidationMessage(unitDraft) : null
   const cutlistRowCount = quoteCuttingList
     ? quoteCuttingList.carcass.length +
       quoteCuttingList.panels.length +
@@ -1216,6 +1369,13 @@ export function ProjectsQuotesPage({
     [selectedUnitIds, visibleUnitIds],
   )
   const selectedUnitCount = visibleSelectedUnitIds.length
+
+  useEffect(() => {
+    if (!isDrawerUnitDraft) return
+    if (unitDraft.drawer_split_mode !== 'manual' || drawerSplitError === null) {
+      setDrawerPreviewHeights(drawerComputedFaceHeights(unitDraft))
+    }
+  }, [drawerSplitError, isDrawerUnitDraft, unitDraft])
 
   const loadLibraries = useCallback(async () => {
     setIsLoadingLibraries(true)
@@ -1810,18 +1970,19 @@ export function ProjectsQuotesPage({
     const base = defaultUnitDraft
     const preferredType: UnitPresetKey = 'Base Draw'
     const dims = resolveDefaultDims(selectedQuote.unit_defaults, preferredType)
-    setUnitDraft({
+    setUnitDraft(syncDrawerSplitDraft({
       ...base,
       height: String(dims.height),
       depth: String(dims.depth),
       carcass_board_type_id: selectedQuote.default_carcass_board_type_id ?? '',
       door_board_type_id: selectedQuote.default_door_board_type_id ?? '',
-    })
+    }, 'type'))
     setIsUnitModalOpen(true)
   }
 
   function openEditUnitModal(unit: UnitRow) {
     const unitTypeIsPreset = unitPresets.includes(unit.unit_type_key as UnitPresetKey)
+    const numDrawers = String(numberFromExtra(unit.extra_params, 'num_drawers', 3))
     setUnitEditId(unit.id)
     setModalError(null)
     setUnitDraft({
@@ -1832,7 +1993,8 @@ export function ProjectsQuotesPage({
       depth: String(unit.depth),
       carcass_board_type_id: unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? '',
       door_board_type_id: unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? '',
-      num_drawers: String(numberFromExtra(unit.extra_params, 'num_drawers', 3)),
+      num_drawers: numDrawers,
+      ...drawerSplitDraftFromExtra(unit.extra_params, String(unit.height), numDrawers),
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
       num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
     })
@@ -1841,7 +2003,7 @@ export function ProjectsQuotesPage({
 
   function bulkRowForTemplate(template: BulkUnitTemplate): BulkUnitGridRow {
     const dims = resolveDefaultDims(selectedQuote?.unit_defaults ?? fallbackUnitDefaults, template.unit_type_key)
-    return {
+    return syncDrawerSplitDraft({
       ...defaultUnitDraft,
       id: null,
       rowKey: nextBulkUnitRowKey(),
@@ -1855,11 +2017,12 @@ export function ProjectsQuotesPage({
       num_drawers: template.unit_type_key === 'Base Draw' ? '3' : defaultUnitDraft.num_drawers,
       num_doors: template.unit_type_key === 'Base Draw' ? defaultUnitDraft.num_doors : '2',
       num_shelves: template.unit_type_key === 'Base Draw' ? defaultUnitDraft.num_shelves : '1',
-    }
+    }, 'type')
   }
 
   function bulkRowFromUnit(unit: UnitRow): BulkUnitGridRow {
     const unitTypeIsPreset = unitPresets.includes(unit.unit_type_key as UnitPresetKey)
+    const numDrawers = String(numberFromExtra(unit.extra_params, 'num_drawers', 3))
     return {
       id: unit.id,
       rowKey: nextBulkUnitRowKey(),
@@ -1870,7 +2033,8 @@ export function ProjectsQuotesPage({
       depth: String(unit.depth),
       carcass_board_type_id: unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? '',
       door_board_type_id: unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? '',
-      num_drawers: String(numberFromExtra(unit.extra_params, 'num_drawers', 3)),
+      num_drawers: numDrawers,
+      ...drawerSplitDraftFromExtra(unit.extra_params, String(unit.height), numDrawers),
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
       num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
     }
@@ -1914,8 +2078,26 @@ export function ProjectsQuotesPage({
     setIsBulkApplyModalOpen(true)
   }
 
+  function updateUnitDraft(patch: Partial<UnitDraft>, reason: 'mode' | 'count' | 'height' | 'type' | 'none' = 'none') {
+    setUnitDraft((current) => {
+      const next = { ...current, ...patch }
+      return resolvedUnitType(next).toLowerCase().includes('draw') ? syncDrawerSplitDraft(next, reason) : next
+    })
+  }
+
   function updateBulkUnitRow(rowKey: string, patch: Partial<BulkUnitGridRow>) {
-    setBulkUnitRows((current) => current.map((row) => (row.rowKey === rowKey ? { ...row, ...patch } : row)))
+    setBulkUnitRows((current) =>
+      current.map((row) => {
+        if (row.rowKey !== rowKey) return row
+        const next = { ...row, ...patch }
+        const isDrawer = resolvedUnitType(next).toLowerCase().includes('draw')
+        if (!isDrawer) return next
+        if (patch.unit_type_key || patch.custom_unit_type_key) return syncDrawerSplitDraft(next, 'type')
+        if (patch.num_drawers) return syncDrawerSplitDraft(next, 'count')
+        if (patch.height) return syncDrawerSplitDraft(next, 'height')
+        return syncDrawerSplitDraft(next)
+      }),
+    )
     setBulkUnitErrors((current) => {
       const next = { ...current }
       delete next[rowKey]
@@ -2191,6 +2373,12 @@ export function ProjectsQuotesPage({
         setIsSaving(false)
         return
       }
+      const splitError = isDrawerUnitDraft ? drawerSplitValidationMessage(unitDraft) : null
+      if (splitError) {
+        setModalError(splitError)
+        setIsSaving(false)
+        return
+      }
       if (unitEditId) {
         await apiRequest<UnitRow>(`/api/v1/quotes/${selectedQuoteId}/units/${unitEditId}`, {
           method: 'PATCH',
@@ -2239,6 +2427,9 @@ export function ProjectsQuotesPage({
         nextErrors[row.rowKey] = 'Carcass board is required.'
       } else if (isDrawer && (!Number.isInteger(drawers) || drawers <= 0)) {
         nextErrors[row.rowKey] = 'Drawers must be a positive whole number.'
+      } else if (isDrawer) {
+        const splitError = drawerSplitValidationMessage(row)
+        if (splitError) nextErrors[row.rowKey] = splitError
       } else if (!isDrawer && (!Number.isInteger(doors) || doors <= 0)) {
         nextErrors[row.rowKey] = 'Doors must be a positive whole number.'
       } else if (!isDrawer && (!Number.isInteger(shelves) || shelves < 0)) {
@@ -3853,17 +4044,17 @@ export function ProjectsQuotesPage({
                 onChange={(event) => {
                   const nextValue = event.target.value
                   if (nextValue === customUnitTypeValue) {
-                    setUnitDraft((current) => ({ ...current, unit_type_key: customUnitTypeValue }))
+                    updateUnitDraft({ unit_type_key: customUnitTypeValue }, 'type')
                     return
                   }
                   const nextType = nextValue as UnitPresetKey
                   const dims = resolveDefaultDims(selectedQuote?.unit_defaults ?? fallbackUnitDefaults, nextType)
-                  setUnitDraft((current) => ({
-                    ...current,
+                  updateUnitDraft({
                     unit_type_key: nextValue,
+                    custom_unit_type_key: '',
                     height: String(dims.height),
                     depth: String(dims.depth),
-                  }))
+                  }, 'type')
                 }}
                 value={unitDraft.unit_type_key}
               >
@@ -3880,12 +4071,7 @@ export function ProjectsQuotesPage({
               <Label className="grid gap-1.5">
                 Custom unit type key
                 <Input
-                  onChange={(event) =>
-                    setUnitDraft((current) => ({
-                      ...current,
-                      custom_unit_type_key: event.target.value,
-                    }))
-                  }
+                  onChange={(event) => updateUnitDraft({ custom_unit_type_key: event.target.value }, 'type')}
                   required
                   value={unitDraft.custom_unit_type_key}
                 />
@@ -3897,7 +4083,7 @@ export function ProjectsQuotesPage({
                 Width (mm)
                 <Input
                   min={1}
-                  onChange={(event) => setUnitDraft((current) => ({ ...current, width: event.target.value }))}
+                  onChange={(event) => updateUnitDraft({ width: event.target.value })}
                   required
                   type="number"
                   value={unitDraft.width}
@@ -3907,7 +4093,7 @@ export function ProjectsQuotesPage({
                 Height (mm)
                 <Input
                   min={1}
-                  onChange={(event) => setUnitDraft((current) => ({ ...current, height: event.target.value }))}
+                  onChange={(event) => updateUnitDraft({ height: event.target.value }, 'height')}
                   required
                   type="number"
                   value={unitDraft.height}
@@ -3917,7 +4103,7 @@ export function ProjectsQuotesPage({
                 Depth (mm)
                 <Input
                   min={1}
-                  onChange={(event) => setUnitDraft((current) => ({ ...current, depth: event.target.value }))}
+                  onChange={(event) => updateUnitDraft({ depth: event.target.value })}
                   required
                   type="number"
                   value={unitDraft.depth}
@@ -3935,29 +4121,106 @@ export function ProjectsQuotesPage({
               <LibrarySelect
                 label="Carcass board"
                 options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
-                onChange={(value) => setUnitDraft((current) => ({ ...current, carcass_board_type_id: value }))}
+                onChange={(value) => updateUnitDraft({ carcass_board_type_id: value })}
                 required
                 value={unitDraft.carcass_board_type_id}
               />
               <LibrarySelect
                 label="Door board"
                 options={boards.map((board) => ({ value: board.id, label: `${board.brand} ${board.material} (${board.thickness}mm)` }))}
-                onChange={(value) => setUnitDraft((current) => ({ ...current, door_board_type_id: value }))}
+                onChange={(value) => updateUnitDraft({ door_board_type_id: value })}
                 value={unitDraft.door_board_type_id}
               />
             </div>
 
             {isDrawerUnitDraft ? (
-              <Label className="grid gap-1.5">
-                Number of drawers
-                <Input
-                  min={1}
-                  onChange={(event) => setUnitDraft((current) => ({ ...current, num_drawers: event.target.value }))}
-                  required
-                  type="number"
-                  value={unitDraft.num_drawers}
-                />
-              </Label>
+              <div className="grid gap-3">
+                <Label className="grid gap-1.5">
+                  Number of drawers
+                  <Input
+                    min={1}
+                    onChange={(event) => updateUnitDraft({ num_drawers: event.target.value }, 'count')}
+                    required
+                    type="number"
+                    value={unitDraft.num_drawers}
+                  />
+                </Label>
+
+                <div className="grid gap-3 md:grid-cols-[minmax(130px,180px)_1fr]">
+                  <div
+                    aria-label="Drawer front split preview"
+                    className="grid h-44 max-h-44 overflow-hidden rounded-md border border-border bg-muted/30 p-1"
+                    style={{ gridTemplateRows: drawerPreviewHeights.map((height) => `${Math.max(1, height)}fr`).join(' ') }}
+                  >
+                    {drawerPreviewHeights.map((height, index) => (
+                      <div
+                        className="flex min-h-0 items-center justify-center overflow-hidden border border-border bg-background text-[10px] font-medium leading-none text-muted-foreground"
+                        key={`${index}-${height}`}
+                      >
+                        {`${height} mm`}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      {drawerSplitPresets.map((preset) => (
+                        <Button
+                          aria-pressed={unitDraft.drawer_split_mode === preset.mode}
+                          key={preset.mode}
+                          onClick={() => updateUnitDraft({ drawer_split_mode: preset.mode }, 'mode')}
+                          size="sm"
+                          type="button"
+                          variant={unitDraft.drawer_split_mode === preset.mode ? 'default' : 'outline'}
+                        >
+                          {preset.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">{`${drawerAvailableHeight} mm available`}</Badge>
+                      {unitDraft.drawer_split_mode === 'manual' ? (
+                        <>
+                          <Badge variant={drawerHeightRemaining === 0 ? 'outline' : 'warning'}>
+                            {`${drawerHeightRemaining} mm remaining`}
+                          </Badge>
+                          <Badge variant="outline">{`${drawerHeightTotal} mm total`}</Badge>
+                        </>
+                      ) : null}
+                    </div>
+                    {unitDraft.drawer_split_mode === 'manual' ? (
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {drawerHeightValues.map((value, index) => (
+                          <Label className="grid gap-1.5" key={`drawer-face-height-${index}`}>
+                            {`Drawer ${index + 1} face`}
+                            <Input
+                              min={1}
+                              onChange={(event) =>
+                                updateUnitDraft({
+                                  drawer_face_heights: drawerHeightValues.map((currentValue, currentIndex) =>
+                                    currentIndex === index ? event.target.value : currentValue,
+                                  ),
+                                })
+                              }
+                              required
+                              type="number"
+                              value={value}
+                            />
+                          </Label>
+                        ))}
+                      </div>
+                    ) : null}
+                    {unitDraft.drawer_split_mode === 'manual' ? (
+                      <Alert
+                        aria-hidden={drawerSplitError ? undefined : true}
+                        className={drawerSplitError ? 'text-xs' : 'invisible text-xs'}
+                        variant="destructive"
+                      >
+                        {drawerSplitError ?? 'Drawer split validation placeholder.'}
+                      </Alert>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
                 <Label className="grid gap-1.5">
