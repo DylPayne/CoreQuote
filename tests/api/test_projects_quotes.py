@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from corequote_api.auth import AuthenticatedUser
 from corequote_api.main import app
 from corequote_api.projects_quotes import WorkspaceNotFound, WorkspaceStore, WorkspaceValidationError, _quote_pricing_as_of
+from corequote_api.projects_quotes_payloads import _clean_unit_payload
 from corequote_api.routers import auth, projects_quotes
 
 
@@ -181,6 +182,7 @@ class FakeWorkspaceStore:
     def create_unit(self, company_id: str, quote_id: str, payload: dict) -> dict:
         if quote_id == "missing":
             raise WorkspaceNotFound("Quote not found")
+        payload = _clean_unit_payload(payload)
         self.created_unit_payload = (company_id, quote_id, payload)
         return unit(
             "unit-2",
@@ -220,6 +222,7 @@ class FakeWorkspaceStore:
             raise WorkspaceNotFound("Unit not found")
         if any(row.get("unit_type_key") == "Invalid setup" for row in payloads):
             raise WorkspaceValidationError("units[1]: Carcass board is required")
+        payloads = [{"id": row.get("id"), **_clean_unit_payload(row)} for row in payloads]
         self.bulk_saved_units = (company_id, quote_id, payloads)
         return [
             unit(
@@ -287,6 +290,7 @@ class FakeWorkspaceStore:
     def update_unit(self, company_id: str, quote_id: str, unit_id: str, payload: dict) -> dict:
         if quote_id == "missing" or unit_id == "missing":
             raise WorkspaceNotFound("Unit not found")
+        payload = _clean_unit_payload(payload)
         self.updated_unit_payload = (company_id, quote_id, unit_id, payload)
         return unit(
             unit_id,
@@ -678,6 +682,62 @@ def test_create_unit_and_update_unit_use_nested_quote_scope():
     assert store.created_unit_payload == ("company-1", "quote-1", create_payload)
     assert store.updated_unit_payload == ("company-1", "quote-1", "unit-1", update_payload)
     assert create_response.json()["unit_number"] == 2
+
+
+def test_create_unit_cleans_drawer_split_payload():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = unit_payload(unit_type_key="Base Draw", width=600)
+    payload["extra_params"] = {
+        "num_drawers": "3",
+        "drawer_split_mode": "manual",
+        "drawer_face_heights": ["194", 194, 383],
+        "drawer_face_ratios": [1, 1, 2],
+    }
+    try:
+        response = client.post("/api/v1/quotes/quote-1/units", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert store.created_unit_payload == (
+        "company-1",
+        "quote-1",
+        {
+            **payload,
+            "extra_params": {
+                "num_drawers": 3,
+                "drawer_split_mode": "manual",
+                "drawer_face_heights": [194, 194, 383],
+            },
+        },
+    )
+    assert response.json()["extra_params"] == {
+        "num_drawers": 3,
+        "drawer_split_mode": "manual",
+        "drawer_face_heights": [194, 194, 383],
+    }
+
+
+def test_create_unit_rejects_manual_drawer_split_total_mismatch():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = unit_payload(unit_type_key="Base Draw", width=600)
+    payload["extra_params"] = {
+        "num_drawers": 3,
+        "drawer_split_mode": "manual",
+        "drawer_face_heights": [194, 194, 300],
+    }
+    try:
+        response = client.post("/api/v1/quotes/quote-1/units", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "drawer_face_heights total must equal 771 mm"}
+    assert store.created_unit_payload is None
 
 
 def test_duplicate_unit_uses_nested_quote_scope_and_returns_copy():

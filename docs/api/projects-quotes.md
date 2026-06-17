@@ -222,7 +222,9 @@ Request payload (`POST` / `PATCH`):
   "carcass_board_type_id": "board-uuid",
   "door_board_type_id": "board-uuid",
   "extra_params": {
-    "num_drawers": 3
+    "num_drawers": 3,
+    "drawer_split_mode": "ratio",
+    "drawer_face_ratios": [1, 1, 2]
   },
   "production_metadata": {
     "carcass": {
@@ -264,13 +266,25 @@ Response shape:
   "thickness": 16,
   "carcass_board_type_id": "board-uuid",
   "door_board_type_id": "board-uuid",
-  "extra_params": { "num_drawers": 3 },
+  "extra_params": {
+    "num_drawers": 3,
+    "drawer_split_mode": "ratio",
+    "drawer_face_ratios": [1, 1, 2]
+  },
   "created_at": "2026-06-01T10:30:00Z",
   "updated_at": "2026-06-01T10:30:00Z"
 }
 ```
 
 Unit numbering is sequential per quote. On delete, remaining units are automatically renumbered to keep a gapless order for UI display and cutlist workflows.
+
+Drawer units may include split data in `extra_params`:
+
+- `drawer_split_mode: "equal"` stores equal ratio fronts as `drawer_face_ratios: [1, 1, 1]`.
+- `drawer_split_mode: "ratio"` stores proportional presets such as `drawer_face_ratios: [1, 1, 2]`.
+- `drawer_split_mode: "manual"` stores exact millimetre fronts such as `drawer_face_heights: [194, 194, 383]`.
+
+For drawer split arrays, the API validates that the array length matches `num_drawers` and every value is positive. Manual `drawer_face_heights` must total the available face height after 3 mm drawer gaps; for a 780 mm high, 3-drawer unit this is `780 - (3 * 3) = 771 mm`. Stale split arrays from another mode are removed during cleaning.
 
 Duplicating a unit:
 
@@ -318,7 +332,9 @@ Request payload:
       "carcass_board_type_id": "board-uuid",
       "door_board_type_id": "board-uuid",
       "extra_params": {
-        "num_drawers": 3
+        "num_drawers": 3,
+        "drawer_split_mode": "manual",
+        "drawer_face_heights": [194, 194, 383]
       }
     }
   ]

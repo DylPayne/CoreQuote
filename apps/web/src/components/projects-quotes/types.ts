@@ -695,6 +695,7 @@ export type ProjectPricingSummary = {
 
 export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type UnitPresetKey = 'Base Draw' | 'Base Door' | 'Wall Door' | 'Tall Door'
+export type DrawerSplitMode = 'equal' | 'ratio' | 'manual'
 export type ProjectWorkspaceTab = 'quotes' | 'pricing'
 export type PricingWorkspaceTab = 'overview' | 'settings' | 'quotes'
 export type QuoteWorkspaceTab = 'readiness' | 'outputs' | 'production' | 'units' | 'panels' | 'cutting-lists' | 'extras' | 'pricing'
@@ -739,6 +740,9 @@ export type UnitDraft = {
   carcass_board_type_id: string
   door_board_type_id: string
   num_drawers: string
+  drawer_split_mode: DrawerSplitMode
+  drawer_face_heights: string[]
+  drawer_face_ratios: string[]
   num_doors: string
   num_shelves: string
 }

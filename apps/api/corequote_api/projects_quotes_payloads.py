@@ -9,6 +9,8 @@ from corequote_api.projects_quotes_errors import WorkspaceValidationError
 
 
 QUOTE_STATUSES = ("draft", "ready", "sent", "accepted", "rejected", "revised", "expired")
+DRAWER_SPLIT_MODES = {"equal", "ratio", "manual"}
+DRAWER_PANEL_GAP_MM = 3
 MATERIAL_ROLES = ("carcass", "door_panel", "visible_panel")
 PRODUCTION_GRAIN_DIRECTIONS = ("none", "length", "width")
 PRODUCTION_ROTATION_GUIDANCE = ("none", "allow_rotation", "no_rotation")
@@ -69,9 +71,14 @@ def _clean_unit_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(extra_params, dict):
         raise WorkspaceValidationError("extra_params must be an object")
 
+    unit_type_key = _clean_required(payload.get("unit_type_key"), field="unit_type_key")
+    height = _positive_int(payload.get("height"), field="height")
+    if _is_drawer_unit(unit_type_key):
+        extra_params = _clean_drawer_extra_params(extra_params, height=height)
+
     return {
-        "unit_type_key": _clean_required(payload.get("unit_type_key"), field="unit_type_key"),
-        "height": _positive_int(payload.get("height"), field="height"),
+        "unit_type_key": unit_type_key,
+        "height": height,
         "width": _positive_int(payload.get("width"), field="width"),
         "depth": _positive_int(payload.get("depth"), field="depth"),
         "carcass_board_type_id": _optional_uuid(payload.get("carcass_board_type_id")),
@@ -156,6 +163,69 @@ def _positive_int(value: Any, *, field: str) -> int:
     if parsed <= 0:
         raise WorkspaceValidationError(f"{field} must be a positive integer")
     return parsed
+
+
+def _is_drawer_unit(unit_type_key: str) -> bool:
+    return "draw" in unit_type_key.lower()
+
+
+def _clean_drawer_extra_params(extra_params: dict[str, Any], *, height: int) -> dict[str, Any]:
+    cleaned = dict(extra_params)
+    num_drawers = _positive_int(cleaned.get("num_drawers", 3), field="num_drawers")
+    cleaned["num_drawers"] = num_drawers
+
+    raw_mode = str(cleaned.get("drawer_split_mode") or "").strip().lower()
+    if not raw_mode:
+        if "drawer_face_heights" in cleaned:
+            raw_mode = "manual"
+        elif "drawer_face_ratios" in cleaned:
+            raw_mode = "ratio"
+    if not raw_mode:
+        return cleaned
+    if raw_mode not in DRAWER_SPLIT_MODES:
+        raise WorkspaceValidationError("drawer_split_mode must be equal, ratio, or manual")
+
+    cleaned["drawer_split_mode"] = raw_mode
+    if raw_mode == "manual":
+        heights = _positive_int_list(cleaned.get("drawer_face_heights"), field="drawer_face_heights")
+        if len(heights) != num_drawers:
+            raise WorkspaceValidationError("drawer_face_heights length must match num_drawers")
+        required_total = height - (DRAWER_PANEL_GAP_MM * num_drawers)
+        if required_total <= 0:
+            raise WorkspaceValidationError("drawer_face_heights total must be greater than 0 mm")
+        if sum(heights) != required_total:
+            raise WorkspaceValidationError(f"drawer_face_heights total must equal {required_total} mm")
+        cleaned["drawer_face_heights"] = heights
+        cleaned.pop("drawer_face_ratios", None)
+        return cleaned
+
+    ratios = [1] * num_drawers if raw_mode == "equal" else _positive_number_list(cleaned.get("drawer_face_ratios"), field="drawer_face_ratios")
+    if len(ratios) != num_drawers:
+        raise WorkspaceValidationError("drawer_face_ratios length must match num_drawers")
+    cleaned["drawer_face_ratios"] = ratios
+    cleaned.pop("drawer_face_heights", None)
+    return cleaned
+
+
+def _positive_int_list(value: Any, *, field: str) -> list[int]:
+    if not isinstance(value, list):
+        raise WorkspaceValidationError(f"{field} must be an array")
+    return [_positive_int(item, field=f"{field}[{index}]") for index, item in enumerate(value)]
+
+
+def _positive_number_list(value: Any, *, field: str) -> list[int | float]:
+    if not isinstance(value, list):
+        raise WorkspaceValidationError(f"{field} must be an array")
+    cleaned: list[int | float] = []
+    for index, item in enumerate(value):
+        try:
+            parsed = float(item)
+        except (TypeError, ValueError) as exc:
+            raise WorkspaceValidationError(f"{field}[{index}] must be a positive number") from exc
+        if parsed <= 0:
+            raise WorkspaceValidationError(f"{field}[{index}] must be a positive number")
+        cleaned.append(int(parsed) if parsed.is_integer() else parsed)
+    return cleaned
 
 
 def _is_enabled(name: str) -> bool:
