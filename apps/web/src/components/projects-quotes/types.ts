@@ -69,6 +69,8 @@ export type UnitRow = {
   thickness: number
   carcass_board_type_id: string | null
   door_board_type_id: string | null
+  slide_id: string | null
+  hinge_id: string | null
   extra_params: Record<string, unknown>
   production_metadata: ProductionMetadataByRole
   created_at: string
@@ -739,6 +741,8 @@ export type UnitDraft = {
   depth: string
   carcass_board_type_id: string
   door_board_type_id: string
+  slide_id: string
+  hinge_id: string
   num_drawers: string
   drawer_split_mode: DrawerSplitMode
   drawer_face_heights: string[]

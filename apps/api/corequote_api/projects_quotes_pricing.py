@@ -135,6 +135,7 @@ def _build_cutting_list_preview(
         quote=quote,
         units=units,
         board_lookup=board_lookup,
+        slide_lookup=slide_lookup,
         require_materials=True,
     )
 

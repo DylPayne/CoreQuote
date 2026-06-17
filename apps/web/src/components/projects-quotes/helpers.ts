@@ -56,8 +56,11 @@ export function resolvedUnitType(draft: UnitDraft): string {
 
 export function unitPayloadFromDraft(draft: UnitDraft) {
   const unitType = resolvedUnitType(draft)
-  const isDrawer = unitType.toLowerCase().includes('draw')
+  const isDrawer = isDrawerUnitType(unitType)
+  const isHinged = isHingedUnitType(unitType)
   const numDrawers = parsePositiveInteger(draft.num_drawers, 3)
+  const slideId = optionalId(draft.slide_id)
+  const hingeId = optionalId(draft.hinge_id)
   return {
     unit_type_key: unitType,
     height: parsePositiveInteger(draft.height, 780),
@@ -65,11 +68,14 @@ export function unitPayloadFromDraft(draft: UnitDraft) {
     depth: parsePositiveInteger(draft.depth, 580),
     carcass_board_type_id: optionalId(draft.carcass_board_type_id),
     door_board_type_id: optionalId(draft.door_board_type_id),
+    slide_id: isDrawer ? slideId : null,
+    hinge_id: isHinged ? hingeId : null,
     extra_params: isDrawer
       ? drawerExtraParamsFromDraft(draft, numDrawers)
       : {
           num_doors: parsePositiveInteger(draft.num_doors, 2),
           num_shelves: parseNonNegativeInteger(draft.num_shelves, 1),
+          ...(isHinged && hingeId ? { hinge_id: hingeId } : {}),
         },
   }
 }
@@ -79,6 +85,10 @@ function drawerExtraParamsFromDraft(draft: UnitDraft, numDrawers: number) {
   const extraParams: Record<string, unknown> = {
     num_drawers: numDrawers,
     drawer_split_mode: mode,
+  }
+  const slideId = optionalId(draft.slide_id)
+  if (slideId) {
+    extraParams.slide_id = slideId
   }
   if (mode === 'manual') {
     extraParams.drawer_face_heights = normalizedStringNumberList(draft.drawer_face_heights, numDrawers).map((value) =>
@@ -93,6 +103,15 @@ function drawerExtraParamsFromDraft(draft: UnitDraft, numDrawers: number) {
         return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
       })
   return extraParams
+}
+
+export function isDrawerUnitType(unitType: string): boolean {
+  return unitType.toLowerCase().includes('draw')
+}
+
+export function isHingedUnitType(unitType: string): boolean {
+  const value = unitType.toLowerCase()
+  return value.includes('door') || value.includes('hinge') || value.startsWith('tall')
 }
 
 function drawerSplitMode(value: DrawerSplitMode | string): DrawerSplitMode {

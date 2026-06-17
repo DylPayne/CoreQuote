@@ -38,7 +38,7 @@ import type { LibraryTab } from '@/components/libraries/types'
 import { customUnitTypeValue, defaultProjectDraft, defaultProductionMetadata, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
-import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
+import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, isDrawerUnitType, isHingedUnitType, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
 import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, DrawerSplitMode, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProductionGrainDirection, ProductionMetadata, ProductionRotationGuidance, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
@@ -228,6 +228,11 @@ function drawerSplitModeFromValue(value: unknown): DrawerSplitMode {
 function drawerArrayFromExtra(extra: Record<string, unknown>, key: string) {
   const value = extra[key]
   return Array.isArray(value) ? value.map((item) => String(item)) : []
+}
+
+function idFromExtra(extra: Record<string, unknown>, key: string) {
+  const value = extra[key]
+  return typeof value === 'string' ? value : ''
 }
 
 function drawerSplitDraftFromExtra(extra: Record<string, unknown>, height: string, numDrawers: string) {
@@ -1381,7 +1386,6 @@ export function ProjectsQuotesPage({
   const [projectDraft, setProjectDraft] = useState<ProjectDraft>(defaultProjectDraft)
   const [quoteDraft, setQuoteDraft] = useState<QuoteDraft>(defaultQuoteDraft)
   const [unitDraft, setUnitDraft] = useState<UnitDraft>(defaultUnitDraft)
-  const [drawerPreviewHeights, setDrawerPreviewHeights] = useState<number[]>(drawerComputedFaceHeights(defaultUnitDraft))
   const [bulkUnitRows, setBulkUnitRows] = useState<BulkUnitGridRow[]>([])
   const [bulkUnitErrors, setBulkUnitErrors] = useState<Record<string, string>>({})
   const [bulkApplyDraft, setBulkApplyDraft] = useState<BulkApplyDraft>(defaultBulkApplyDraft)
@@ -1462,13 +1466,40 @@ export function ProjectsQuotesPage({
     },
     [boards],
   )
+  const slideLabel = useCallback(
+    (slideId: string | null) => {
+      if (!slideId) return 'None'
+      const slide = slides.find((row) => row.id === slideId)
+      if (!slide) return 'Unknown slide'
+      return `${slide.brand} ${slide.model}${slide.code ? ` (${slide.code})` : ''} · ${slide.length}mm`
+    },
+    [slides],
+  )
+  const hingeLabel = useCallback(
+    (hingeId: string | null) => {
+      if (!hingeId) return 'None'
+      const hinge = hinges.find((row) => row.id === hingeId)
+      if (!hinge) return 'Unknown hinge'
+      return `${hinge.brand} ${hinge.model} (${hinge.opening_angle_deg}deg)`
+    },
+    [hinges],
+  )
 
-  const isDrawerUnitDraft = resolvedUnitType(unitDraft).toLowerCase().includes('draw')
+  const unitDraftType = resolvedUnitType(unitDraft)
+  const isDrawerUnitDraft = isDrawerUnitType(unitDraftType)
+  const isHingedUnitDraft = isHingedUnitType(unitDraftType)
   const drawerAvailableHeight = drawerAvailableFaceHeight(unitDraft.height, unitDraft.num_drawers)
   const drawerHeightValues = drawerManualHeights(unitDraft)
   const drawerHeightTotal = drawerHeightValues.reduce((total, value) => total + positiveIntegerFromValue(value, 0), 0)
   const drawerHeightRemaining = drawerAvailableHeight - drawerHeightTotal
   const drawerSplitError = isDrawerUnitDraft ? drawerSplitValidationMessage(unitDraft) : null
+  const drawerPreviewHeights = useMemo(() => drawerComputedFaceHeights(unitDraft), [unitDraft])
+  const effectiveUnitSlideId = unitDraft.slide_id || selectedQuote?.default_slide_id || ''
+  const effectiveUnitSlide = effectiveUnitSlideId ? slides.find((slide) => slide.id === effectiveUnitSlideId) ?? null : null
+  const unitDepthNumber = Number(unitDraft.depth)
+  const slideDepthError = isDrawerUnitDraft && effectiveUnitSlide && Number.isFinite(unitDepthNumber) && unitDepthNumber < effectiveUnitSlide.length
+    ? `Selected ${effectiveUnitSlide.length} mm slide requires a carcass depth of at least ${effectiveUnitSlide.length} mm internally.`
+    : null
   const cutlistRowCount = quoteCuttingList
     ? quoteCuttingList.carcass.length +
       quoteCuttingList.panels.length +
@@ -1487,13 +1518,6 @@ export function ProjectsQuotesPage({
     [selectedUnitIds, visibleUnitIds],
   )
   const selectedUnitCount = visibleSelectedUnitIds.length
-
-  useEffect(() => {
-    if (!isDrawerUnitDraft) return
-    if (unitDraft.drawer_split_mode !== 'manual' || drawerSplitError === null) {
-      setDrawerPreviewHeights(drawerComputedFaceHeights(unitDraft))
-    }
-  }, [drawerSplitError, isDrawerUnitDraft, unitDraft])
 
   const loadLibraries = useCallback(async () => {
     setIsLoadingLibraries(true)
@@ -2131,6 +2155,8 @@ export function ProjectsQuotesPage({
       depth: String(dims.depth),
       carcass_board_type_id: selectedQuote.default_carcass_board_type_id ?? '',
       door_board_type_id: selectedQuote.default_door_board_type_id ?? '',
+      slide_id: '',
+      hinge_id: '',
     }, 'type'))
     setIsUnitModalOpen(true)
   }
@@ -2148,6 +2174,8 @@ export function ProjectsQuotesPage({
       depth: String(unit.depth),
       carcass_board_type_id: unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? '',
       door_board_type_id: unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? '',
+      slide_id: unit.slide_id ?? idFromExtra(unit.extra_params, 'slide_id'),
+      hinge_id: unit.hinge_id ?? idFromExtra(unit.extra_params, 'hinge_id'),
       num_drawers: numDrawers,
       ...drawerSplitDraftFromExtra(unit.extra_params, String(unit.height), numDrawers),
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
@@ -2169,6 +2197,8 @@ export function ProjectsQuotesPage({
       depth: String(dims.depth),
       carcass_board_type_id: selectedQuote?.default_carcass_board_type_id ?? '',
       door_board_type_id: selectedQuote?.default_door_board_type_id ?? '',
+      slide_id: '',
+      hinge_id: '',
       num_drawers: template.unit_type_key === 'Base Draw' ? '3' : defaultUnitDraft.num_drawers,
       num_doors: template.unit_type_key === 'Base Draw' ? defaultUnitDraft.num_doors : '2',
       num_shelves: template.unit_type_key === 'Base Draw' ? defaultUnitDraft.num_shelves : '1',
@@ -2188,6 +2218,8 @@ export function ProjectsQuotesPage({
       depth: String(unit.depth),
       carcass_board_type_id: unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? '',
       door_board_type_id: unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? '',
+      slide_id: unit.slide_id ?? idFromExtra(unit.extra_params, 'slide_id'),
+      hinge_id: unit.hinge_id ?? idFromExtra(unit.extra_params, 'hinge_id'),
       num_drawers: numDrawers,
       ...drawerSplitDraftFromExtra(unit.extra_params, String(unit.height), numDrawers),
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
@@ -2236,7 +2268,7 @@ export function ProjectsQuotesPage({
   function updateUnitDraft(patch: Partial<UnitDraft>, reason: 'mode' | 'count' | 'height' | 'type' | 'none' = 'none') {
     setUnitDraft((current) => {
       const next = { ...current, ...patch }
-      return resolvedUnitType(next).toLowerCase().includes('draw') ? syncDrawerSplitDraft(next, reason) : next
+      return isDrawerUnitType(resolvedUnitType(next)) ? syncDrawerSplitDraft(next, reason) : next
     })
   }
 
@@ -2245,7 +2277,7 @@ export function ProjectsQuotesPage({
       current.map((row) => {
         if (row.rowKey !== rowKey) return row
         const next = { ...row, ...patch }
-        const isDrawer = resolvedUnitType(next).toLowerCase().includes('draw')
+        const isDrawer = isDrawerUnitType(resolvedUnitType(next))
         if (!isDrawer) return next
         if (patch.unit_type_key || patch.custom_unit_type_key) return syncDrawerSplitDraft(next, 'type')
         if (patch.num_drawers) return syncDrawerSplitDraft(next, 'count')
@@ -2531,6 +2563,11 @@ export function ProjectsQuotesPage({
       const splitError = isDrawerUnitDraft ? drawerSplitValidationMessage(unitDraft) : null
       if (splitError) {
         setModalError(splitError)
+        setIsSaving(false)
+        return
+      }
+      if (slideDepthError) {
+        setModalError(slideDepthError)
         setIsSaving(false)
         return
       }
@@ -3410,6 +3447,7 @@ export function ProjectsQuotesPage({
                           <TableHead>Type</TableHead>
                           <TableHead>Dimensions (mm)</TableHead>
                           <TableHead>Boards</TableHead>
+                          <TableHead>Hardware</TableHead>
                           <TableHead>Extra Params</TableHead>
                           <TableHead className="w-48" />
                         </TableRow>
@@ -3417,7 +3455,7 @@ export function ProjectsQuotesPage({
                       <TableBody>
                         {units.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={7}>
+                            <TableCell colSpan={8}>
                               <div className="grid gap-1 py-3">
                                 <p className="font-medium">Add the cabinets or built-ins for this quote.</p>
                                 <p className="text-sm leading-5 text-muted-foreground">
@@ -3430,9 +3468,24 @@ export function ProjectsQuotesPage({
                           units.map((unit, index) => {
                             const carcassBoardId = unit.carcass_board_type_id ?? selectedQuote?.default_carcass_board_type_id ?? null
                             const doorBoardId = unit.door_board_type_id ?? selectedQuote?.default_door_board_type_id ?? null
+                            const unitSlideId = unit.slide_id ?? idFromExtra(unit.extra_params, 'slide_id')
+                            const unitHingeId = unit.hinge_id ?? idFromExtra(unit.extra_params, 'hinge_id')
+                            const effectiveSlideId = unitSlideId || selectedQuote?.default_slide_id || ''
+                            const effectiveSlide = effectiveSlideId ? slides.find((slide) => slide.id === effectiveSlideId) ?? null : null
+                            const unitSlideDepthWarning = isDrawerUnitType(unit.unit_type_key) && effectiveSlide && unit.depth < effectiveSlide.length
+                              ? `Selected ${effectiveSlide.length} mm slide requires a carcass depth of at least ${effectiveSlide.length} mm internally.`
+                              : null
+                            const hardwareLabel = isDrawerUnitType(unit.unit_type_key)
+                              ? `Slide: ${slideLabel(effectiveSlideId || null)}`
+                              : isHingedUnitType(unit.unit_type_key)
+                                ? `Hinge: ${hingeLabel((unitHingeId || selectedQuote?.default_hinge_id) ?? null)}`
+                                : '-'
                             const unitActionsDisabled = isReorderingUnits || duplicatingUnitId !== null
                             return (
-                              <TableRow key={unit.id}>
+                              <TableRow
+                                className={unitSlideDepthWarning ? 'bg-[var(--status-warning)] hover:bg-[var(--status-warning)]' : undefined}
+                                key={unit.id}
+                              >
                                 <TableCell>
                                   <Checkbox
                                     aria-label={`Select unit ${unit.unit_number}`}
@@ -3441,9 +3494,27 @@ export function ProjectsQuotesPage({
                                   />
                                 </TableCell>
                                 <TableCell>{unit.unit_number}</TableCell>
-                                <TableCell>{unit.unit_type_key}</TableCell>
+                                <TableCell>
+                                  <div className="grid gap-1">
+                                    <span>{unit.unit_type_key}</span>
+                                    {unitSlideDepthWarning ? (
+                                      <Badge className="w-fit gap-1" title={unitSlideDepthWarning} variant="warning">
+                                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                                        Slide depth
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
                                 <TableCell>{`${unit.height} x ${unit.width} x ${unit.depth} · t${unit.thickness}`}</TableCell>
                                 <TableCell>{`${boardLabel(carcassBoardId)} / ${boardLabel(doorBoardId)}`}</TableCell>
+                                <TableCell className="max-w-64 text-xs text-muted-foreground">
+                                  <div className="grid gap-1">
+                                    <span>{hardwareLabel}</span>
+                                    {unitSlideDepthWarning ? (
+                                      <span className="font-medium text-[var(--status-warning-foreground)]">{unitSlideDepthWarning}</span>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
                                 <TableCell className="max-w-72 truncate text-xs text-muted-foreground">{formatExtraParams(unit.extra_params)}</TableCell>
                                 <TableCell>
                                   <div className="flex justify-end gap-1">
@@ -4329,6 +4400,31 @@ export function ProjectsQuotesPage({
                 value={unitDraft.door_board_type_id}
               />
             </div>
+
+            {isDrawerUnitDraft ? (
+              <div className="grid gap-2">
+                <LibrarySelect
+                  label="Drawer slide"
+                  options={slides.map((slide) => ({ value: slide.id, label: slideLabel(slide.id) }))}
+                  onChange={(value) => updateUnitDraft({ slide_id: value })}
+                  placeholder={selectedQuote?.default_slide_id ? `Quote default: ${slideLabel(selectedQuote.default_slide_id)}` : 'Quote default'}
+                  value={unitDraft.slide_id}
+                />
+                {slideDepthError ? (
+                  <Alert className="text-xs" variant="destructive">
+                    {slideDepthError}
+                  </Alert>
+                ) : null}
+              </div>
+            ) : isHingedUnitDraft ? (
+              <LibrarySelect
+                label="Hinge"
+                options={hinges.map((hinge) => ({ value: hinge.id, label: hingeLabel(hinge.id) }))}
+                onChange={(value) => updateUnitDraft({ hinge_id: value })}
+                placeholder={selectedQuote?.default_hinge_id ? `Quote default: ${hingeLabel(selectedQuote.default_hinge_id)}` : 'Quote default'}
+                value={unitDraft.hinge_id}
+              />
+            ) : null}
 
             {isDrawerUnitDraft ? (
               <div className="grid gap-3">
