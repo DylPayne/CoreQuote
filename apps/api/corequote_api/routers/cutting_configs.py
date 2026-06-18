@@ -73,6 +73,20 @@ def update_unit_config(
     return _update_response(UnitConfigResponse, store.update_unit_config, current_user.company_id, unit_config_id, payload)
 
 
+@router.post(
+    "/unit-configs/{unit_config_id}/revisions",
+    response_model=UnitConfigResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a draft company unit config revision",
+)
+def create_unit_config_revision(
+    unit_config_id: str,
+    current_user: CuttingWriter,
+    store: StoreDep,
+) -> UnitConfigResponse:
+    return _revision_response(UnitConfigResponse, store.create_unit_config_revision, current_user.company_id, unit_config_id)
+
+
 @router.get("/rulesets", response_model=list[CuttingRulesetSummaryResponse], summary="List visible cutting rulesets")
 def list_rulesets(
     current_user: CuttingReader,
@@ -123,6 +137,20 @@ def update_ruleset(
     return _update_response(CuttingRulesetResponse, store.update_ruleset, current_user.company_id, ruleset_id, payload)
 
 
+@router.post(
+    "/rulesets/{ruleset_id}/revisions",
+    response_model=CuttingRulesetResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a draft company cutting ruleset revision",
+)
+def create_ruleset_revision(
+    ruleset_id: str,
+    current_user: CuttingWriter,
+    store: StoreDep,
+) -> CuttingRulesetResponse:
+    return _revision_response(CuttingRulesetResponse, store.create_ruleset_revision, current_user.company_id, ruleset_id)
+
+
 def _payload(payload: Any) -> dict[str, Any]:
     return payload.model_dump()
 
@@ -148,6 +176,16 @@ def _get_response(response_model, callback, *args):
 def _update_response(response_model, callback, *args):
     try:
         row = callback(*args[:-1], _payload(args[-1]))
+    except CuttingConfigConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except CuttingConfigNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc) or "Cutting config not found") from exc
+    return response_model.model_validate(row)
+
+
+def _revision_response(response_model, callback, *args):
+    try:
+        row = callback(*args)
     except CuttingConfigConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except CuttingConfigNotFound as exc:

@@ -5,6 +5,7 @@ MIGRATION_0005 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrati
 MIGRATION_0006 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0006_inline_cutting_rule_edges.sql"
 MIGRATION_0020 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0020_production_metadata.sql"
 MIGRATION_0021 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0021_board_type_grain_policy.sql"
+MIGRATION_0022 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0022_one_active_company_cutting_ruleset.sql"
 MIGRATION_0007 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0007_simplify_default_unit_types.sql"
 MIGRATION_0008 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0008_cutting_ruleset_history.sql"
 MIGRATION_0017 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0017_default_non_drawer_cutting_formulas.sql"
@@ -65,6 +66,16 @@ def test_board_type_grain_policy_migration_defaults_existing_boards_to_required(
     assert "ADD COLUMN IF NOT EXISTS grain_policy TEXT NOT NULL DEFAULT 'required'" in sql
     assert "CHECK (grain_policy IN ('none', 'optional', 'required'))" in sql
     assert "Controls whether workshop grain direction applies to this board type" in sql
+
+
+def test_company_ruleset_activation_migration_limits_one_active_ruleset_per_type():
+    sql = MIGRATION_0022.read_text()
+
+    assert "ROW_NUMBER() OVER" in sql
+    assert "PARTITION BY company_id, unit_type_key" in sql
+    assert "SET status = 'archived'" in sql
+    assert "cutting_rulesets_one_active_company_key_idx" in sql
+    assert "WHERE company_id IS NOT NULL AND status = 'active'" in sql
 
 
 def test_simplified_default_units_migration_seeds_four_core_families():

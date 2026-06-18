@@ -500,6 +500,13 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
     [rulesets, selectedRulesetId],
   )
   const selectedRulesetIsCompanyOwned = selectedRulesetSummary?.company_id === companyId
+  const selectedRulesetIsBuiltIn = selectedRulesetSummary?.company_id === null
+  const selectedRulesetCanEdit = Boolean(selectedRulesetIsCompanyOwned && selectedRulesetSummary?.status === 'draft')
+  const rulesetUsedForQuotes = useMemo(
+    () => findRulesetUsedForQuotes(rulesets, companyId),
+    [companyId, rulesets],
+  )
+  const selectedRulesetUsedForQuotes = Boolean(selectedRulesetId && selectedRulesetId === rulesetUsedForQuotes?.id)
   const availableFormulaVariables = useMemo(
     () => getAvailableFormulaVariables(unitConfigs, selectedUnitTypeKey, unitParameterDefinitionsByType),
     [selectedUnitTypeKey, unitConfigs, unitParameterDefinitionsByType],
@@ -544,14 +551,15 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
       setError(null)
 
       try {
-        const path = `/api/v1/cutting/rulesets?unit_type_key=${encodeURIComponent(unitTypeKey)}`
+        const path = `/api/v1/cutting/rulesets?unit_type_key=${encodeURIComponent(unitTypeKey)}&include_archived=true`
         const list = await apiRequest<CuttingRulesetSummaryResponse[]>(path, { token: authToken })
         setRulesets(list)
+        const usedForQuotes = findRulesetUsedForQuotes(list, companyId)
 
         const selectedId =
           preferredRulesetId && list.some((ruleset) => ruleset.id === preferredRulesetId)
             ? preferredRulesetId
-            : list[0]?.id ?? null
+            : usedForQuotes?.id ?? list[0]?.id ?? null
         setSelectedRulesetId(selectedId)
         if (!selectedId) {
           setDraft(null)
@@ -565,7 +573,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
         setIsLoadingRulesets(false)
       }
     },
-    [authToken],
+    [authToken, companyId],
   )
 
   const loadUnitConfigs = useCallback(
@@ -639,18 +647,26 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
   }, [authToken, selectedRulesetId])
 
   async function handleSaveRuleset() {
-    if (!draft || !selectedRulesetId || !selectedRulesetIsCompanyOwned) return
+    if (!draft || !selectedRulesetId || !selectedRulesetCanEdit) return
 
     setIsSaving(true)
     setError(null)
     try {
+      if (draft.status === 'active' && selectedUnitConfig?.company_id === companyId && selectedUnitConfig.status === 'draft') {
+        await apiRequest<UnitConfigResponse>(`/api/v1/cutting/unit-configs/${selectedUnitConfig.id}`, {
+          body: toUnitConfigRequest(selectedUnitConfig, 'active'),
+          method: 'PATCH',
+          token: authToken,
+        })
+        await loadUnitConfigs(selectedUnitConfig.unit_type_key)
+      }
       const updated = await apiRequest<CuttingRulesetResponse>(`/api/v1/cutting/rulesets/${selectedRulesetId}`, {
         body: toRulesetRequest(draft),
         method: 'PATCH',
         token: authToken,
       })
       setDraft(mapRulesetToDraft(updated))
-      setRulesets((current) => current.map((ruleset) => (ruleset.id === updated.id ? toRulesetSummary(updated) : ruleset)))
+      await loadRulesets(updated.unit_type_key, updated.id)
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Could not save these cutting rules.')
     } finally {
@@ -658,34 +674,19 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
     }
   }
 
-  async function handleCreateCompanyCopy() {
-    if (!draft || !selectedRulesetSummary) return
-
-    const fallbackUnitConfig = unitConfigs.find(
-      (config) => config.unit_type_key === draft.unit_type_key && (config.company_id === companyId || config.company_id === null),
-    )
-    if (!draft.unit_config_id && !fallbackUnitConfig?.id) {
-      setError('No unit setup is available for this rule set.')
-      return
-    }
+  async function handleCreateRulesetRevision() {
+    if (!selectedRulesetSummary) return
 
     setIsCreatingCopy(true)
     setError(null)
     try {
-      const created = await apiRequest<CuttingRulesetResponse>('/api/v1/cutting/rulesets', {
-        body: {
-          ...toRulesetRequest(draft),
-          is_default: false,
-          name: `${draft.name} (Company)`,
-          status: 'draft',
-          unit_config_id: draft.unit_config_id ?? fallbackUnitConfig?.id ?? null,
-        },
+      const created = await apiRequest<CuttingRulesetResponse>(`/api/v1/cutting/rulesets/${selectedRulesetSummary.id}/revisions`, {
         method: 'POST',
         token: authToken,
       })
       await loadRulesets(created.unit_type_key, created.id)
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Could not create a company copy.')
+      setError(createError instanceof Error ? createError.message : 'Could not create a draft revision.')
     } finally {
       setIsCreatingCopy(false)
     }
@@ -713,7 +714,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
       })
       await loadRulesets(created.unit_type_key, created.id)
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Could not create a rule draft.')
+      setError(createError instanceof Error ? createError.message : 'Could not start a blank ruleset.')
     } finally {
       setIsCreatingRuleset(false)
     }
@@ -733,7 +734,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
       category: newUnitTypeDraft.category,
       variant_type: newUnitTypeDraft.variant_type,
       version: 1,
-      status: 'active',
+      status: 'draft',
       is_default: false,
       variant_config: {},
       default_height: parsePositiveInteger(newUnitTypeDraft.default_height, 780),
@@ -818,13 +819,14 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
   const saveDisabled =
     !draft ||
     !selectedRulesetSummary ||
-    !selectedRulesetIsCompanyOwned ||
+    !selectedRulesetCanEdit ||
     isSaving ||
     isLoadingRuleset ||
     draft.rows.length === 0 ||
     formulaErrorCount > 0
-  const canCreateCopy = Boolean(draft && selectedRulesetSummary && !selectedRulesetIsCompanyOwned)
+  const canCreateRevision = Boolean(selectedRulesetSummary && !selectedRulesetCanEdit)
   const canCreateRuleset = Boolean(selectedUnitTypeKey && selectedUnitConfig)
+  const canAddRow = Boolean(draft && selectedRulesetCanEdit && !isLoadingRuleset)
 
   return (
     <div className="grid min-w-0 gap-4 overflow-x-hidden">
@@ -844,21 +846,18 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
             <Plus className="h-4 w-4" aria-hidden="true" />
             New unit type
           </Button>
-          <Button disabled={!draft || isLoadingRuleset} onClick={addRow} type="button" variant="outline">
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Add row
+          <Button
+            disabled={!canCreateRevision || isCreatingCopy}
+            onClick={handleCreateRulesetRevision}
+            type="button"
+            variant={canCreateRevision && selectedRulesetIsBuiltIn ? 'default' : 'outline'}
+          >
+            {isCreatingCopy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CopyPlus className="h-4 w-4" aria-hidden="true" />}
+            {selectedRulesetIsBuiltIn ? 'Duplicate for company' : 'Create new revision'}
           </Button>
           <Button disabled={!canCreateRuleset || isCreatingRuleset} onClick={handleCreateRulesetDraft} type="button" variant="outline">
             {isCreatingRuleset ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
-            Create rule draft
-          </Button>
-          <Button disabled={!canCreateCopy || isCreatingCopy} onClick={handleCreateCompanyCopy} type="button" variant="outline">
-            {isCreatingCopy ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CopyPlus className="h-4 w-4" aria-hidden="true" />}
-            Duplicate for company
-          </Button>
-          <Button disabled={saveDisabled} onClick={handleSaveRuleset} type="button">
-            {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-            Save rules
+            Start blank ruleset
           </Button>
         </div>
       </CardHeader>
@@ -881,6 +880,12 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                 ))}
               </Select>
             </Label>
+            {selectedUnitConfig ? (
+              <Alert className="text-xs text-muted-foreground">
+                Unit setup: {selectedUnitConfig.company_id === companyId ? 'company revision' : 'built-in template'} v{selectedUnitConfig.version},{' '}
+                {selectedUnitConfig.status}. Draft company unit setups become active when their draft ruleset is activated.
+              </Alert>
+            ) : null}
 
             <div className="space-y-2">
               <p className="text-xs font-medium uppercase text-muted-foreground">Cutting rules</p>
@@ -891,28 +896,35 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                     Loading rule sets
                   </div>
                 ) : rulesets.length > 0 ? (
-                  rulesets.map((ruleset) => (
-                    <Button
-                      className="h-auto justify-between gap-3 py-2"
-                      key={ruleset.id}
-                      onClick={() => setSelectedRulesetId(ruleset.id)}
-                      type="button"
-                      variant={selectedRulesetId === ruleset.id ? 'secondary' : 'outline'}
-                    >
-                      <span className="min-w-0 text-left">
-                        <span className="block truncate text-sm font-medium">{ruleset.name}</span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {ruleset.status} · v{ruleset.version}
+                  rulesets.map((ruleset) => {
+                    const isUsedForQuotes = ruleset.id === rulesetUsedForQuotes?.id
+                    const isCompanyRuleset = ruleset.company_id === companyId
+                    return (
+                      <Button
+                        className="h-auto justify-between gap-3 py-2"
+                        key={ruleset.id}
+                        onClick={() => setSelectedRulesetId(ruleset.id)}
+                        type="button"
+                        variant={selectedRulesetId === ruleset.id ? 'secondary' : 'outline'}
+                      >
+                        <span className="min-w-0 text-left">
+                          <span className="block truncate text-sm font-medium">{ruleset.name}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {formatRulesetLifecycle(ruleset)}
+                          </span>
                         </span>
-                      </span>
-                      <Badge variant={ruleset.company_id ? 'outline' : 'warning'}>
-                        {ruleset.company_id ? 'Company' : 'Global'}
-                      </Badge>
-                    </Button>
-                  ))
+                        <span className="flex shrink-0 flex-wrap justify-end gap-1">
+                          {isUsedForQuotes ? <Badge>Used for quotes</Badge> : null}
+                          <Badge variant={isCompanyRuleset ? 'outline' : 'warning'}>
+                            {isCompanyRuleset ? 'Company ruleset' : 'Built-in template'}
+                          </Badge>
+                        </span>
+                      </Button>
+                    )
+                  })
                 ) : (
                   <Alert className="text-xs text-muted-foreground">
-                    No rule set is available for this unit type. Create a rule draft if this unit needs custom cutting logic.
+                    No ruleset is available for this unit type. Start a blank ruleset if this unit needs custom cutting logic.
                   </Alert>
                 )}
               </div>
@@ -927,11 +939,28 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
             </Alert>
           ) : draft ? (
             <div className="grid min-w-0 gap-4">
+                {selectedRulesetIsBuiltIn ? (
+                  <Alert variant="warning">Built-in template. Read-only. Duplicate to customize.</Alert>
+                ) : selectedRulesetIsCompanyOwned ? (
+                  <Alert>
+                    Company ruleset. {rulesetUsageMessage(draft, selectedRulesetSummary)}
+                  </Alert>
+                ) : null}
                 <div className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-card p-[var(--card-padding)] md:grid-cols-3">
+                  <div className="flex flex-wrap items-center gap-2 md:col-span-3">
+                    <Badge variant={selectedRulesetIsCompanyOwned ? 'outline' : 'warning'}>
+                      {selectedRulesetIsCompanyOwned ? 'Company ruleset' : 'Built-in template'}
+                    </Badge>
+                    {selectedRulesetUsedForQuotes ? (
+                      <Badge>Used for quotes</Badge>
+                    ) : (
+                      <Badge variant="outline">{draft.status === 'draft' ? 'Draft: not used' : 'Not used for quotes'}</Badge>
+                    )}
+                  </div>
                   <Label className="grid min-w-0 gap-1.5">
-                    Rule set name
+                    Ruleset name
                     <Input
-                      disabled={!selectedRulesetIsCompanyOwned}
+                      disabled={!selectedRulesetCanEdit}
                       onChange={(event) => updateDraftMeta('name', event.target.value)}
                       value={draft.name}
                     />
@@ -939,7 +968,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                   <Label className="grid min-w-0 gap-1.5">
                     Status
                     <Select
-                      disabled={!selectedRulesetIsCompanyOwned}
+                      disabled={!selectedRulesetCanEdit}
                       onChange={(event) => updateDraftMeta('status', event.target.value as CuttingConfigStatus)}
                       value={draft.status}
                     >
@@ -950,37 +979,34 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                       ))}
                     </Select>
                   </Label>
-                  <Label className="grid min-w-0 gap-1.5">
-                    Version
-                    <Input
-                      disabled={!selectedRulesetIsCompanyOwned}
-                      min={1}
-                      onChange={(event) => updateDraftMeta('version', parsePositiveInteger(event.target.value, draft.version))}
-                      type="number"
-                      value={draft.version}
-                    />
-                  </Label>
+                  <div className="grid min-w-0 gap-1.5">
+                    <p className="text-sm font-medium">Revision</p>
+                    <div className="flex h-[var(--control-height)] items-center rounded-[var(--control-radius)] border border-input bg-muted/30 px-[var(--control-padding-x)] text-sm">
+                      v{draft.version}
+                    </div>
+                  </div>
                   <Label className="grid min-w-0 gap-1.5 md:col-span-2">
                     Description
                     <Input
-                      disabled={!selectedRulesetIsCompanyOwned}
+                      disabled={!selectedRulesetCanEdit}
                       onChange={(event) => updateDraftMeta('description', event.target.value)}
                       value={draft.description}
                     />
                   </Label>
-                  <Label className="flex items-center gap-2 pt-6 text-sm font-medium">
-                    <Checkbox
-                      checked={draft.is_default}
-                      disabled={!selectedRulesetIsCompanyOwned}
-                      onChange={(event) => updateDraftMeta('is_default', event.target.checked)}
-                    />
-                    Default rule set
-                  </Label>
+                  <div className="grid gap-1.5 pt-6">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <Checkbox
+                        checked={draft.is_default}
+                        disabled={!selectedRulesetCanEdit}
+                        onChange={(event) => updateDraftMeta('is_default', event.target.checked)}
+                      />
+                      Preferred active ruleset
+                    </Label>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Quote cutlists use a company ruleset only when its status is active. Drafts are never used.
+                    </p>
+                  </div>
                 </div>
-
-                {!selectedRulesetIsCompanyOwned ? (
-                  <Alert>This is a built-in rule set. Duplicate it for your company before making custom changes.</Alert>
-                ) : null}
 
                 <div className="rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
                   <p className="text-sm font-semibold">Formula helper</p>
@@ -1012,6 +1038,17 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                   </Alert>
                 ) : null}
 
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button disabled={!canAddRow} onClick={addRow} type="button" variant="outline">
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    Add row
+                  </Button>
+                  <Button disabled={saveDisabled} onClick={handleSaveRuleset} type="button">
+                    {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+                    Save rules
+                  </Button>
+                </div>
+
                 <TableContainer>
                   <Table className="min-w-[1500px]">
                     <TableHeader>
@@ -1042,7 +1079,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                           <TableCell>
                             <Input
                               className="h-8 w-20"
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               min={1}
                               onChange={(event) =>
                                 updateDraftRow(row.id, 'sort_order', parsePositiveInteger(event.target.value, row.sort_order))
@@ -1054,7 +1091,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                           <TableCell>
                             <Select
                               className="h-8 min-w-[140px]"
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               onChange={(event) => updateDraftRow(row.id, 'section', event.target.value as CuttingRuleSection)}
                               value={row.section}
                             >
@@ -1068,14 +1105,14 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                           <TableCell>
                             <Input
                               className="h-8 min-w-[200px]"
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               onChange={(event) => updateDraftRow(row.id, 'description', event.target.value)}
                               value={row.description}
                             />
                           </TableCell>
                           <TableCell>
                             <FormulaEditor
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               error={formulaErrors[row.id]?.length_formula}
                               onBlur={(value) => updateDraftRow(row.id, 'length_formula', value.trim())}
                               onChange={(value) => updateDraftRow(row.id, 'length_formula', value)}
@@ -1086,7 +1123,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                           </TableCell>
                           <TableCell>
                             <FormulaEditor
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               error={formulaErrors[row.id]?.width_formula}
                               onBlur={(value) => updateDraftRow(row.id, 'width_formula', value.trim())}
                               onChange={(value) => updateDraftRow(row.id, 'width_formula', value)}
@@ -1097,7 +1134,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                           </TableCell>
                           <TableCell>
                             <FormulaEditor
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               error={formulaErrors[row.id]?.qty_formula}
                               onBlur={(value) => updateDraftRow(row.id, 'qty_formula', value.trim())}
                               onChange={(value) => updateDraftRow(row.id, 'qty_formula', value)}
@@ -1108,7 +1145,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                           </TableCell>
                           <TableCell>
                             <FormulaEditor
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               error={formulaErrors[row.id]?.condition_formula}
                               onBlur={(value) => updateDraftRow(row.id, 'condition_formula', value.trim())}
                               onChange={(value) => updateDraftRow(row.id, 'condition_formula', value)}
@@ -1120,7 +1157,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                           <TableCell>
                             <Select
                               className="h-8 min-w-[120px]"
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               onChange={(event) => updateDraftRow(row.id, 'grain_direction', event.target.value as GrainDirection)}
                               value={row.grain_direction}
                             >
@@ -1134,42 +1171,42 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                           <TableCell className="text-center">
                             <Checkbox
                               checked={row.can_rotate}
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               onChange={(event) => updateDraftRow(row.id, 'can_rotate', event.target.checked)}
                             />
                           </TableCell>
                           <TableCell className="text-center">
                             <Checkbox
                               checked={row.edge_long_1}
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               onChange={(event) => updateDraftRow(row.id, 'edge_long_1', event.target.checked)}
                             />
                           </TableCell>
                           <TableCell className="text-center">
                             <Checkbox
                               checked={row.edge_long_2}
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               onChange={(event) => updateDraftRow(row.id, 'edge_long_2', event.target.checked)}
                             />
                           </TableCell>
                           <TableCell className="text-center">
                             <Checkbox
                               checked={row.edge_short_1}
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               onChange={(event) => updateDraftRow(row.id, 'edge_short_1', event.target.checked)}
                             />
                           </TableCell>
                           <TableCell className="text-center">
                             <Checkbox
                               checked={row.edge_short_2}
-                              disabled={!selectedRulesetIsCompanyOwned}
+                              disabled={!selectedRulesetCanEdit}
                               onChange={(event) => updateDraftRow(row.id, 'edge_short_2', event.target.checked)}
                             />
                           </TableCell>
                           <TableCell>
                             <Button
                               aria-label="Delete rule row"
-                              disabled={!selectedRulesetIsCompanyOwned || draft.rows.length <= 1}
+                              disabled={!selectedRulesetCanEdit || draft.rows.length <= 1}
                               onClick={() => removeRow(row.id)}
                               size="icon"
                               type="button"
@@ -1202,7 +1239,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
               <div>
                 <CardTitle>Create Advanced Unit Type</CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Add a company-only unit type and starter cutting rules for specialised work.
+                  Add a company-only draft unit setup and starter cutting rules for specialised work.
                 </p>
               </div>
               <Button onClick={() => setIsCreateUnitModalOpen(false)} type="button" variant="ghost">
@@ -1341,7 +1378,7 @@ export function CuttingRulesetsPage({ authToken, companyId }: { authToken: strin
                 </Button>
                 <Button disabled={isCreatingUnitType} onClick={handleCreateUnitType} type="button">
                   {isCreatingUnitType ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-                  Create unit type
+                  Create draft unit type
                 </Button>
               </div>
             </CardContent>
@@ -2056,19 +2093,25 @@ function toRulesetRequest(draft: CuttingRulesetDraft): CuttingRulesetRequest {
   }
 }
 
-function toRulesetSummary(ruleset: CuttingRulesetResponse): CuttingRulesetSummaryResponse {
+function toUnitConfigRequest(config: UnitConfigResponse, status: CuttingConfigStatus): UnitConfigRequest {
   return {
-    company_id: ruleset.company_id,
-    created_at: ruleset.created_at,
-    description: ruleset.description,
-    id: ruleset.id,
-    is_default: ruleset.is_default,
-    name: ruleset.name,
-    status: ruleset.status,
-    unit_config_id: ruleset.unit_config_id,
-    unit_type_key: ruleset.unit_type_key,
-    updated_at: ruleset.updated_at,
-    version: ruleset.version,
+    category: config.category,
+    default_depth: config.default_depth,
+    default_height: config.default_height,
+    default_width: config.default_width,
+    depth_max: config.depth_max,
+    depth_min: config.depth_min,
+    height_max: config.height_max,
+    height_min: config.height_min,
+    is_default: config.is_default,
+    label: config.label,
+    status,
+    unit_type_key: config.unit_type_key,
+    variant_config: config.variant_config ?? {},
+    variant_type: config.variant_type,
+    version: config.version,
+    width_max: config.width_max,
+    width_min: config.width_min,
   }
 }
 
@@ -2081,8 +2124,8 @@ function createStarterRulesetRequest(
   return {
     unit_config_id: unitConfigId,
     unit_type_key: unitTypeKey,
-    name: `Default ${label}`,
-    description: 'Starter ruleset for a custom unit type.',
+    name: `Blank ${label} ruleset`,
+    description: 'Blank company ruleset. Add formula rows and activate after testing.',
     status: 'draft',
     version: 1,
     is_default: false,
@@ -2132,6 +2175,59 @@ function createLocalRowId() {
     return `draft-${crypto.randomUUID()}`
   }
   return `draft-${Date.now()}-${Math.round(Math.random() * 100_000)}`
+}
+
+function findRulesetUsedForQuotes(
+  rulesets: CuttingRulesetSummaryResponse[],
+  companyId: string,
+): CuttingRulesetSummaryResponse | null {
+  const activeCompanyRuleset = rulesets
+    .filter((ruleset) => ruleset.company_id === companyId && ruleset.status === 'active')
+    .sort(compareRulesetRuntimePriority)[0]
+  if (activeCompanyRuleset) {
+    return activeCompanyRuleset
+  }
+
+  return (
+    rulesets
+      .filter((ruleset) => ruleset.company_id === null && ruleset.status === 'active' && ruleset.is_default)
+      .sort(compareRulesetRuntimePriority)[0] ?? null
+  )
+}
+
+function compareRulesetRuntimePriority(
+  first: CuttingRulesetSummaryResponse,
+  second: CuttingRulesetSummaryResponse,
+) {
+  const defaultPriority = Number(second.is_default) - Number(first.is_default)
+  if (defaultPriority !== 0) return defaultPriority
+  const versionPriority = second.version - first.version
+  if (versionPriority !== 0) return versionPriority
+  return Date.parse(second.updated_at) - Date.parse(first.updated_at)
+}
+
+function formatRulesetLifecycle(ruleset: CuttingRulesetSummaryResponse): string {
+  const statusLabel = ruleset.status === 'active' ? 'Active' : ruleset.status === 'draft' ? 'Draft' : 'Archived'
+  return `${statusLabel} · v${ruleset.version}`
+}
+
+function rulesetUsageMessage(
+  draft: CuttingRulesetDraft,
+  persistedRuleset: CuttingRulesetSummaryResponse | null,
+): string {
+  if (persistedRuleset?.status === 'active') {
+    return 'Active revision. Used for quote cutlists now. Create a new revision to make changes.'
+  }
+  if (persistedRuleset?.status === 'archived') {
+    return 'Archived revision. Read-only and not used by quote cutlists.'
+  }
+  if (draft.status === 'draft') {
+    return 'Draft: not used by quote cutlists until activated.'
+  }
+  if (draft.status === 'archived') {
+    return 'Archived: not used by quote cutlists.'
+  }
+  return 'Activating this draft makes it the one used for quotes and archives the previous active company revision.'
 }
 
 function parsePositiveInteger(value: string, fallback: number) {

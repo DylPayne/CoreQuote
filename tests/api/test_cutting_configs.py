@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from corequote_api.auth import AuthenticatedUser
-from corequote_api.cutting_configs import CuttingConfigNotFound
+from corequote_api.cutting_configs import CuttingConfigConflict, CuttingConfigNotFound
 from corequote_api.main import app
 from corequote_api.routers import auth, cutting_configs
 
@@ -35,8 +35,10 @@ class FakeCuttingConfigStore:
     def __init__(self):
         self.created_unit_config_payload: tuple[str, dict] | None = None
         self.updated_unit_config_payload: tuple[str, str, dict] | None = None
+        self.created_unit_config_revision: tuple[str, str] | None = None
         self.created_payload: tuple[str, dict] | None = None
         self.updated_payload: tuple[str, str, dict] | None = None
+        self.created_ruleset_revision: tuple[str, str] | None = None
         self.list_rulesets_filter: tuple[str, str | None, bool] | None = None
 
     def list_unit_configs(self, company_id: str, include_archived: bool = False):
@@ -55,8 +57,21 @@ class FakeCuttingConfigStore:
         return unit_config("created-unit-config", company_id=company_id, unit_type_key=payload["unit_type_key"], label=payload["label"])
 
     def update_unit_config(self, company_id: str, unit_config_id: str, payload: dict):
+        if unit_config_id == "active-unit-config":
+            raise CuttingConfigConflict("Only draft unit setup revisions can be edited")
         self.updated_unit_config_payload = (company_id, unit_config_id, payload)
         return unit_config(unit_config_id, company_id=company_id, unit_type_key=payload["unit_type_key"], label=payload["label"])
+
+    def create_unit_config_revision(self, company_id: str, unit_config_id: str):
+        self.created_unit_config_revision = (company_id, unit_config_id)
+        return unit_config(
+            "unit-config-revision",
+            company_id=company_id,
+            unit_type_key="Base 2 Door",
+            label="Company Base Door",
+            status="draft",
+            version=2,
+        )
 
     def list_rulesets(self, company_id: str, unit_type_key: str | None = None, include_archived: bool = False):
         self.list_rulesets_filter = (company_id, unit_type_key, include_archived)
@@ -75,8 +90,14 @@ class FakeCuttingConfigStore:
         return ruleset("created-ruleset", company_id=company_id, unit_type_key=payload["unit_type_key"], include_rows=True)
 
     def update_ruleset(self, company_id: str, ruleset_id: str, payload: dict):
+        if ruleset_id == "active-ruleset":
+            raise CuttingConfigConflict("Only draft ruleset revisions can be edited")
         self.updated_payload = (company_id, ruleset_id, payload)
         return ruleset(ruleset_id, company_id=company_id, unit_type_key=payload["unit_type_key"], include_rows=True)
+
+    def create_ruleset_revision(self, company_id: str, ruleset_id: str):
+        self.created_ruleset_revision = (company_id, ruleset_id)
+        return ruleset("ruleset-revision", company_id=company_id, include_rows=True, status="draft", version=2)
 
 
 def test_unit_configs_list_includes_global_and_company_visible_configs():
@@ -156,6 +177,35 @@ def test_update_unit_config_replaces_company_owned_shape():
     assert store.updated_unit_config_payload == ("company-1", "company-unit-config", payload)
 
 
+def test_update_active_unit_config_returns_revision_conflict():
+    store = FakeCuttingConfigStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[cutting_configs.get_cutting_config_store] = lambda: store
+    try:
+        response = client.patch("/api/v1/cutting/unit-configs/active-unit-config", json=unit_config_payload(), headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Only draft unit setup revisions can be edited"
+
+
+def test_create_unit_config_revision_copies_visible_config_as_company_draft():
+    store = FakeCuttingConfigStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[cutting_configs.get_cutting_config_store] = lambda: store
+    try:
+        response = client.post("/api/v1/cutting/unit-configs/global-base-door/revisions", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert store.created_unit_config_revision == ("company-1", "global-base-door")
+    assert response.json()["company_id"] == "company-1"
+    assert response.json()["status"] == "draft"
+    assert response.json()["version"] == 2
+
+
 def test_update_ruleset_replaces_rows_for_grid_saves():
     store = FakeCuttingConfigStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
@@ -168,6 +218,35 @@ def test_update_ruleset_replaces_rows_for_grid_saves():
 
     assert response.status_code == 200
     assert store.updated_payload == ("company-1", "company-ruleset", payload)
+
+
+def test_update_active_ruleset_returns_revision_conflict():
+    store = FakeCuttingConfigStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[cutting_configs.get_cutting_config_store] = lambda: store
+    try:
+        response = client.patch("/api/v1/cutting/rulesets/active-ruleset", json=ruleset_payload(), headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Only draft ruleset revisions can be edited"
+
+
+def test_create_ruleset_revision_copies_visible_ruleset_as_company_draft():
+    store = FakeCuttingConfigStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[cutting_configs.get_cutting_config_store] = lambda: store
+    try:
+        response = client.post("/api/v1/cutting/rulesets/global-ruleset/revisions", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert store.created_ruleset_revision == ("company-1", "global-ruleset")
+    assert response.json()["company_id"] == "company-1"
+    assert response.json()["status"] == "draft"
+    assert response.json()["version"] == 2
 
 
 def test_viewer_cannot_create_ruleset():
@@ -232,6 +311,8 @@ def unit_config(
     unit_type_key: str = "Base 2 Door",
     label: str = "Base 2 Door",
     is_default: bool = False,
+    status: str = "active",
+    version: int = 1,
 ) -> dict:
     return {
         "id": item_id,
@@ -240,8 +321,8 @@ def unit_config(
         "label": label,
         "category": "base",
         "variant_type": "door",
-        "version": 1,
-        "status": "active",
+        "version": version,
+        "status": status,
         "is_default": is_default,
         "variant_config": {"num_doors": 2, "default_shelves": 1, "shelf_setback": 20, "panel_gap_mm": 3},
         "default_height": 780,
@@ -264,6 +345,8 @@ def ruleset(
     company_id: str | None,
     unit_type_key: str = "Base 2 Door",
     include_rows: bool,
+    status: str = "draft",
+    version: int = 1,
 ) -> dict:
     result = {
         "id": item_id,
@@ -272,8 +355,8 @@ def ruleset(
         "unit_type_key": unit_type_key,
         "name": "Company Base Door",
         "description": "Door rules",
-        "status": "draft",
-        "version": 1,
+        "status": status,
+        "version": version,
         "is_default": False,
         "created_at": NOW,
         "updated_at": NOW,
