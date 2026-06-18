@@ -136,7 +136,7 @@ Ruleset-based runtime evaluation is controlled by environment variable:
 When the ruleset runtime is enabled, each unit resolves in this order:
 
 1. Company-owned active unit config, then global active default unit config.
-2. Company-owned active ruleset, then global active default ruleset.
+2. Company-owned active ruleset, then global active default ruleset. Only one company ruleset per unit type can be active; active company revisions are read-only and must be copied to a draft revision before changes.
 3. If ruleset/config is missing or evaluation fails, that unit falls back to legacy runtime output.
 
 `runtime_mode` values:

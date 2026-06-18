@@ -4,18 +4,14 @@ This document defines how CoreQuote should evolve from hardcoded strategy-based 
 
 It exists to guide a future implementation task and keep architecture decisions consistent.
 
-## Current State (as of May 29, 2026)
+## Current State (as of June 17, 2026)
 
 - Rulesets and rows are stored and editable through the API:
   - `GET/POST/PATCH /api/v1/cutting/rulesets`
   - `GET /api/v1/cutting/unit-configs`
-- Frontend editor supports row formulas, section/type metadata, and edge toggles.
-- Runtime cutlist generation does **not** use these rules yet.
-- Active runtime still uses hardcoded core logic:
-  - `apps/api/corequote_api/services.py` -> `build_cutlist(...)`
-  - `packages/corequote-core/corequote_core/cutlist.py`
-  - `packages/corequote-core/corequote_core/cutting/engine.py`
-  - `packages/corequote-core/corequote_core/cutting/strategies.py`
+- Frontend editor labels built-in templates and active company revisions as read-only, while company draft revisions are editable.
+- Runtime cutlist generation can use DB rulesets when `CUTLIST_USE_DB_RULESETS` is enabled.
+- The legacy strategy engine remains the fallback path when the feature flag is disabled, no ruleset is found, or ruleset evaluation fails.
 
 ## Target Outcome
 
@@ -35,9 +31,17 @@ For each unit in a quote:
    - Company config (`company_id = current company`, `status = active`)
    - Global default config (`company_id IS NULL`, `is_default = true`, `status = active`)
 3. Resolve ruleset in priority order:
-   - Company ruleset for `unit_type_key` (`status = active`)
+   - Company ruleset for `unit_type_key` (`status = active`). Each company can have only one active ruleset per unit type.
    - Global default ruleset for `unit_type_key` (`company_id IS NULL`, `is_default = true`, `status = active`)
 4. If no ruleset is found, fall back to legacy strategy engine (temporary compatibility behavior).
+
+Lifecycle decision:
+
+- Built-in/global rulesets are templates. They are read-only for company users and should be duplicated before customization.
+- Company draft ruleset revisions are editable.
+- Draft company rulesets are not used by quote cutlists.
+- Active company ruleset revisions are read-only; changes require creating a new draft revision.
+- Activating a company ruleset for a unit type archives any other active company ruleset for that unit type.
 
 ## Evaluation Context
 

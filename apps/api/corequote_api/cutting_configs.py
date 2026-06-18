@@ -116,36 +116,43 @@ class CuttingConfigStore:
         data = _clean_payload(payload)
         try:
             with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    INSERT INTO unit_configs
-                        (company_id, unit_type_key, label, category, variant_type, version, status, is_default,
-                         variant_config, default_height, default_width, default_depth,
-                         height_min, height_max, width_min, width_max, depth_min, depth_max)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id::text
-                    """,
-                    (
-                        company_id,
-                        data["unit_type_key"],
-                        data["label"],
-                        data.get("category", "custom"),
-                        data.get("variant_type", "custom"),
-                        data.get("version", 1),
-                        data.get("status", "active"),
-                        data.get("is_default", False),
-                        Jsonb(data.get("variant_config", {}) or {}),
-                        data["default_height"],
-                        data["default_width"],
-                        data["default_depth"],
-                        data["height_min"],
-                        data["height_max"],
-                        data["width_min"],
-                        data["width_max"],
-                        data["depth_min"],
-                        data["depth_max"],
-                    ),
-                ).fetchone()
+                with conn.transaction():
+                    if data.get("status", "active") == "active":
+                        self._archive_other_active_company_unit_configs(
+                            conn,
+                            company_id=company_id,
+                            unit_type_key=data["unit_type_key"],
+                        )
+                    row = conn.execute(
+                        """
+                        INSERT INTO unit_configs
+                            (company_id, unit_type_key, label, category, variant_type, version, status, is_default,
+                             variant_config, default_height, default_width, default_depth,
+                             height_min, height_max, width_min, width_max, depth_min, depth_max)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id::text
+                        """,
+                        (
+                            company_id,
+                            data["unit_type_key"],
+                            data["label"],
+                            data.get("category", "custom"),
+                            data.get("variant_type", "custom"),
+                            data.get("version", 1),
+                            data.get("status", "active"),
+                            data.get("is_default", False),
+                            Jsonb(data.get("variant_config", {}) or {}),
+                            data["default_height"],
+                            data["default_width"],
+                            data["default_depth"],
+                            data["height_min"],
+                            data["height_max"],
+                            data["width_min"],
+                            data["width_max"],
+                            data["depth_min"],
+                            data["depth_max"],
+                        ),
+                    ).fetchone()
         except psycopg.errors.UniqueViolation as exc:
             raise CuttingConfigConflict("Unit config already exists") from exc
         return self.get_unit_config(company_id, row["id"])
@@ -154,57 +161,127 @@ class CuttingConfigStore:
         data = _clean_payload(payload)
         try:
             with self._connect() as conn:
-                row = conn.execute(
-                    """
-                    UPDATE unit_configs
-                    SET unit_type_key = %s,
-                        label = %s,
-                        category = %s,
-                        variant_type = %s,
-                        version = %s,
-                        status = %s,
-                        is_default = %s,
-                        variant_config = %s,
-                        default_height = %s,
-                        default_width = %s,
-                        default_depth = %s,
-                        height_min = %s,
-                        height_max = %s,
-                        width_min = %s,
-                        width_max = %s,
-                        depth_min = %s,
-                        depth_max = %s
-                    WHERE id = %s
-                      AND company_id = %s
-                    RETURNING id::text
-                    """,
-                    (
-                        data["unit_type_key"],
-                        data["label"],
-                        data.get("category", "custom"),
-                        data.get("variant_type", "custom"),
-                        data.get("version", 1),
-                        data.get("status", "active"),
-                        data.get("is_default", False),
-                        Jsonb(data.get("variant_config", {}) or {}),
-                        data["default_height"],
-                        data["default_width"],
-                        data["default_depth"],
-                        data["height_min"],
-                        data["height_max"],
-                        data["width_min"],
-                        data["width_max"],
-                        data["depth_min"],
-                        data["depth_max"],
-                        unit_config_id,
-                        company_id,
-                    ),
-                ).fetchone()
-                if not row:
-                    raise CuttingConfigNotFound("Unit config not found")
+                with conn.transaction():
+                    existing = conn.execute(
+                        f"""
+                        SELECT {UNIT_CONFIG_SELECT}
+                        FROM unit_configs
+                        WHERE id = %s
+                          AND company_id = %s
+                        """,
+                        (unit_config_id, company_id),
+                    ).fetchone()
+                    if not existing:
+                        raise CuttingConfigNotFound("Unit config not found")
+                    if existing["status"] != "draft":
+                        raise CuttingConfigConflict("Only draft unit setup revisions can be edited. Create a new revision before changing an active setup.")
+                    if data.get("status", "active") == "active":
+                        self._archive_other_active_company_unit_configs(
+                            conn,
+                            company_id=company_id,
+                            unit_type_key=data["unit_type_key"],
+                            exclude_unit_config_id=unit_config_id,
+                        )
+                    row = conn.execute(
+                        """
+                        UPDATE unit_configs
+                        SET unit_type_key = %s,
+                            label = %s,
+                            category = %s,
+                            variant_type = %s,
+                            version = %s,
+                            status = %s,
+                            is_default = %s,
+                            variant_config = %s,
+                            default_height = %s,
+                            default_width = %s,
+                            default_depth = %s,
+                            height_min = %s,
+                            height_max = %s,
+                            width_min = %s,
+                            width_max = %s,
+                            depth_min = %s,
+                            depth_max = %s
+                        WHERE id = %s
+                          AND company_id = %s
+                        RETURNING id::text
+                        """,
+                        (
+                            data["unit_type_key"],
+                            data["label"],
+                            data.get("category", "custom"),
+                            data.get("variant_type", "custom"),
+                            data.get("version", 1),
+                            data.get("status", "active"),
+                            data.get("is_default", False),
+                            Jsonb(data.get("variant_config", {}) or {}),
+                            data["default_height"],
+                            data["default_width"],
+                            data["default_depth"],
+                            data["height_min"],
+                            data["height_max"],
+                            data["width_min"],
+                            data["width_max"],
+                            data["depth_min"],
+                            data["depth_max"],
+                            unit_config_id,
+                            company_id,
+                        ),
+                    ).fetchone()
+                    if not row:
+                        raise CuttingConfigNotFound("Unit config not found")
         except psycopg.errors.UniqueViolation as exc:
             raise CuttingConfigConflict("Unit config already exists") from exc
         return self.get_unit_config(company_id, unit_config_id)
+
+    def create_unit_config_revision(self, company_id: str, unit_config_id: str) -> dict:
+        try:
+            with self._connect() as conn:
+                with conn.transaction():
+                    source = conn.execute(
+                        f"""
+                        SELECT {UNIT_CONFIG_SELECT}
+                        FROM unit_configs
+                        WHERE id = %s
+                          AND (company_id IS NULL OR company_id = %s)
+                        """,
+                        (unit_config_id, company_id),
+                    ).fetchone()
+                    if not source:
+                        raise CuttingConfigNotFound("Unit config not found")
+                    next_version = self._next_company_unit_config_version(conn, company_id, source["unit_type_key"])
+                    row = conn.execute(
+                        """
+                        INSERT INTO unit_configs
+                            (company_id, unit_type_key, label, category, variant_type, version, status, is_default,
+                             based_on_unit_config_id, variant_config, default_height, default_width, default_depth,
+                             height_min, height_max, width_min, width_max, depth_min, depth_max)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'draft', false, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id::text
+                        """,
+                        (
+                            company_id,
+                            source["unit_type_key"],
+                            source["label"],
+                            source["category"],
+                            source["variant_type"],
+                            next_version,
+                            source["id"],
+                            Jsonb(source.get("variant_config", {}) or {}),
+                            source["default_height"],
+                            source["default_width"],
+                            source["default_depth"],
+                            source["height_min"],
+                            source["height_max"],
+                            source["width_min"],
+                            source["width_max"],
+                            source["depth_min"],
+                            source["depth_max"],
+                        ),
+                    ).fetchone()
+        except psycopg.errors.UniqueViolation as exc:
+            raise CuttingConfigConflict("Unit config revision already exists") from exc
+        return self.get_unit_config(company_id, row["id"])
 
     def list_rulesets(
         self,
@@ -252,6 +329,12 @@ class CuttingConfigStore:
             with self._connect() as conn:
                 with conn.transaction():
                     self._ensure_unit_config_visible(conn, company_id, data.get("unit_config_id"))
+                    if data.get("status", "draft") == "active":
+                        self._archive_other_active_company_rulesets(
+                            conn,
+                            company_id=company_id,
+                            unit_type_key=data["unit_type_key"],
+                        )
                     row = conn.execute(
                         """
                         INSERT INTO cutting_rulesets
@@ -292,7 +375,16 @@ class CuttingConfigStore:
                     ).fetchone()
                     if not existing:
                         raise CuttingConfigNotFound("Cutting ruleset not found")
+                    if existing["status"] != "draft":
+                        raise CuttingConfigConflict("Only draft ruleset revisions can be edited. Create a new revision before changing an active ruleset.")
                     self._snapshot_ruleset(conn, self._with_rows(conn, existing), snapshot_reason="update")
+                    if data.get("status", "draft") == "active":
+                        self._archive_other_active_company_rulesets(
+                            conn,
+                            company_id=company_id,
+                            unit_type_key=data["unit_type_key"],
+                            exclude_ruleset_id=ruleset_id,
+                        )
                     row = conn.execute(
                         """
                         UPDATE cutting_rulesets
@@ -326,6 +418,141 @@ class CuttingConfigStore:
             raise CuttingConfigConflict("Cutting ruleset already exists") from exc
         return self.get_ruleset(company_id, ruleset_id)
 
+    def create_ruleset_revision(self, company_id: str, ruleset_id: str) -> dict:
+        try:
+            with self._connect() as conn:
+                with conn.transaction():
+                    source = conn.execute(
+                        f"""
+                        SELECT {RULESET_SELECT}
+                        FROM cutting_rulesets
+                        WHERE id = %s
+                          AND (company_id IS NULL OR company_id = %s)
+                        """,
+                        (ruleset_id, company_id),
+                    ).fetchone()
+                    if not source:
+                        raise CuttingConfigNotFound("Cutting ruleset not found")
+                    source_with_rows = self._with_rows(conn, source)
+                    next_version = self._next_company_ruleset_version(conn, company_id, source["unit_type_key"])
+                    row = conn.execute(
+                        """
+                        INSERT INTO cutting_rulesets
+                            (company_id, unit_config_id, unit_type_key, name, description, status, version, based_on_ruleset_id, is_default)
+                        VALUES (%s, %s, %s, %s, %s, 'draft', %s, %s, false)
+                        RETURNING id::text
+                        """,
+                        (
+                            company_id,
+                            source.get("unit_config_id"),
+                            source["unit_type_key"],
+                            source["name"],
+                            source.get("description", ""),
+                            next_version,
+                            source["id"],
+                        ),
+                    ).fetchone()
+                    self._replace_rows(conn, row["id"], source_with_rows.get("rows", []))
+        except psycopg.errors.UniqueViolation as exc:
+            raise CuttingConfigConflict("Cutting ruleset revision already exists") from exc
+        return self.get_ruleset(company_id, row["id"])
+
+    def _archive_other_active_company_unit_configs(
+        self,
+        conn,
+        *,
+        company_id: str,
+        unit_type_key: str,
+        exclude_unit_config_id: str | None = None,
+    ) -> None:
+        exclude_clause = ""
+        params: list[Any] = [company_id, unit_type_key]
+        if exclude_unit_config_id:
+            exclude_clause = "AND id <> %s"
+            params.append(exclude_unit_config_id)
+
+        conn.execute(
+            f"""
+            UPDATE unit_configs
+            SET status = 'archived',
+                is_default = false
+            WHERE company_id = %s
+              AND unit_type_key = %s
+              AND status = 'active'
+              {exclude_clause}
+            """,
+            params,
+        )
+
+    def _archive_other_active_company_rulesets(
+        self,
+        conn,
+        *,
+        company_id: str,
+        unit_type_key: str,
+        exclude_ruleset_id: str | None = None,
+    ) -> None:
+        exclude_clause = ""
+        params: list[Any] = [company_id, unit_type_key]
+        if exclude_ruleset_id:
+            exclude_clause = "AND id <> %s"
+            params.append(exclude_ruleset_id)
+
+        active_rulesets = conn.execute(
+            f"""
+            SELECT {RULESET_SELECT}
+            FROM cutting_rulesets
+            WHERE company_id = %s
+              AND unit_type_key = %s
+              AND status = 'active'
+              {exclude_clause}
+            """,
+            params,
+        ).fetchall()
+        for ruleset in active_rulesets:
+            self._snapshot_ruleset(
+                conn,
+                self._with_rows(conn, ruleset),
+                snapshot_reason="auto_archive_for_active_ruleset",
+            )
+
+        conn.execute(
+            f"""
+            UPDATE cutting_rulesets
+            SET status = 'archived',
+                is_default = false
+            WHERE company_id = %s
+              AND unit_type_key = %s
+              AND status = 'active'
+              {exclude_clause}
+            """,
+            params,
+        )
+
+    def _next_company_unit_config_version(self, conn, company_id: str, unit_type_key: str) -> int:
+        row = conn.execute(
+            """
+            SELECT COALESCE(MAX(version), 0) + 1 AS next_version
+            FROM unit_configs
+            WHERE company_id = %s
+              AND unit_type_key = %s
+            """,
+            (company_id, unit_type_key),
+        ).fetchone()
+        return int(row["next_version"])
+
+    def _next_company_ruleset_version(self, conn, company_id: str, unit_type_key: str) -> int:
+        row = conn.execute(
+            """
+            SELECT COALESCE(MAX(version), 0) + 1 AS next_version
+            FROM cutting_rulesets
+            WHERE company_id = %s
+              AND unit_type_key = %s
+            """,
+            (company_id, unit_type_key),
+        ).fetchone()
+        return int(row["next_version"])
+
     def _snapshot_ruleset(self, conn, ruleset: dict[str, Any], snapshot_reason: str) -> None:
         conn.execute(
             """
@@ -354,10 +581,35 @@ class CuttingConfigStore:
                 ruleset.get("status", "draft"),
                 ruleset.get("version", 1),
                 ruleset.get("is_default", False),
-                Jsonb(ruleset.get("rows", []) or []),
+                Jsonb(self._ruleset_history_rows(ruleset.get("rows", []) or [])),
                 snapshot_reason,
             ),
         )
+
+    @staticmethod
+    def _ruleset_history_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        history_rows: list[dict[str, Any]] = []
+        for index, row in enumerate(rows, start=1):
+            data = _clean_payload(row)
+            history_rows.append(
+                {
+                    "sort_order": data.get("sort_order", index),
+                    "section": data.get("section", "carcass"),
+                    "description": data.get("description", ""),
+                    "length_formula": data.get("length_formula", ""),
+                    "width_formula": data.get("width_formula", ""),
+                    "qty_formula": data.get("qty_formula", "1"),
+                    "condition_formula": data.get("condition_formula", ""),
+                    "grain_direction": data.get("grain_direction", "none"),
+                    "can_rotate": data.get("can_rotate", True),
+                    "edge_long_1": data.get("edge_long_1", False),
+                    "edge_long_2": data.get("edge_long_2", False),
+                    "edge_short_1": data.get("edge_short_1", False),
+                    "edge_short_2": data.get("edge_short_2", False),
+                    "meta": data.get("meta", {}) or {},
+                }
+            )
+        return history_rows
 
     def _with_rows(self, conn, ruleset: dict) -> dict:
         rows = conn.execute(
