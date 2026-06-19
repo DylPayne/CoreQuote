@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileSpreadsheet,
   LoaderCircle,
+  PackagePlus,
   Percent,
   Plus,
   RefreshCcw,
@@ -26,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
+import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -41,13 +43,13 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
 import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
-import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
+import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, emptyAccessoryRule, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, normalizeAccessoryConfig, percentStringToBps } from '@/components/libraries/helpers'
 import { DrawerSystemConfigEditor, HardwareAccessoryConfigEditor, LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
 import type { HardwareAccessoryOptions } from '@/components/libraries/tables'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemKind, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemKind, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -87,6 +89,7 @@ type RecentFilterValue = 'all' | '7' | '30' | '90'
 type PriceStatusFilterValue = 'all' | LibraryEffectiveStatus
 type PriceTypeFilterValue = 'all' | PriceItemType
 type PriceSourceFilterValue = 'all' | PriceListItemRow['cost_source']
+type BulkAccessoryResource = Extract<LibraryCatalogBulkResource, 'slides' | 'hinges'>
 
 type CatalogBulkField = {
   label: string
@@ -210,6 +213,34 @@ function toggleId(ids: string[], itemId: string, checked: boolean) {
 function onlyVisibleSelected(selectedIds: string[], visibleIds: string[]) {
   const visible = new Set(visibleIds)
   return selectedIds.filter((id) => visible.has(id))
+}
+
+function accessoryRuleKey(rule: HardwareAccessoryRule) {
+  return [
+    rule.item_type,
+    rule.item_ref_id || 'custom',
+    rule.name.trim().toLowerCase(),
+    rule.quantity_rule,
+    rule.condition.field,
+    rule.condition.operator,
+    rule.condition.value_number ?? '',
+    rule.condition.value_text?.trim().toLowerCase() ?? '',
+  ].join('::')
+}
+
+function mergeAccessoryConfig(config: HardwareAccessoryConfig | undefined, additions: HardwareAccessoryRule[]): HardwareAccessoryConfig {
+  const current = normalizeAccessoryConfig(config)
+  const next = [...(current.accessories ?? [])]
+  for (const addition of additions) {
+    const key = accessoryRuleKey(addition)
+    const existingIndex = next.findIndex((rule) => accessoryRuleKey(rule) === key)
+    if (existingIndex >= 0) {
+      next[existingIndex] = addition
+    } else {
+      next.push(addition)
+    }
+  }
+  return normalizeAccessoryConfig({ ...current, accessories: next })
 }
 
 function priceComponentsForItem(itemType: PriceItemType, row?: BoardTypeRow) {
@@ -402,6 +433,18 @@ function catalogResourceLabel(resource: LibraryCatalogBulkResource) {
   if (resource === 'handles') return 'handles'
   if (resource === 'extras') return 'extras'
   return 'suppliers'
+}
+
+function bulkAccessoryResourceLabel(resource: BulkAccessoryResource) {
+  return resource === 'slides' ? 'slides' : 'hinges'
+}
+
+function bulkAccessoryResourceSingularLabel(resource: BulkAccessoryResource) {
+  return resource === 'slides' ? 'slide' : 'hinge'
+}
+
+function bulkAccessoryResourceCountLabel(resource: BulkAccessoryResource, count: number) {
+  return count === 1 ? bulkAccessoryResourceSingularLabel(resource) : bulkAccessoryResourceLabel(resource)
 }
 
 function priceStatusLabel(status: LibraryEffectiveStatus) {
@@ -875,6 +918,8 @@ export function LibrariesPage({
   const [priceBulkPreview, setPriceBulkPreview] = useState<LibraryBulkUpdateResult | null>(null)
   const [bulkError, setBulkError] = useState<string | null>(null)
   const [isBulkSaving, setIsBulkSaving] = useState(false)
+  const [bulkAccessoryResource, setBulkAccessoryResource] = useState<BulkAccessoryResource | null>(null)
+  const [bulkAccessoryConfig, setBulkAccessoryConfig] = useState<HardwareAccessoryConfig>({ accessories: [emptyAccessoryRule()] })
   const displayCurrencyCode = normalizeCurrencyCode(currencyCode)
 
   const selectedPriceList = useMemo(
@@ -1621,6 +1666,12 @@ export function LibrariesPage({
               </Select>
             </Label>
           ) : null}
+          {resource === 'slides' || resource === 'hinges' ? (
+            <Button disabled={selectedCount === 0 || isSaving} type="button" variant="outline" onClick={() => openBulkAccessoryDialog(resource)}>
+              <PackagePlus className="h-4 w-4" aria-hidden="true" />
+              Add accessory
+            </Button>
+          ) : null}
         </MaintenanceToolbar>
         <CatalogBulkPanel
           field={activeCatalogBulkField}
@@ -2081,6 +2132,70 @@ export function LibrariesPage({
     }, 'Hinge deleted.')
   }
 
+  function openBulkAccessoryDialog(resource: BulkAccessoryResource) {
+    setBulkAccessoryResource(resource)
+    setBulkAccessoryConfig({ accessories: [emptyAccessoryRule()] })
+    setActionError(null)
+  }
+
+  async function applyBulkAccessory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!bulkAccessoryResource) return
+
+    const visibleIds = bulkAccessoryResource === 'slides' ? visibleSlides.map((row) => row.id) : visibleHinges.map((row) => row.id)
+    const selectedIds = onlyVisibleSelected(selectedCatalogIds[bulkAccessoryResource], visibleIds)
+    const additions = normalizeAccessoryConfig(bulkAccessoryConfig).accessories ?? []
+    if (selectedIds.length === 0) {
+      setActionError('Select at least one visible slide or hinge before adding an accessory.')
+      return
+    }
+    if (additions.length === 0) {
+      setActionError('Choose at least one accessory rule before applying it.')
+      return
+    }
+
+    const selected = new Set(selectedIds)
+    await withActionState(async () => {
+      if (bulkAccessoryResource === 'slides') {
+        const selectedSlides = slides.filter((row) => selected.has(row.id))
+        for (const row of selectedSlides) {
+          const payload = buildSlidePayload({
+            brand: row.brand,
+            model: row.model,
+            code: row.code,
+            length: String(row.length),
+            side_length: String(row.side_length),
+            side_clearance_total: String(row.side_clearance_total),
+            side_height_uplift: String(row.side_height_uplift),
+            drawer_system_kind: row.drawer_system_kind ?? 'conventional',
+            drawer_system_config: row.drawer_system_config ?? {},
+            accessory_config: mergeAccessoryConfig(row.accessory_config, additions),
+          })
+          if (!payload) throw new Error(`Slide values are invalid for ${formatSlideLabel(row)}.`)
+          await apiRequest(`/api/v1/libraries/slides/${row.id}`, { body: payload, method: 'PATCH', token: authToken })
+        }
+      } else {
+        const selectedHinges = hinges.filter((row) => selected.has(row.id))
+        for (const row of selectedHinges) {
+          const payload = buildHingePayload({
+            brand: row.brand,
+            model: row.model,
+            code: row.code,
+            opening_angle_deg: String(row.opening_angle_deg),
+            accessory_config: mergeAccessoryConfig(row.accessory_config, additions),
+          })
+          if (!payload) throw new Error(`Hinge values are invalid for ${formatHingeLabel(row)}.`)
+          await apiRequest(`/api/v1/libraries/hinges/${row.id}`, { body: payload, method: 'PATCH', token: authToken })
+        }
+      }
+
+      clearCatalogSelection(bulkAccessoryResource)
+      setBulkAccessoryResource(null)
+      setBulkAccessoryConfig({ accessories: [emptyAccessoryRule()] })
+      await refreshCatalog()
+    }, () => `Accessory bundle added to ${selectedIds.length} selected ${bulkAccessoryResourceCountLabel(bulkAccessoryResource, selectedIds.length)}.`)
+  }
+
   async function createSupplier(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const payload = buildSupplierPayload(supplierDraft)
@@ -2437,9 +2552,51 @@ export function LibrariesPage({
     ? importPreview.summary.create_count + importPreview.summary.update_count
     : 0
   const importHasBlockedRows = (importPreview?.summary.blocked_count ?? 0) > 0
+  const bulkAccessoryVisibleIds = bulkAccessoryResource === 'slides'
+    ? visibleSlides.map((row) => row.id)
+    : bulkAccessoryResource === 'hinges'
+      ? visibleHinges.map((row) => row.id)
+      : []
+  const bulkAccessorySelectedCount = bulkAccessoryResource
+    ? onlyVisibleSelected(selectedCatalogIds[bulkAccessoryResource], bulkAccessoryVisibleIds).length
+    : 0
+  const bulkAccessoryRuleCount = normalizeAccessoryConfig(bulkAccessoryConfig).accessories?.length ?? 0
+  const bulkAccessoryCountLabel = bulkAccessoryResource
+    ? bulkAccessoryResourceCountLabel(bulkAccessoryResource, bulkAccessorySelectedCount)
+    : 'hardware rows'
+  const bulkAccessorySingularLabel = bulkAccessoryResource ? bulkAccessoryResourceSingularLabel(bulkAccessoryResource) : 'hardware row'
 
   return (
     <div className="grid gap-4">
+      <Dialog
+        open={Boolean(bulkAccessoryResource)}
+        onOpenChange={(open) => {
+          if (!open) setBulkAccessoryResource(null)
+        }}
+        title="Add Accessory to Selected Hardware"
+        description={`${bulkAccessorySelectedCount} selected ${bulkAccessoryCountLabel}`}
+        size="wide"
+      >
+        <form className="grid gap-3" onSubmit={applyBulkAccessory}>
+          <HardwareAccessoryConfigEditor
+            config={bulkAccessoryConfig}
+            onChange={setBulkAccessoryConfig}
+            options={accessoryOptions}
+          />
+          <Alert>
+            Existing matching accessory rules are updated; new rules are added to each selected {bulkAccessorySingularLabel}.
+          </Alert>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={isSaving || bulkAccessorySelectedCount === 0 || bulkAccessoryRuleCount === 0} type="submit">
+              {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <PackagePlus className="h-4 w-4" aria-hidden="true" />}
+              Add to selected
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setBulkAccessoryResource(null)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </Dialog>
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>

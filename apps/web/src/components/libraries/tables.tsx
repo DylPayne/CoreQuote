@@ -4,6 +4,7 @@ import type { FormEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -522,65 +523,74 @@ export function LibrarySlidesTable({
           </Table>
         </TableContainer>
 
-        {editingSlide ? (
-          <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-4" onSubmit={(event) => void onUpdate(event)}>
-            <p className="md:col-span-4 text-sm font-medium">Edit slide</p>
-            <Label className="grid gap-1.5">
-              Brand
-              <Input value={editingSlide.brand} onChange={(event) => onEditChange({ ...editingSlide, brand: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Model
-              <Input value={editingSlide.model} onChange={(event) => onEditChange({ ...editingSlide, model: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Code
-              <Input value={editingSlide.code} onChange={(event) => onEditChange({ ...editingSlide, code: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Length
-              <Input value={String(editingSlide.length)} onChange={(event) => onEditChange({ ...editingSlide, length: Number(event.target.value) || 0 })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Side length
-              <Input value={String(editingSlide.side_length)} onChange={(event) => onEditChange({ ...editingSlide, side_length: Number(event.target.value) || 0 })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Clearance total
-              <Input value={String(editingSlide.side_clearance_total)} onChange={(event) => onEditChange({ ...editingSlide, side_clearance_total: Number(event.target.value) || 0 })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Side uplift
-              <Input value={String(editingSlide.side_height_uplift)} onChange={(event) => onEditChange({ ...editingSlide, side_height_uplift: Number(event.target.value) || 0 })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Drawer system
-              <Select value={editingSlide.drawer_system_kind ?? 'conventional'} onChange={(event) => onEditChange({ ...editingSlide, drawer_system_kind: event.target.value as DrawerSystemKind })}>
-                <option value="conventional">Conventional slide</option>
-                <option value="metal">Metal system</option>
-              </Select>
-            </Label>
-            <DrawerSystemConfigEditor
-              config={editingSlide.drawer_system_config ?? {}}
-              drawerSystemKind={editingSlide.drawer_system_kind ?? 'conventional'}
-              onChange={(drawer_system_config) => onEditChange({ ...editingSlide, drawer_system_config })}
-            />
-            <HardwareAccessoryConfigEditor
-              config={editingSlide.accessory_config ?? { accessories: [] }}
-              onChange={(accessory_config) => onEditChange({ ...editingSlide, accessory_config })}
-              options={accessoryOptions}
-            />
-            <div className="md:col-span-4 flex gap-2">
-              <Button disabled={isSaving} type="submit">
-                <Save className="h-4 w-4" aria-hidden="true" />
-                Save Changes
-              </Button>
-              <Button type="button" variant="outline" onClick={() => onEdit(null)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        ) : null}
+        <Dialog
+          open={Boolean(editingSlide)}
+          onOpenChange={(open) => {
+            if (!open) onEdit(null)
+          }}
+          title="Edit Slide"
+          description={editingSlide ? formatSlideLabel(editingSlide) : undefined}
+          size="wide"
+        >
+          {editingSlide ? (
+            <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => void onUpdate(event)}>
+              <Label className="grid gap-1.5">
+                Brand
+                <Input value={editingSlide.brand} onChange={(event) => onEditChange({ ...editingSlide, brand: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Model
+                <Input value={editingSlide.model} onChange={(event) => onEditChange({ ...editingSlide, model: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Code
+                <Input value={editingSlide.code} onChange={(event) => onEditChange({ ...editingSlide, code: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Length
+                <Input value={String(editingSlide.length)} onChange={(event) => onEditChange({ ...editingSlide, length: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Side length
+                <Input value={String(editingSlide.side_length)} onChange={(event) => onEditChange({ ...editingSlide, side_length: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Clearance total
+                <Input value={String(editingSlide.side_clearance_total)} onChange={(event) => onEditChange({ ...editingSlide, side_clearance_total: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Side uplift
+                <Input value={String(editingSlide.side_height_uplift)} onChange={(event) => onEditChange({ ...editingSlide, side_height_uplift: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Drawer system
+                <Select value={editingSlide.drawer_system_kind ?? 'conventional'} onChange={(event) => onEditChange({ ...editingSlide, drawer_system_kind: event.target.value as DrawerSystemKind })}>
+                  <option value="conventional">Conventional slide</option>
+                  <option value="metal">Metal system</option>
+                </Select>
+              </Label>
+              <DrawerSystemConfigEditor
+                config={editingSlide.drawer_system_config ?? {}}
+                drawerSystemKind={editingSlide.drawer_system_kind ?? 'conventional'}
+                onChange={(drawer_system_config) => onEditChange({ ...editingSlide, drawer_system_config })}
+              />
+              <HardwareAccessoryConfigEditor
+                config={editingSlide.accessory_config ?? { accessories: [] }}
+                onChange={(accessory_config) => onEditChange({ ...editingSlide, accessory_config })}
+                options={accessoryOptions}
+              />
+              <div className="md:col-span-4 flex gap-2">
+                <Button disabled={isSaving} type="submit">
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  Save Changes
+                </Button>
+                <Button type="button" variant="outline" onClick={() => onEdit(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </Dialog>
       </CardContent>
     </Card>
   )
@@ -664,41 +674,50 @@ export function LibraryHingesTable({
           </Table>
         </TableContainer>
 
-        {editingHinge ? (
-          <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-4" onSubmit={(event) => void onUpdate(event)}>
-            <p className="md:col-span-4 text-sm font-medium">Edit hinge</p>
-            <Label className="grid gap-1.5">
-              Brand
-              <Input value={editingHinge.brand} onChange={(event) => onEditChange({ ...editingHinge, brand: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Model
-              <Input value={editingHinge.model} onChange={(event) => onEditChange({ ...editingHinge, model: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Code
-              <Input value={editingHinge.code} onChange={(event) => onEditChange({ ...editingHinge, code: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Opening angle
-              <Input value={String(editingHinge.opening_angle_deg)} onChange={(event) => onEditChange({ ...editingHinge, opening_angle_deg: Number(event.target.value) || 0 })} />
-            </Label>
-            <HardwareAccessoryConfigEditor
-              config={editingHinge.accessory_config ?? { accessories: [] }}
-              onChange={(accessory_config) => onEditChange({ ...editingHinge, accessory_config })}
-              options={accessoryOptions}
-            />
-            <div className="md:col-span-4 flex gap-2">
-              <Button disabled={isSaving} type="submit">
-                <Save className="h-4 w-4" aria-hidden="true" />
-                Save Changes
-              </Button>
-              <Button type="button" variant="outline" onClick={() => onEdit(null)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        ) : null}
+        <Dialog
+          open={Boolean(editingHinge)}
+          onOpenChange={(open) => {
+            if (!open) onEdit(null)
+          }}
+          title="Edit Hinge"
+          description={editingHinge ? formatHingeLabel(editingHinge) : undefined}
+          size="wide"
+        >
+          {editingHinge ? (
+            <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => void onUpdate(event)}>
+              <Label className="grid gap-1.5">
+                Brand
+                <Input value={editingHinge.brand} onChange={(event) => onEditChange({ ...editingHinge, brand: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Model
+                <Input value={editingHinge.model} onChange={(event) => onEditChange({ ...editingHinge, model: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Code
+                <Input value={editingHinge.code} onChange={(event) => onEditChange({ ...editingHinge, code: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Opening angle
+                <Input value={String(editingHinge.opening_angle_deg)} onChange={(event) => onEditChange({ ...editingHinge, opening_angle_deg: Number(event.target.value) || 0 })} />
+              </Label>
+              <HardwareAccessoryConfigEditor
+                config={editingHinge.accessory_config ?? { accessories: [] }}
+                onChange={(accessory_config) => onEditChange({ ...editingHinge, accessory_config })}
+                options={accessoryOptions}
+              />
+              <div className="md:col-span-4 flex gap-2">
+                <Button disabled={isSaving} type="submit">
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  Save Changes
+                </Button>
+                <Button type="button" variant="outline" onClick={() => onEdit(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </Dialog>
       </CardContent>
     </Card>
   )
