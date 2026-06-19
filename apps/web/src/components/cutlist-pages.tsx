@@ -170,7 +170,7 @@ type CutlistRuntimeRow = CutlistPreviewRow & {
 type CutlistUnitSource = {
   unit_number: number
   unit_type_key: string
-  source: 'ruleset' | 'legacy'
+  source: 'ruleset' | 'legacy' | 'drawer_system'
   ruleset_id: string | null
   unit_config_id: string | null
   note: string | null
@@ -196,7 +196,7 @@ type CutlistPreviewResponse = {
   hardware: CutlistPreviewRow[]
   extras: CutlistPreviewRow[]
   runtime_rows: CutlistRuntimeRow[]
-  runtime_mode: 'legacy' | 'ruleset' | 'mixed'
+  runtime_mode: 'legacy' | 'ruleset' | 'drawer_system' | 'mixed'
   unit_sources: CutlistUnitSource[]
   validation_warnings: CutlistValidationWarning[]
   readiness: CutlistReadiness
@@ -2528,22 +2528,26 @@ function slideMeasurementFieldLabel(field: SlideMeasurementField) {
 
 function runtimeModeBadgeVariant(runtimeMode: CutlistPreviewResponse['runtime_mode']) {
   if (runtimeMode === 'ruleset') return 'default'
+  if (runtimeMode === 'drawer_system') return 'success'
   if (runtimeMode === 'mixed') return 'warning'
   return 'outline'
 }
 
 function formatRuntimeMode(runtimeMode: CutlistPreviewResponse['runtime_mode']) {
   if (runtimeMode === 'ruleset') return 'Custom rules'
+  if (runtimeMode === 'drawer_system') return 'Drawer system'
   if (runtimeMode === 'mixed') return 'Mixed rules'
   return 'Built-in rules'
 }
 
 function formatRuntimeSource(source: CutlistUnitSource['source']) {
+  if (source === 'drawer_system') return 'Drawer system'
   return source === 'ruleset' ? 'Custom rule set' : 'Built-in rule'
 }
 
 function formatRulesetSource(row: CutlistUnitSource) {
   if (row.ruleset_id) return 'Custom rule set'
+  if (row.source === 'drawer_system') return 'Drawer system'
   return row.source === 'legacy' ? 'Built-in rule' : 'Not selected'
 }
 

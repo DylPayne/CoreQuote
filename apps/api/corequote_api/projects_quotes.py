@@ -30,6 +30,7 @@ from corequote_core.workshop_schedule_pdf import (
     workshop_schedule_filename,
 )
 from corequote_api.cutting_runtime import CutlistRuntimeService
+from corequote_api.cutlist_validation import metal_drawer_system_unit_validation_messages
 from corequote_api.projects_quotes_errors import (
     WorkspaceConflict,
     WorkspaceError,
@@ -2086,7 +2087,8 @@ class WorkspaceStore:
             row["id"]: row
             for row in conn.execute(
                 """
-                SELECT id::text, brand, model, code, length, side_length, side_clearance_total, side_height_uplift
+                SELECT id::text, brand, model, code, length, side_length, side_clearance_total,
+                       side_height_uplift, drawer_system_kind, drawer_system_config
                 FROM slides
                 WHERE company_id = %s
                 ORDER BY brand ASC, model ASC, code ASC
@@ -2198,8 +2200,15 @@ class WorkspaceStore:
             slide = self._get_slide_for_validation(conn, company_id, slide_id)
             slide_length = int(slide.get("length", 0) or 0)
             unit_depth = int(data.get("depth", 0) or 0)
-            if slide_length > 0 and unit_depth < slide_length:
+            if str(slide.get("drawer_system_kind") or "conventional").strip().lower() != "metal" and slide_length > 0 and unit_depth < slide_length:
                 raise WorkspaceValidationError(_slide_depth_validation_message(slide_length))
+            validation_unit = {
+                **data,
+                "thickness": self._unit_carcass_thickness_for_validation(conn, company_id, quote, data),
+            }
+            messages = metal_drawer_system_unit_validation_messages(validation_unit, slide)
+            if messages:
+                raise WorkspaceValidationError(messages[0])
             return
 
         if canonical_type in {"Base Door", "Wall Door", "Tall Door"} or "door" in unit_type_normalized or "hinge" in unit_type_normalized:
@@ -2214,7 +2223,7 @@ class WorkspaceStore:
     def _get_slide_for_validation(self, conn, company_id: str, slide_id: str) -> dict[str, Any]:
         row = conn.execute(
             """
-            SELECT id::text, length
+            SELECT id::text, brand, model, code, length, drawer_system_kind, drawer_system_config
             FROM slides
             WHERE company_id = %s
               AND id = %s
@@ -2224,6 +2233,23 @@ class WorkspaceStore:
         if not row:
             raise WorkspaceValidationError("Unit slide is not visible for this company")
         return row
+
+    def _unit_carcass_thickness_for_validation(self, conn, company_id: str, quote: dict[str, Any], data: dict[str, Any]) -> int:
+        board_id = str(data.get("carcass_board_type_id") or quote.get("default_carcass_board_type_id") or "").strip()
+        if not board_id:
+            return int(data.get("thickness", 16) or 16)
+        row = conn.execute(
+            """
+            SELECT thickness
+            FROM board_types
+            WHERE company_id = %s
+              AND id = %s
+            """,
+            (company_id, board_id),
+        ).fetchone()
+        if not row:
+            return int(data.get("thickness", 16) or 16)
+        return int(row["thickness"] or 16)
 
     def _resolve_unit_thickness(self, conn, company_id: str, quote: dict[str, Any], data: dict[str, Any]) -> int:
         board_id = data["carcass_board_type_id"] or quote.get("default_carcass_board_type_id")

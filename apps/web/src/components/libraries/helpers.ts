@@ -1,4 +1,4 @@
-import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemKind, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
 export { formatCurrencyFromCents } from '@/lib/currency'
 
 export function formatBoardLabel(row: BoardTypeRow) {
@@ -12,7 +12,16 @@ export function formatBoardGrainPolicy(value: BoardGrainPolicy) {
 }
 
 export function formatSlideLabel(row: SlideRow) {
-  return `${row.brand} ${row.model}${row.code ? ` (${row.code})` : ''}`
+  const systemSuffix = row.drawer_system_kind === 'metal' ? ' · Metal system' : ''
+  return `${row.brand} ${row.model}${row.code ? ` (${row.code})` : ''}${systemSuffix}`
+}
+
+export function formatDrawerSystemKind(value: DrawerSystemKind) {
+  return value === 'metal' ? 'Metal system' : 'Conventional slide'
+}
+
+export function drawerSystemConfigJson(row: Pick<SlideRow, 'drawer_system_config'>) {
+  return JSON.stringify(row.drawer_system_config ?? {}, null, 2)
 }
 
 export function formatHingeLabel(row: HingeRow) {
@@ -107,6 +116,19 @@ export function buildSlidePayload(draft: SlideDraft) {
   ) {
     return null
   }
+  const drawer_system_kind = draft.drawer_system_kind === 'metal' ? 'metal' : 'conventional'
+  let drawer_system_config: DrawerSystemConfig = {}
+  if (drawer_system_kind === 'metal') {
+    try {
+      const parsed = JSON.parse(draft.drawer_system_config_json || '{}')
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null
+      }
+      drawer_system_config = parsed as DrawerSystemConfig
+    } catch {
+      return null
+    }
+  }
   return {
     brand,
     model,
@@ -115,6 +137,8 @@ export function buildSlidePayload(draft: SlideDraft) {
     side_length,
     side_clearance_total,
     side_height_uplift,
+    drawer_system_kind,
+    drawer_system_config,
   }
 }
 

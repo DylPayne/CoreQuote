@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from typing import Any, Literal
 
 
@@ -50,6 +52,7 @@ def validate_cutlist_preview(
                 )
 
     warnings.extend(_slide_depth_warnings(quote=quote or {}, units=units or [], slide_lookup=slide_lookup or {}))
+    warnings.extend(_drawer_system_warnings(quote=quote or {}, units=units or [], slide_lookup=slide_lookup or {}))
     return warnings
 
 
@@ -168,6 +171,8 @@ def _slide_depth_warnings(
         slide = slide_lookup.get(slide_id)
         if not slide:
             continue
+        if _effective_drawer_system_kind(extra_params, slide) == "metal":
+            continue
         slide_length = _int_value(slide.get("length"))
         unit_depth = _int_value(unit.get("depth"))
         if slide_length <= 0 or unit_depth >= slide_length:
@@ -185,6 +190,91 @@ def _slide_depth_warnings(
     return warnings
 
 
+def metal_drawer_system_unit_validation_messages(unit: dict[str, Any], slide: dict[str, Any] | None) -> list[str]:
+    extra_params = unit.get("extra_params") or {}
+    if not isinstance(extra_params, Mapping):
+        extra_params = {}
+    if _effective_drawer_system_kind(extra_params, slide) != "metal":
+        return []
+
+    config = _effective_drawer_system_config(extra_params, slide)
+    label = _drawer_system_label(slide, config)
+    messages: list[str] = []
+    slide_length = _int_value((slide or {}).get("length") or extra_params.get("slide_length"))
+    unit_depth = _int_value(unit.get("depth"))
+    min_depth = _optional_int(config.get("min_depth_mm"))
+    required_depth = max(slide_length, min_depth or 0)
+    if required_depth > 0 and unit_depth < required_depth:
+        messages.append(f"{label} requires a carcass depth of at least {required_depth} mm.")
+
+    thickness = _int_value(unit.get("thickness"))
+    compatible_thicknesses = _positive_int_list(config.get("compatible_side_thicknesses"))
+    if compatible_thicknesses and thickness not in compatible_thicknesses:
+        allowed = ", ".join(f"{value} mm" for value in compatible_thicknesses)
+        messages.append(f"{label} is compatible with side-wall thicknesses {allowed}; this unit uses {thickness} mm.")
+
+    compatible_lengths = _positive_int_list(config.get("compatible_nominal_lengths"))
+    if compatible_lengths and slide_length not in compatible_lengths:
+        allowed = ", ".join(f"{value} mm" for value in compatible_lengths)
+        messages.append(f"{label} supports nominal lengths {allowed}; this slide is {slide_length} mm.")
+
+    internal_width = max(0, _int_value(unit.get("width")) - (2 * thickness))
+    min_internal_width = _optional_int(config.get("min_internal_width_mm"))
+    max_internal_width = _optional_int(config.get("max_internal_width_mm"))
+    if min_internal_width is not None and internal_width < min_internal_width:
+        messages.append(f"{label} requires an internal width of at least {min_internal_width} mm; this unit is {internal_width} mm.")
+    if max_internal_width is not None and internal_width > max_internal_width:
+        messages.append(f"{label} supports internal widths up to {max_internal_width} mm; this unit is {internal_width} mm.")
+
+    min_front_height = _optional_int(config.get("min_front_height_mm"))
+    max_front_height = _optional_int(config.get("max_front_height_mm"))
+    if min_front_height is not None or max_front_height is not None:
+        face_heights = _drawer_face_heights(unit)
+        if min_front_height is not None:
+            low = [height for height in face_heights if height < min_front_height]
+            if low:
+                messages.append(f"{label} requires drawer fronts of at least {min_front_height} mm; this unit includes {min(low)} mm.")
+        if max_front_height is not None:
+            high = [height for height in face_heights if height > max_front_height]
+            if high:
+                messages.append(f"{label} supports drawer fronts up to {max_front_height} mm; this unit includes {max(high)} mm.")
+
+    return messages
+
+
+def _drawer_system_warnings(
+    *,
+    quote: dict[str, Any],
+    units: list[dict[str, Any]],
+    slide_lookup: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    default_slide_id = _clean_id(quote.get("default_slide_id"))
+    for unit in units:
+        unit_type = str(unit.get("unit_type_key") or unit.get("unit_type") or "")
+        if "draw" not in unit_type.lower():
+            continue
+        extra_params = unit.get("extra_params") or {}
+        if not isinstance(extra_params, Mapping):
+            extra_params = {}
+        slide_id = _clean_id(extra_params.get("slide_id") or default_slide_id)
+        slide = slide_lookup.get(slide_id) if slide_id else None
+        messages = metal_drawer_system_unit_validation_messages(unit, slide)
+        label = _drawer_system_label(slide, _effective_drawer_system_config(extra_params, slide))
+        for message in messages:
+            warnings.append(
+                {
+                    "severity": "warning",
+                    "source": "unit",
+                    "unit_number": _int_value(unit.get("unit_number")),
+                    "section": "hardware",
+                    "row_desc": label,
+                    "reason": message,
+                }
+            )
+    return warnings
+
+
 def _clean_id(value: Any) -> str:
     return str(value or "").strip()
 
@@ -194,3 +284,78 @@ def _int_value(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    parsed = _int_value(value)
+    return parsed if parsed > 0 else None
+
+
+def _positive_int_list(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    result: list[int] = []
+    for item in value:
+        parsed = _int_value(item)
+        if parsed > 0:
+            result.append(parsed)
+    return result
+
+
+def _effective_drawer_system_kind(extra_params: Mapping[str, Any], slide: dict[str, Any] | None) -> str:
+    return str(extra_params.get("drawer_system_kind") or (slide or {}).get("drawer_system_kind") or "conventional").strip().lower()
+
+
+def _effective_drawer_system_config(extra_params: Mapping[str, Any], slide: dict[str, Any] | None) -> dict[str, Any]:
+    config = extra_params.get("drawer_system_config") or (slide or {}).get("drawer_system_config") or {}
+    return dict(config) if isinstance(config, Mapping) else {}
+
+
+def _drawer_system_label(slide: dict[str, Any] | None, config: dict[str, Any]) -> str:
+    family = str(config.get("product_family") or "").strip()
+    brand = str((slide or {}).get("brand") or config.get("manufacturer") or "").strip()
+    model = str((slide or {}).get("model") or "").strip()
+    parts = [part for part in (brand, family or model) if part]
+    return " ".join(parts) if parts else "Metal drawer system"
+
+
+def _drawer_face_heights(unit: dict[str, Any], gap_mm: int = 3) -> list[int]:
+    extra_params = unit.get("extra_params") or {}
+    if not isinstance(extra_params, Mapping):
+        extra_params = {}
+    num_drawers = max(1, _int_value(extra_params.get("num_drawers")) or 3)
+    manual = extra_params.get("drawer_face_heights")
+    if isinstance(manual, list) and len(manual) == num_drawers:
+        heights = [_int_value(value) for value in manual]
+        if all(value > 0 for value in heights):
+            return heights
+
+    ratios_raw = extra_params.get("drawer_face_ratios")
+    if isinstance(ratios_raw, list) and len(ratios_raw) == num_drawers:
+        ratios = [_positive_float(value) for value in ratios_raw]
+        if sum(ratios) <= 0:
+            ratios = []
+    else:
+        ratios = []
+    if not ratios:
+        ratios = [0.25, 0.25, 0.5] if num_drawers == 3 else [1 / num_drawers] * num_drawers
+    ratio_sum = sum(ratios)
+    ratios = [value / ratio_sum for value in ratios]
+    total_face_height = max(0, _int_value(unit.get("height")) - (gap_mm * num_drawers))
+    raw = [ratio * total_face_height for ratio in ratios]
+    floors = [int(math.floor(value)) for value in raw]
+    remainder = total_face_height - sum(floors)
+    frac_order = sorted(range(num_drawers), key=lambda index: raw[index] - floors[index], reverse=True)
+    for index in range(remainder):
+        floors[frac_order[index % num_drawers]] += 1
+    return floors
+
+
+def _positive_float(value: Any) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return parsed if parsed > 0 else 0.0

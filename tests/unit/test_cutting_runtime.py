@@ -284,6 +284,111 @@ def test_runtime_service_uses_legacy_output_for_split_drawer_units():
     assert {"unit_number": 2, "desc": "Drawer Front", "length": 383, "width": 597, "qty": 1} in result["panels"]
 
 
+def test_runtime_service_keeps_conventional_drawer_box_parts():
+    service = CutlistRuntimeService(store=FakeRuntimeStore())
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[
+            {
+                "unit_number": 3,
+                "unit_type": "Base Draw",
+                "height": 780,
+                "width": 600,
+                "depth": 560,
+                "thickness": 16,
+                "extra_params": {
+                    "num_drawers": 3,
+                    "slide_side_length": 500,
+                    "slide_side_clearance_total": 26,
+                },
+            }
+        ],
+        use_db_rulesets=True,
+    )
+
+    assert result["runtime_mode"] == "legacy"
+    assert result["unit_sources"][0]["source"] == "legacy"
+    assert any(row["desc"] == "Drawer Side" for row in result["carcass"])
+    assert any(row["desc"] == "Drawer Front/Back" for row in result["carcass"])
+    assert any(row["desc"] == "Drawer Base" for row in result["carcass"])
+
+
+def test_runtime_service_uses_configured_metal_drawer_system_rows():
+    service = CutlistRuntimeService(store=FakeRuntimeStore())
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[
+            {
+                "unit_number": 5,
+                "unit_type": "Base Draw",
+                "height": 780,
+                "width": 600,
+                "depth": 560,
+                "thickness": 16,
+                "extra_params": {
+                    "num_drawers": 3,
+                    "slide_length": 500,
+                    "slide_side_length": 500,
+                    "slide_side_clearance_total": 26,
+                    "drawer_system_kind": "metal",
+                    "drawer_system_config": {
+                        "product_family": "Nova Pro Scala",
+                        "manufacturer": "Grass",
+                        "side_height_mm": 90,
+                        "installation_width_mm": 29,
+                        "variables": {"use_designer_inset": True},
+                        "panel_formulas": [
+                            {
+                                "name": "Metal Drawer Bottom",
+                                "section": "carcass",
+                                "length_formula": "inner_w - (2 * installation_width_mm)",
+                                "width_formula": "slide_length - 19",
+                                "qty_formula": "num_drawers",
+                            },
+                            {
+                                "name": "Cut Board Back",
+                                "section": "carcass",
+                                "length_formula": "inner_w - (2 * installation_width_mm)",
+                                "width_formula": "side_height_mm - 12",
+                                "qty_formula": "num_drawers",
+                            },
+                            {
+                                "name": "Designer Inset Panel",
+                                "section": "panel",
+                                "length_formula": "inner_w - 6",
+                                "width_formula": "drawer_front_height - 6",
+                                "qty_formula": "num_drawers",
+                                "condition_formula": "use_designer_inset",
+                            },
+                        ],
+                    },
+                },
+            }
+        ],
+        use_db_rulesets=True,
+    )
+
+    assert result["runtime_mode"] == "drawer_system"
+    assert result["unit_sources"] == [
+        {
+            "unit_number": 5,
+            "unit_type_key": "Base Draw",
+            "source": "drawer_system",
+            "ruleset_id": None,
+            "unit_config_id": None,
+            "note": "Configured metal drawer system output.",
+        }
+    ]
+    suppressed_parts = {"Drawer Side", "Drawer Front/Back", "Drawer Base"}
+    assert suppressed_parts.isdisjoint({row["desc"] for row in result["carcass"]})
+    assert {"unit_number": 5, "desc": "Metal Drawer Bottom", "length": 510, "width": 481, "qty": 3} in result["carcass"]
+    assert {"unit_number": 5, "desc": "Cut Board Back", "length": 510, "width": 78, "qty": 3} in result["carcass"]
+    assert {"unit_number": 5, "desc": "Designer Inset Panel", "length": 562, "width": 251, "qty": 3} in result["panels"]
+    assert any(row["desc"] == "Drawer Front" for row in result["panels"])
+
+
 def test_runtime_service_falls_back_to_legacy_when_ruleset_missing():
     store = FakeRuntimeStore()
     service = CutlistRuntimeService(store=store)

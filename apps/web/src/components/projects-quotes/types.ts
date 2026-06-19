@@ -87,12 +87,25 @@ export type BoardRow = {
   grain_policy: BoardGrainPolicy
 }
 
+export type DrawerSystemKind = 'conventional' | 'metal'
+
+export type DrawerSystemConfig = {
+  product_family?: string
+  manufacturer?: string
+  finish?: string
+  side_height_mm?: number | null
+  min_depth_mm?: number | null
+  [key: string]: unknown
+}
+
 export type SlideRow = {
   id: string
   brand: string
   model: string
   code: string
   length: number
+  drawer_system_kind: DrawerSystemKind
+  drawer_system_config: DrawerSystemConfig
 }
 
 export type HingeRow = {

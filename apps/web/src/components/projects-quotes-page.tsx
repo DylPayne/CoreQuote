@@ -175,6 +175,17 @@ function positiveIntegerFromValue(value: string | number, fallback: number) {
   return Math.floor(parsed)
 }
 
+function drawerSystemRequiredDepth(slide: SlideRow) {
+  const minDepth = Number(slide.drawer_system_config?.min_depth_mm ?? 0)
+  const normalizedMinDepth = Number.isFinite(minDepth) && minDepth > 0 ? Math.floor(minDepth) : 0
+  return Math.max(slide.length || 0, normalizedMinDepth)
+}
+
+function drawerSystemFamilyLabel(slide: SlideRow) {
+  const family = typeof slide.drawer_system_config?.product_family === 'string' ? slide.drawer_system_config.product_family.trim() : ''
+  return family || (slide.drawer_system_kind === 'metal' ? 'Metal system' : '')
+}
+
 function drawerCountFromDraft(draft: Pick<UnitDraft, 'num_drawers'>) {
   return positiveIntegerFromValue(draft.num_drawers, 3)
 }
@@ -1471,7 +1482,9 @@ export function ProjectsQuotesPage({
       if (!slideId) return 'None'
       const slide = slides.find((row) => row.id === slideId)
       if (!slide) return 'Unknown slide'
-      return `${slide.brand} ${slide.model}${slide.code ? ` (${slide.code})` : ''} · ${slide.length}mm`
+      const family = drawerSystemFamilyLabel(slide)
+      const systemLabel = family ? ` · ${family}` : ''
+      return `${slide.brand} ${slide.model}${slide.code ? ` (${slide.code})` : ''}${systemLabel} · ${slide.length}mm`
     },
     [slides],
   )
@@ -1497,8 +1510,9 @@ export function ProjectsQuotesPage({
   const effectiveUnitSlideId = unitDraft.slide_id || selectedQuote?.default_slide_id || ''
   const effectiveUnitSlide = effectiveUnitSlideId ? slides.find((slide) => slide.id === effectiveUnitSlideId) ?? null : null
   const unitDepthNumber = Number(unitDraft.depth)
-  const slideDepthError = isDrawerUnitDraft && effectiveUnitSlide && Number.isFinite(unitDepthNumber) && unitDepthNumber < effectiveUnitSlide.length
-    ? `Selected ${effectiveUnitSlide.length} mm slide requires a carcass depth of at least ${effectiveUnitSlide.length} mm internally.`
+  const requiredDrawerHardwareDepth = effectiveUnitSlide ? drawerSystemRequiredDepth(effectiveUnitSlide) : 0
+  const slideDepthError = isDrawerUnitDraft && effectiveUnitSlide && Number.isFinite(unitDepthNumber) && unitDepthNumber < requiredDrawerHardwareDepth
+    ? `Selected drawer hardware requires a carcass depth of at least ${requiredDrawerHardwareDepth} mm internally.`
     : null
   const cutlistRowCount = quoteCuttingList
     ? quoteCuttingList.carcass.length +
@@ -3472,11 +3486,12 @@ export function ProjectsQuotesPage({
                             const unitHingeId = unit.hinge_id ?? idFromExtra(unit.extra_params, 'hinge_id')
                             const effectiveSlideId = unitSlideId || selectedQuote?.default_slide_id || ''
                             const effectiveSlide = effectiveSlideId ? slides.find((slide) => slide.id === effectiveSlideId) ?? null : null
-                            const unitSlideDepthWarning = isDrawerUnitType(unit.unit_type_key) && effectiveSlide && unit.depth < effectiveSlide.length
-                              ? `Selected ${effectiveSlide.length} mm slide requires a carcass depth of at least ${effectiveSlide.length} mm internally.`
+                            const effectiveDrawerHardwareDepth = effectiveSlide ? drawerSystemRequiredDepth(effectiveSlide) : 0
+                            const unitSlideDepthWarning = isDrawerUnitType(unit.unit_type_key) && effectiveSlide && unit.depth < effectiveDrawerHardwareDepth
+                              ? `Selected drawer hardware requires a carcass depth of at least ${effectiveDrawerHardwareDepth} mm internally.`
                               : null
                             const hardwareLabel = isDrawerUnitType(unit.unit_type_key)
-                              ? `Slide: ${slideLabel(effectiveSlideId || null)}`
+                              ? `Drawer hardware: ${slideLabel(effectiveSlideId || null)}`
                               : isHingedUnitType(unit.unit_type_key)
                                 ? `Hinge: ${hingeLabel((unitHingeId || selectedQuote?.default_hinge_id) ?? null)}`
                                 : '-'
@@ -4244,8 +4259,8 @@ export function ProjectsQuotesPage({
 
             <div className="grid gap-3 md:grid-cols-2">
               <LibrarySelect
-                label="Default slide"
-                options={slides.map((slide) => ({ value: slide.id, label: `${slide.brand} ${slide.model}${slide.code ? ` (${slide.code})` : ''}` }))}
+                label="Default drawer hardware"
+                options={slides.map((slide) => ({ value: slide.id, label: slideLabel(slide.id) }))}
                 onChange={(value) => setQuoteDraft((current) => ({ ...current, default_slide_id: value }))}
                 value={quoteDraft.default_slide_id}
               />
@@ -4404,7 +4419,7 @@ export function ProjectsQuotesPage({
             {isDrawerUnitDraft ? (
               <div className="grid gap-2">
                 <LibrarySelect
-                  label="Drawer slide"
+                  label="Drawer hardware"
                   options={slides.map((slide) => ({ value: slide.id, label: slideLabel(slide.id) }))}
                   onChange={(value) => updateUnitDraft({ slide_id: value })}
                   placeholder={selectedQuote?.default_slide_id ? `Quote default: ${slideLabel(selectedQuote.default_slide_id)}` : 'Quote default'}
@@ -4802,10 +4817,10 @@ export function ProjectsQuotesPage({
               <div className="grid gap-2">
                 <Label className="flex items-center gap-2">
                   <Checkbox
-                    checked={bulkApplyDraft.apply_slide_id}
-                    onChange={(event) => updateBulkApplyDraft({ apply_slide_id: event.target.checked })}
-                  />
-                  Slide
+                  checked={bulkApplyDraft.apply_slide_id}
+                  onChange={(event) => updateBulkApplyDraft({ apply_slide_id: event.target.checked })}
+                />
+                  Drawer hardware
                 </Label>
                 <Select
                   disabled={!bulkApplyDraft.apply_slide_id}
@@ -4815,7 +4830,7 @@ export function ProjectsQuotesPage({
                   <option value="">Use quote default</option>
                   {slides.map((slide) => (
                     <option key={slide.id} value={slide.id}>
-                      {`${slide.brand} ${slide.model}${slide.code ? ` (${slide.code})` : ''}`}
+                      {slideLabel(slide.id)}
                     </option>
                   ))}
                 </Select>

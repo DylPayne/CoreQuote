@@ -4,7 +4,7 @@ export const libraryTabs: Array<{ label: string; value: LibraryTab }> = [
   { label: 'Setup & Imports', value: 'setup-imports' },
   { label: 'Pricing', value: 'pricing' },
   { label: 'Boards', value: 'boards' },
-  { label: 'Slides', value: 'slides' },
+  { label: 'Drawer Hardware', value: 'slides' },
   { label: 'Hinges', value: 'hinges' },
   { label: 'Suppliers', value: 'suppliers' },
   { label: 'Handles', value: 'handles' },
@@ -30,6 +30,8 @@ export const defaultSlideDraft: SlideDraft = {
   side_length: '500',
   side_clearance_total: '26',
   side_height_uplift: '0',
+  drawer_system_kind: 'conventional',
+  drawer_system_config_json: '{}',
 }
 
 export const defaultHingeDraft: HingeDraft = {

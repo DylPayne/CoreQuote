@@ -166,6 +166,70 @@ def test_hardware_pick_list_prefers_unit_hardware_overrides():
     assert items["handle::handle-override"]["unit_numbers"] == [1, 2]
 
 
+def test_hardware_pick_list_adds_configured_metal_drawer_system_accessories():
+    result = build_hardware_pick_list(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen Quote",
+            "default_slide_id": "slide-metal",
+            "default_drawer_handle_id": "handle-drawer",
+        },
+        units=[unit(1, "Base Draw", height=720, extra_params={"num_drawers": 3, "handle_qty": 3})],
+        quote_extras=[],
+        slide_lookup={
+            "slide-metal": {
+                "id": "slide-metal",
+                "brand": "Blum",
+                "model": "Legrabox",
+                "code": "LEG-500",
+                "drawer_system_kind": "metal",
+                "drawer_system_config": {
+                    "hardware_items": [
+                        {
+                            "item_type": "extra",
+                            "item_ref_id": "extra-bracket",
+                            "name": "Front bracket set",
+                            "quantity_per_drawer": 2,
+                            "uom": "pcs",
+                        },
+                        {
+                            "item_type": "extra",
+                            "name": "Steel back set",
+                            "supplier": "Blum",
+                            "code": "BACK-500",
+                            "quantity_per_drawer": 1,
+                            "uom": "sets",
+                        },
+                    ]
+                },
+            }
+        },
+        hinge_lookup={},
+        handle_lookup={
+            "handle-drawer": {"id": "handle-drawer", "name": "Drawer pull", "supplier": "Core", "code": "D192"},
+        },
+        extra_lookup={
+            "extra-bracket": {
+                "id": "extra-bracket",
+                "name": "Catalog bracket",
+                "category_name": "Drawer systems",
+                "supplier": "Blum",
+                "code": "BRK-500",
+            }
+        },
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert result["warnings"] == []
+    assert items["slide::slide-metal"]["quantity"] == 3
+    assert items["extra::extra-bracket"]["quantity"] == 6
+    assert items["extra::extra-bracket"]["item_name"] == "Catalog bracket"
+    assert items["extra::drawer-system:slide-metal:1:steel-back-set"]["quantity"] == 3
+    assert items["extra::drawer-system:slide-metal:1:steel-back-set"]["supplier"] == "Blum"
+    assert items["extra::drawer-system:slide-metal:1:steel-back-set"]["code"] == "BACK-500"
+
+
 def unit(unit_number: int, unit_type_key: str, *, height: int = 780, extra_params: dict | None = None) -> dict:
     return {
         "unit_number": unit_number,

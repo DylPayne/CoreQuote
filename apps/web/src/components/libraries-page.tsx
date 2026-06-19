@@ -41,12 +41,12 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
 import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
-import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
+import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, drawerSystemConfigJson, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
 import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemKind, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -170,7 +170,7 @@ const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> 
 
 const importExampleByResource: Record<LibraryImportResource, string> = {
   boards: 'Brand,Material,Thickness,Length,Width,Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sheet,required',
-  slides: 'Brand,Model,Code,Length\nGrass,Dynapro,DYN-500,500',
+  slides: 'Brand,Model,Code,Length,Drawer System Kind,Drawer System Config\nGrass,Dynapro,DYN-500,500,conventional,{}',
   hinges: 'Brand,Model,Code,Opening Angle\nBlum,Clip Top,BL-110,110',
   handles: 'Name,Supplier,Code\nSlim Bar,Hafele,HB-160',
   suppliers: 'Name,Code,Contact,Email,Default Discount\nGrass ZA,GRASS-ZA,Sales,sales@example.com,30%',
@@ -324,7 +324,7 @@ const priceItemTypeLabels: Record<PriceItemType, string> = {
   extra: 'Extra',
   handle: 'Handle',
   hinge: 'Hinge',
-  slide: 'Drawer slide',
+  slide: 'Drawer hardware',
 }
 
 function setupStatusLabel(status: LibrarySetupItemStatus) {
@@ -396,7 +396,7 @@ function importResourceHelp(resource: LibraryImportResource, priceListName?: str
 
 function catalogResourceLabel(resource: LibraryCatalogBulkResource) {
   if (resource === 'boards') return 'boards'
-  if (resource === 'slides') return 'drawer slides'
+  if (resource === 'slides') return 'drawer hardware'
   if (resource === 'hinges') return 'hinges'
   if (resource === 'handles') return 'handles'
   if (resource === 'extras') return 'extras'
@@ -985,7 +985,17 @@ export function LibrariesPage({
     () =>
       slides.filter(
         (row) =>
-          searchTextMatches(catalogSearch, [row.brand, row.model, row.code, row.length, row.side_length]) &&
+          searchTextMatches(catalogSearch, [
+            row.brand,
+            row.model,
+            row.code,
+            row.length,
+            row.side_length,
+            row.drawer_system_kind,
+            row.drawer_system_config?.product_family,
+            row.drawer_system_config?.manufacturer,
+            row.drawer_system_config?.finish,
+          ]) &&
           matchesRecent(row.updated_at, catalogRecentDays),
       ),
     [catalogRecentDays, catalogSearch, slides],
@@ -1965,6 +1975,8 @@ export function LibrariesPage({
       side_length: String(editingSlide.side_length),
       side_clearance_total: String(editingSlide.side_clearance_total),
       side_height_uplift: String(editingSlide.side_height_uplift),
+      drawer_system_kind: editingSlide.drawer_system_kind ?? 'conventional',
+      drawer_system_config_json: editingSlide.drawer_system_config_json ?? drawerSystemConfigJson(editingSlide),
     })
     if (!payload) {
       setActionError('Slide values are invalid.')
@@ -3309,7 +3321,7 @@ export function LibrariesPage({
         <>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Add Slide</CardTitle>
+              <CardTitle className="text-base">Add Drawer Hardware</CardTitle>
             </CardHeader>
             <CardContent>
               <form className="grid gap-3 md:grid-cols-4" onSubmit={createSlide}>
@@ -3341,10 +3353,25 @@ export function LibrariesPage({
                   Side uplift
                   <Input value={slideDraft.side_height_uplift} onChange={(event) => setSlideDraft((current) => ({ ...current, side_height_uplift: event.target.value }))} />
                 </Label>
+                <Label className="grid gap-1.5">
+                  Drawer system
+                  <Select value={slideDraft.drawer_system_kind} onChange={(event) => setSlideDraft((current) => ({ ...current, drawer_system_kind: event.target.value as DrawerSystemKind }))}>
+                    <option value="conventional">Conventional slide</option>
+                    <option value="metal">Metal system</option>
+                  </Select>
+                </Label>
+                <Label className="grid gap-1.5 md:col-span-4">
+                  System config JSON
+                  <Textarea
+                    rows={10}
+                    value={slideDraft.drawer_system_config_json}
+                    onChange={(event) => setSlideDraft((current) => ({ ...current, drawer_system_config_json: event.target.value }))}
+                  />
+                </Label>
                 <div className="md:col-span-4">
                   <Button disabled={isSaving} type="submit">
                     <Plus className="h-4 w-4" aria-hidden="true" />
-                    Add Slide
+                    Add Drawer Hardware
                   </Button>
                 </div>
               </form>

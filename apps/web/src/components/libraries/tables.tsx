@@ -10,8 +10,8 @@ import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 
-import { formatBoardGrainPolicy, formatHingeLabel, formatSlideLabel } from './helpers'
-import type { BoardGrainPolicy, BoardTypeRow, ExtraCategoryRow, ExtraRow, HandleRow, HingeRow, SlideRow } from './types'
+import { drawerSystemConfigJson, formatBoardGrainPolicy, formatDrawerSystemKind, formatHingeLabel, formatSlideLabel } from './helpers'
+import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HingeRow, SlideRow } from './types'
 
 const boardGrainPolicyOptions: Array<{ label: string; value: BoardGrainPolicy }> = [
   { label: 'Grain required', value: 'required' },
@@ -199,7 +199,7 @@ export function LibrarySlidesTable({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Slides Library</CardTitle>
+        <CardTitle className="text-base">Drawer Hardware Library</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3">
         <TableContainer>
@@ -208,6 +208,7 @@ export function LibrarySlidesTable({
               <TableRow>
                 {onSelectionChange ? <TableHead className="w-10">Select</TableHead> : null}
                 <TableHead>Slide</TableHead>
+                <TableHead>System</TableHead>
                 <TableHead>Length</TableHead>
                 <TableHead>Side length</TableHead>
                 <TableHead>Clearance</TableHead>
@@ -218,10 +219,10 @@ export function LibrarySlidesTable({
             <TableBody>
               {slides.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={onSelectionChange ? 7 : 6}>
+                  <TableCell colSpan={onSelectionChange ? 8 : 7}>
                     <EmptyTableMessage
-                      title="Add drawer slides before quoting drawer units."
-                      detail="Slides provide drawer clearances and hardware pricing. Start with the slide range you fit most often."
+                      title="Add drawer hardware before quoting drawer units."
+                      detail="Drawer hardware provides drawer clearances, system planning, and hardware pricing. Start with the range you fit most often."
                     />
                   </TableCell>
                 </TableRow>
@@ -237,12 +238,13 @@ export function LibrarySlidesTable({
                       </TableCell>
                     ) : null}
                     <TableCell>{formatSlideLabel(row)}</TableCell>
+                    <TableCell>{formatDrawerSystemKind(row.drawer_system_kind)}</TableCell>
                     <TableCell>{row.length}</TableCell>
                     <TableCell>{row.side_length}</TableCell>
                     <TableCell>{row.side_clearance_total}</TableCell>
                     <TableCell>{row.side_height_uplift}</TableCell>
                     <TableCell className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => onEdit({ ...row })}>
+                      <Button size="sm" variant="outline" onClick={() => onEdit({ ...row, drawer_system_config_json: drawerSystemConfigJson(row) })}>
                         Edit
                       </Button>
                       <Button size="sm" variant="destructive" onClick={() => void onDelete(row.id)}>
@@ -287,6 +289,21 @@ export function LibrarySlidesTable({
             <Label className="grid gap-1.5">
               Side uplift
               <Input value={String(editingSlide.side_height_uplift)} onChange={(event) => onEditChange({ ...editingSlide, side_height_uplift: Number(event.target.value) || 0 })} />
+            </Label>
+            <Label className="grid gap-1.5">
+              Drawer system
+              <Select value={editingSlide.drawer_system_kind ?? 'conventional'} onChange={(event) => onEditChange({ ...editingSlide, drawer_system_kind: event.target.value as DrawerSystemKind })}>
+                <option value="conventional">Conventional slide</option>
+                <option value="metal">Metal system</option>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5 md:col-span-4">
+              System config JSON
+              <Textarea
+                rows={10}
+                value={editingSlide.drawer_system_config_json ?? drawerSystemConfigJson(editingSlide)}
+                onChange={(event) => onEditChange({ ...editingSlide, drawer_system_config_json: event.target.value })}
+              />
             </Label>
             <div className="md:col-span-4 flex gap-2">
               <Button disabled={isSaving} type="submit">
