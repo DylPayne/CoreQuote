@@ -148,7 +148,7 @@ CATALOG_BULK_ALLOWED_FIELDS: dict[str, set[str]] = {
     "slides": {"brand", "code"},
     "hinges": {"brand", "code"},
     "handles": {"supplier", "code"},
-    "extras": {"category_id", "supplier", "code", "notes"},
+    "extras": {"category_id", "supplier_id", "code", "notes"},
     "suppliers": {"contact_name", "email", "phone", "notes", "default_discount_bps"},
 }
 
@@ -413,7 +413,7 @@ class LibraryStore:
         search_value = _search_pattern(search)
         if search_value:
             filters.append(
-                "(e.name ILIKE %s OR c.name ILIKE %s OR e.supplier ILIKE %s OR e.code ILIKE %s OR e.notes ILIKE %s)"
+                "(e.name ILIKE %s OR c.name ILIKE %s OR COALESCE(s.name, e.supplier, '') ILIKE %s OR e.code ILIKE %s OR e.notes ILIKE %s)"
             )
             values.extend([search_value] * 5)
         if category_id:
@@ -432,15 +432,19 @@ class LibraryStore:
                     e.name,
                     e.category_id::text,
                     c.name AS category_name,
-                    e.supplier,
+                    e.supplier_id::text,
+                    COALESCE(s.name, e.supplier, '') AS supplier,
                     e.code,
                     e.notes,
                     e.created_at,
                     e.updated_at
                 FROM extras e
                 JOIN extra_categories c ON c.id = e.category_id
+                LEFT JOIN suppliers s
+                  ON s.company_id = e.company_id
+                 AND s.id = e.supplier_id
                 WHERE {where_clause}
-                ORDER BY c.name ASC, e.name ASC, e.supplier ASC, e.code ASC
+                ORDER BY c.name ASC, e.name ASC, COALESCE(s.name, e.supplier, '') ASC, e.code ASC
                 """,
                 values,
             ).fetchall()
@@ -451,15 +455,15 @@ class LibraryStore:
             with self._connect() as conn:
                 row = conn.execute(
                     """
-                    INSERT INTO extras (company_id, name, category_id, supplier, code, notes)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO extras (company_id, name, category_id, supplier_id, supplier, code, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING id::text
                     """,
                     (
                         company_id,
                         _clean(payload["name"]),
                         payload["category_id"],
-                        _clean(payload.get("supplier", "")),
+                        *_extra_supplier_values(conn, company_id, payload),
                         _clean(payload.get("code", "")),
                         _clean(payload.get("notes", "")),
                     ),
@@ -1621,15 +1625,19 @@ class LibraryStore:
                 e.name,
                 e.category_id::text,
                 c.name AS category_name,
-                e.supplier,
+                e.supplier_id::text,
+                COALESCE(s.name, e.supplier, '') AS supplier,
                 e.code,
                 e.notes,
                 e.created_at,
                 e.updated_at
             FROM extras e
             JOIN extra_categories c ON c.id = e.category_id
+            LEFT JOIN suppliers s
+              ON s.company_id = e.company_id
+             AND s.id = e.supplier_id
             WHERE e.company_id = %s
-            ORDER BY c.name ASC, e.name ASC, e.supplier ASC, e.code ASC
+            ORDER BY c.name ASC, e.name ASC, COALESCE(s.name, e.supplier, '') ASC, e.code ASC
             """,
             (company_id,),
         ).fetchall()
@@ -1844,15 +1852,15 @@ class LibraryStore:
         try:
             row = conn.execute(
                 """
-                INSERT INTO extras (company_id, name, category_id, supplier, code, notes)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO extras (company_id, name, category_id, supplier_id, supplier, code, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id::text
                 """,
                 (
                     company_id,
                     _clean(data["name"]),
                     data["category_id"],
-                    _clean(data.get("supplier", "")),
+                    *_extra_supplier_values(conn, company_id, data),
                     _clean(data.get("code", "")),
                     _clean(data.get("notes", "")),
                 ),
@@ -1869,13 +1877,17 @@ class LibraryStore:
                 e.name,
                 e.category_id::text,
                 c.name AS category_name,
-                e.supplier,
+                e.supplier_id::text,
+                COALESCE(s.name, e.supplier, '') AS supplier,
                 e.code,
                 e.notes,
                 e.created_at,
                 e.updated_at
             FROM extras e
             JOIN extra_categories c ON c.id = e.category_id
+            LEFT JOIN suppliers s
+              ON s.company_id = e.company_id
+             AND s.id = e.supplier_id
             WHERE e.company_id = %s
               AND e.id = %s
             """,
@@ -1893,6 +1905,7 @@ class LibraryStore:
                 UPDATE extras
                 SET name = %s,
                     category_id = %s,
+                    supplier_id = %s,
                     supplier = %s,
                     code = %s,
                     notes = %s
@@ -1903,7 +1916,7 @@ class LibraryStore:
                 (
                     _clean(data["name"]),
                     data["category_id"],
-                    _clean(data.get("supplier", "")),
+                    *_extra_supplier_values(conn, company_id, data),
                     _clean(data.get("code", "")),
                     _clean(data.get("notes", "")),
                     company_id,
@@ -2792,6 +2805,24 @@ def _db_value(value: Any) -> Any:
     return value
 
 
+def _extra_supplier_values(conn, company_id: str, payload: dict[str, Any]) -> tuple[str | None, str]:
+    supplier_id = payload.get("supplier_id")
+    if supplier_id in (None, ""):
+        return None, ""
+    row = conn.execute(
+        """
+        SELECT name
+        FROM suppliers
+        WHERE company_id = %s
+          AND id = %s
+        """,
+        (company_id, supplier_id),
+    ).fetchone()
+    if not row:
+        raise LibraryValidationError("Supplier must be an existing company supplier or null")
+    return str(supplier_id), str(row["name"] or "").strip()
+
+
 def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
     data = {key: _clean(value) for key, value in payload.items()}
     if "costing_mode" in data:
@@ -2822,6 +2853,8 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         data["accessory_config"] = config
     if data.get("item_ref_id") == "":
         data["item_ref_id"] = None
+    if data.get("supplier_id") == "":
+        data["supplier_id"] = None
     if data.get("source_supplier_item_cost_id") == "":
         data["source_supplier_item_cost_id"] = None
     return data

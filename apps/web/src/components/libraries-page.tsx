@@ -156,7 +156,7 @@ const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> 
   ],
   extras: [
     { input: 'select', label: 'Category', value: 'category_id' },
-    { input: 'text', label: 'Supplier', value: 'supplier' },
+    { input: 'select', label: 'Supplier', value: 'supplier_id' },
     { input: 'text', label: 'Code', value: 'code' },
     { input: 'text', label: 'Notes', value: 'notes' },
   ],
@@ -968,6 +968,14 @@ export function LibrariesPage({
               ...field,
               options: extraCategories.map((category) => ({ label: category.name, value: category.id })),
             }
+          : field.value === 'supplier_id'
+            ? {
+                ...field,
+                options: [
+                  { label: 'No supplier', value: '' },
+                  ...suppliers.map((supplier) => ({ label: supplier.name, value: supplier.id })),
+                ],
+              }
           : field,
       )
     : []
@@ -1198,6 +1206,10 @@ export function LibrariesPage({
           current.category_id && nextCategories.some((item) => item.id === current.category_id)
             ? current.category_id
             : nextCategories[0]?.id ?? '',
+        supplier_id:
+          current.supplier_id && nextSuppliers.some((item) => item.id === current.supplier_id)
+            ? current.supplier_id
+            : '',
       }))
       setItemSupplierDraft((current) => {
         const nextItemRefId =
@@ -1480,6 +1492,9 @@ export function LibrariesPage({
       const bps = percentStringToBps(catalogBulkValue)
       if (bps === null) return null
       return { [activeCatalogBulkField.value]: bps }
+    }
+    if (activeCatalogBulkField.value === 'supplier_id') {
+      return { supplier_id: catalogBulkValue || null }
     }
     if (!catalogBulkValue.trim()) return null
     return { [activeCatalogBulkField.value]: catalogBulkValue.trim() }
@@ -3956,7 +3971,14 @@ export function LibrariesPage({
                   </Label>
                   <Label className="grid gap-1.5">
                     Supplier
-                    <Input value={extraDraft.supplier} onChange={(event) => setExtraDraft((current) => ({ ...current, supplier: event.target.value }))} />
+                    <Select value={extraDraft.supplier_id} onChange={(event) => setExtraDraft((current) => ({ ...current, supplier_id: event.target.value }))}>
+                      <option value="">No supplier</option>
+                      {suppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </Select>
                   </Label>
                   <Label className="grid gap-1.5">
                     Code
@@ -3990,6 +4012,7 @@ export function LibrariesPage({
             onSelectionChange={(itemId, checked) => handleCatalogSelection('extras', itemId, checked)}
             onUpdate={updateExtra}
             selectedIds={selectedCatalogIds.extras}
+            suppliers={suppliers}
           />
         </>
       ) : null}

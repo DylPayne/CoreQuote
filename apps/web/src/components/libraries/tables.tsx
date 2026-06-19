@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, Ta
 import { Textarea } from '@/components/ui/textarea'
 
 import { emptyAccessoryRule, formatBoardGrainPolicy, formatDrawerSystemKind, formatHingeLabel, formatSlideLabel } from './helpers'
-import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HardwareAccessoryConditionField, HardwareAccessoryConditionOperator, HardwareAccessoryConfig, HardwareAccessoryQuantityRule, HardwareAccessoryRule, HingeRow, PriceItemType, SlideRow } from './types'
+import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HardwareAccessoryConditionField, HardwareAccessoryConditionOperator, HardwareAccessoryConfig, HardwareAccessoryQuantityRule, HardwareAccessoryRule, HingeRow, PriceItemType, SlideRow, SupplierRow } from './types'
 
 const boardGrainPolicyOptions: Array<{ label: string; value: BoardGrainPolicy }> = [
   { label: 'Grain required', value: 'required' },
@@ -903,6 +903,7 @@ export function LibraryExtrasTable({
   onSelectionChange,
   onUpdate,
   selectedIds,
+  suppliers,
 }: {
   categories: ExtraCategoryRow[]
   editingExtra: ExtraRow | null
@@ -912,6 +913,7 @@ export function LibraryExtrasTable({
   onEdit: (row: ExtraRow | null) => void
   onEditChange: (row: ExtraRow | null) => void
   onUpdate: (event: FormEvent<HTMLFormElement>) => Promise<void>
+  suppliers: SupplierRow[]
 } & RowSelectionProps) {
   return (
     <Card>
@@ -995,7 +997,14 @@ export function LibraryExtrasTable({
             </Label>
             <Label className="grid gap-1.5">
               Supplier
-              <Input value={editingExtra.supplier} onChange={(event) => onEditChange({ ...editingExtra, supplier: event.target.value })} />
+              <Select value={editingExtra.supplier_id ?? ''} onChange={(event) => onEditChange({ ...editingExtra, supplier_id: event.target.value || null })}>
+                <option value="">No supplier</option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </Select>
             </Label>
             <Label className="grid gap-1.5">
               Code

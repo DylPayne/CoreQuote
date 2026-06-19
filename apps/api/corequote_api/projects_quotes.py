@@ -2124,10 +2124,13 @@ class WorkspaceStore:
             row["id"]: row
             for row in conn.execute(
                 """
-                SELECT id::text, name, supplier, code
-                FROM extras
-                WHERE company_id = %s
-                ORDER BY name ASC, supplier ASC, code ASC
+                SELECT e.id::text, e.name, COALESCE(s.name, e.supplier, '') AS supplier, e.code
+                FROM extras e
+                LEFT JOIN suppliers s
+                  ON s.company_id = e.company_id
+                 AND s.id = e.supplier_id
+                WHERE e.company_id = %s
+                ORDER BY e.name ASC, COALESCE(s.name, e.supplier, '') ASC, e.code ASC
                 """,
                 (company_id,),
             ).fetchall()

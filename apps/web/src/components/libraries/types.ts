@@ -228,6 +228,7 @@ export type ExtraRow = {
   name: string
   category_id: string
   category_name: string
+  supplier_id: string | null
   supplier: string
   code: string
   notes: string
@@ -479,7 +480,7 @@ export type ExtraCategoryDraft = {
 export type ExtraDraft = {
   name: string
   category_id: string
-  supplier: string
+  supplier_id: string
   code: string
   notes: string
 }

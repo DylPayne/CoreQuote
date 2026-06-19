@@ -1599,16 +1599,29 @@ class ExtraRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     category_id: str = Field(description="Extra category UUID in the current company.")
-    supplier: str = Field(default="", max_length=120)
+    supplier_id: str | None = Field(default=None, description="Optional supplier UUID in the current company.")
     code: str = Field(default="", max_length=120)
     notes: str = Field(default="", max_length=1000)
 
+    @field_validator("supplier_id", mode="before")
+    @classmethod
+    def normalize_supplier_id(cls, value: Any) -> Any:
+        if value in (None, ""):
+            return None
+        return value
 
-class ExtraResponse(ExtraRequest):
+
+class ExtraResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    name: str
+    category_id: str
     category_name: str
+    supplier_id: str | None = None
+    supplier: str = ""
+    code: str
+    notes: str
     created_at: datetime
     updated_at: datetime
 

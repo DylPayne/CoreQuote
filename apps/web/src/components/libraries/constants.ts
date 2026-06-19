@@ -81,7 +81,7 @@ export const defaultExtraCategoryDraft: ExtraCategoryDraft = {
 export const defaultExtraDraft: ExtraDraft = {
   name: '',
   category_id: '',
-  supplier: '',
+  supplier_id: '',
   code: '',
   notes: '',
 }

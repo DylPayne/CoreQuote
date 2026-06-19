@@ -345,7 +345,7 @@ export function buildExtraPayload(draft: ExtraDraft | ExtraRow) {
   return {
     name,
     category_id: draft.category_id,
-    supplier: draft.supplier.trim(),
+    supplier_id: draft.supplier_id || null,
     code: draft.code.trim(),
     notes: draft.notes.trim(),
   }

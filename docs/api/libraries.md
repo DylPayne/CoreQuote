@@ -324,7 +324,7 @@ Supported fields:
 - `slides`: `brand`, `code`
 - `hinges`: `brand`, `code`
 - `handles`: `supplier`, `code`
-- `extras`: `category_id`, `supplier`, `code`, `notes`
+- `extras`: `category_id`, `supplier_id`, `code`, `notes`
 - `suppliers`: `contact_name`, `email`, `phone`, `notes`, `default_discount_bps`
 
 Response:
@@ -652,13 +652,17 @@ Resource: `extras`
 {
   "name": "Stove",
   "category_id": "extra-category-uuid",
-  "supplier": "Defy",
+  "supplier_id": "supplier-uuid",
   "code": "DFY-600",
   "notes": ""
 }
 ```
 
-Responses include `category_name` so the frontend can render the library table without an extra lookup.
+Set `supplier_id` to `null` when the extra has no supplier. Non-null values
+must reference an existing supplier in the same company; free-text supplier
+names are not accepted on create/update. Responses include `category_name` and
+the display-only `supplier` name so the frontend can render the library table
+without an extra lookup.
 
 ## Pricing Libraries
 

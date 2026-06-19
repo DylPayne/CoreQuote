@@ -322,14 +322,14 @@ class FakeLibraryStore:
 
     def create_extra(self, company_id: str, payload: dict):
         self.created_payload = ("extras", payload)
-        return extra("extra-2", name=payload["name"])
+        return extra("extra-2", name=payload["name"], supplier_id=payload.get("supplier_id"))
 
     def get_extra(self, company_id: str, item_id: str):
         return extra(item_id)
 
     def update_extra(self, company_id: str, item_id: str, payload: dict):
         self.updated_payload = ("extras", item_id, payload)
-        return extra(item_id, name=payload["name"])
+        return extra(item_id, name=payload["name"], supplier_id=payload.get("supplier_id"))
 
     def delete_extra(self, company_id: str, item_id: str):
         self.deleted.append(("extras", item_id))
@@ -668,13 +668,14 @@ def extra_category(item_id: str, *, name: str = "Appliances") -> dict:
     return {"id": item_id, "name": name, "created_at": NOW, "updated_at": NOW}
 
 
-def extra(item_id: str, *, name: str = "Stove") -> dict:
+def extra(item_id: str, *, name: str = "Stove", supplier_id: str | None = "supplier-1") -> dict:
     return {
         "id": item_id,
         "name": name,
         "category_id": "category-1",
         "category_name": "Appliances",
-        "supplier": "Defy",
+        "supplier_id": supplier_id,
+        "supplier": "Grass ZA" if supplier_id else "",
         "code": "DFY-600",
         "notes": "",
         "created_at": NOW,
@@ -847,7 +848,7 @@ CATALOG_CASES = [
     ("extra-categories", {"name": "Lighting"}, "name", "Lighting"),
     (
         "extras",
-        {"name": "LED Strip", "category_id": "category-1", "supplier": "Veti", "code": "LED-5M", "notes": "Warm white"},
+        {"name": "LED Strip", "category_id": "category-1", "supplier_id": "supplier-1", "code": "LED-5M", "notes": "Warm white"},
         "name",
         "LED Strip",
     ),
@@ -1335,6 +1336,52 @@ def test_hinge_accessory_config_round_trips():
     resource, stored_payload = store.created_payload
     assert resource == "hinges"
     assert stored_payload["accessory_config"]["accessories"][0]["item_ref_id"] == "extra-mounting-plate"
+
+
+def test_extra_supplier_must_be_null_or_existing_supplier_id():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    selected_payload = {
+        "name": "LED strip",
+        "category_id": "category-1",
+        "supplier_id": "supplier-1",
+        "code": "LED-5M",
+        "notes": "Warm white",
+    }
+    null_payload = {
+        "name": "Site delivery",
+        "category_id": "category-1",
+        "supplier_id": "",
+        "code": "DEL",
+        "notes": "",
+    }
+    try:
+        selected_response = client.post("/api/v1/libraries/extras", json=selected_payload, headers=auth_header())
+        selected_store_payload = store.created_payload
+        null_response = client.post("/api/v1/libraries/extras", json=null_payload, headers=auth_header())
+        null_store_payload = store.created_payload
+        free_text_response = client.post(
+            "/api/v1/libraries/extras",
+            json={
+                "name": "Typed supplier extra",
+                "category_id": "category-1",
+                "supplier": "Typed Supplier",
+                "code": "TS",
+                "notes": "",
+            },
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert selected_response.status_code == 201
+    assert selected_response.json()["supplier_id"] == "supplier-1"
+    assert selected_store_payload == ("extras", selected_payload)
+    assert null_response.status_code == 201
+    assert null_response.json()["supplier_id"] is None
+    assert null_store_payload == ("extras", {**null_payload, "supplier_id": None})
+    assert free_text_response.status_code == 422
 
 
 def test_catalog_list_accepts_search_and_recent_filters():

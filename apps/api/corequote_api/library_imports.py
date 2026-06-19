@@ -129,7 +129,8 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("name", "Name", ("name", "extra", "description"), True),
             ImportField("category_id", "Category ID", ("category id", "category_id")),
             ImportField("category_name", "Category", ("category", "category name", "extra category"), True),
-            ImportField("supplier", "Supplier", ("supplier", "supplier name", "vendor")),
+            ImportField("supplier_id", "Supplier ID", ("supplier id", "supplier_id")),
+            ImportField("supplier_name", "Supplier", ("supplier", "supplier name", "vendor")),
             ImportField("code", "Code", ("code", "sku", "item code")),
             ImportField("notes", "Notes", ("notes", "comment", "comments")),
         ),
@@ -518,7 +519,8 @@ def _normalize_extra(raw: dict[str, Any], references: dict[str, Any], problems: 
         "name": _required_text(raw, "name", "Name", problems),
         "category_id": category_id,
         "category_name": category_name,
-        "supplier": _text(raw.get("supplier")),
+        "supplier_id": _resolve_optional_supplier(raw, references, problems),
+        "supplier_name": _text(raw.get("supplier_name")),
         "code": _text(raw.get("code")),
         "notes": _text(raw.get("notes")),
     }
@@ -645,6 +647,22 @@ def _resolve_supplier(raw: dict[str, Any], references: dict[str, Any], problems:
     return supplier_id
 
 
+def _resolve_optional_supplier(raw: dict[str, Any], references: dict[str, Any], problems: list[dict[str, Any]]) -> str | None:
+    supplier_id = _text(raw.get("supplier_id"))
+    supplier_name = _text(raw.get("supplier_name"))
+    if supplier_id:
+        if supplier_id in references["suppliers_by_id"]:
+            return supplier_id
+        problems.append(_problem("supplier_id", "missing_supplier", "This supplier is not in the company library.", "Add the supplier first or clear the supplier column."))
+        return supplier_id
+    if supplier_name:
+        supplier = references["suppliers_by_name"].get(_key(supplier_name))
+        if supplier:
+            return supplier["id"]
+        problems.append(_problem("supplier_name", "missing_supplier", "This supplier is not in the company library.", "Add the supplier first or clear the supplier column."))
+    return None
+
+
 def _natural_item_key(item_type: str, raw: dict[str, Any], references: dict[str, Any]) -> str:
     if item_type == "board":
         return _identity(
@@ -669,7 +687,9 @@ def _natural_item_key(item_type: str, raw: dict[str, Any], references: dict[str,
         if category_name:
             category = references["extra_categories_by_name"].get(_key(category_name))
             category_id = category["id"] if category else ""
-        return _identity("extras", {"name": raw.get("model"), "category_id": category_id, "supplier": raw.get("supplier_name"), "code": raw.get("code")})
+        supplier = references["suppliers_by_name"].get(_key(raw.get("supplier_name")))
+        supplier_id = raw.get("supplier_id") or (supplier["id"] if supplier else "")
+        return _identity("extras", {"name": raw.get("model"), "category_id": category_id, "supplier_id": supplier_id, "code": raw.get("code")})
     return ""
 
 
@@ -696,7 +716,7 @@ def _payload_matches(resource: ImportResource, payload: dict[str, Any], existing
         "handles": ("name", "supplier", "code"),
         "suppliers": ("name", "code", "contact_name", "email", "phone", "notes", "default_discount_bps"),
         "extra_categories": ("name",),
-        "extras": ("name", "category_id", "supplier", "code", "notes"),
+        "extras": ("name", "category_id", "supplier_id", "code", "notes"),
         "supplier_item_costs": ("item_type", "item_ref_id", "supplier_id", "supplier_sku", "price_component", "order_uom", "active_discount_bps", "active_unit_cost_cents", "active_currency_code"),
         "price_list_items": ("item_type", "item_ref_id", "price_component", "uom", "unit_price_cents", "cost_source"),
     }[resource]
@@ -726,7 +746,7 @@ def _identity(resource: ImportResource, payload: dict[str, Any]) -> str:
     if resource == "extra_categories":
         return f"extra-category:{_key(payload.get('name'))}"
     if resource == "extras":
-        return f"extra:{_key(payload.get('name'))}:{payload.get('category_id') or ''}:{_key(payload.get('supplier'))}:{_key(payload.get('code'))}"
+        return f"extra:{_key(payload.get('name'))}:{payload.get('category_id') or ''}:{payload.get('supplier_id') or ''}:{_key(payload.get('code'))}"
     if resource == "supplier_item_costs":
         return f"supplier-cost:{payload.get('item_type')}:{payload.get('item_ref_id')}:{payload.get('supplier_id')}:{_key(payload.get('supplier_sku'))}:{_key(payload.get('price_component') or 'unit')}"
     if resource == "price_list_items":
