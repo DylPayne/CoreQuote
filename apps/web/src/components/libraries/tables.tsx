@@ -10,8 +10,8 @@ import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 
-import { drawerSystemConfigJson, formatBoardGrainPolicy, formatDrawerSystemKind, formatHingeLabel, formatSlideLabel } from './helpers'
-import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HingeRow, SlideRow } from './types'
+import { emptyAccessoryRule, formatBoardGrainPolicy, formatDrawerSystemKind, formatHingeLabel, formatSlideLabel } from './helpers'
+import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HardwareAccessoryConditionField, HardwareAccessoryConditionOperator, HardwareAccessoryConfig, HardwareAccessoryQuantityRule, HardwareAccessoryRule, HingeRow, PriceItemType, SlideRow } from './types'
 
 const boardGrainPolicyOptions: Array<{ label: string; value: BoardGrainPolicy }> = [
   { label: 'Grain required', value: 'required' },
@@ -35,6 +35,267 @@ function EmptyTableMessage({ detail, title }: { detail: string; title: string })
       <p className="text-sm leading-5 text-muted-foreground">{detail}</p>
     </div>
   )
+}
+
+export type HardwareAccessoryOptions = Record<Exclude<PriceItemType, 'board'>, Array<{ label: string; value: string }>>
+
+const accessoryQuantityRules: Array<{ label: string; value: HardwareAccessoryQuantityRule }> = [
+  { label: 'Fixed quantity', value: 'fixed' },
+  { label: 'Per unit', value: 'per_unit' },
+  { label: 'Per drawer', value: 'per_drawer' },
+  { label: 'Per slide pair', value: 'per_slide_pair' },
+  { label: 'Per hinge', value: 'per_hinge' },
+  { label: 'Per door', value: 'per_door' },
+]
+
+const accessoryConditionFields: Array<{ label: string; value: HardwareAccessoryConditionField }> = [
+  { label: 'Always', value: 'always' },
+  { label: 'Drawer front height', value: 'drawer_front_height' },
+  { label: 'Drawer side height', value: 'drawer_side_height' },
+  { label: 'Unit width', value: 'unit_width' },
+  { label: 'Unit height', value: 'unit_height' },
+  { label: 'Unit depth', value: 'unit_depth' },
+  { label: 'Drawer count', value: 'num_drawers' },
+  { label: 'Door count', value: 'door_count' },
+  { label: 'Hinge count', value: 'hinge_count' },
+  { label: 'Hardware variant', value: 'hardware_variant' },
+  { label: 'Load class', value: 'load_class' },
+]
+
+const accessoryConditionOperators: Array<{ label: string; value: HardwareAccessoryConditionOperator }> = [
+  { label: 'Always', value: 'always' },
+  { label: 'Greater than', value: 'greater_than' },
+  { label: 'At least', value: 'greater_than_or_equal' },
+  { label: 'Less than', value: 'less_than' },
+  { label: 'At most', value: 'less_than_or_equal' },
+  { label: 'Equals', value: 'equals' },
+  { label: 'Does not equal', value: 'not_equals' },
+]
+
+export function HardwareAccessoryConfigEditor({
+  config,
+  onChange,
+  options,
+}: {
+  config: HardwareAccessoryConfig
+  onChange: (config: HardwareAccessoryConfig) => void
+  options: HardwareAccessoryOptions
+}) {
+  const accessories = Array.isArray(config.accessories) ? config.accessories : []
+
+  function updateRule(index: number, patch: Partial<HardwareAccessoryRule>) {
+    onChange({
+      ...config,
+      accessories: accessories.map((rule, ruleIndex) => (ruleIndex === index ? { ...rule, ...patch } : rule)),
+    })
+  }
+
+  function updateCondition(index: number, patch: Partial<HardwareAccessoryRule['condition']>) {
+    const current = accessories[index] ?? emptyAccessoryRule()
+    updateRule(index, { condition: { ...current.condition, ...patch } })
+  }
+
+  function addRule() {
+    onChange({ ...config, accessories: [...accessories, emptyAccessoryRule()] })
+  }
+
+  function removeRule(index: number) {
+    onChange({ ...config, accessories: accessories.filter((_, ruleIndex) => ruleIndex !== index) })
+  }
+
+  return (
+    <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:col-span-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium">Accessory bundle</p>
+        <Button type="button" size="sm" variant="outline" onClick={addRule}>
+          Add accessory
+        </Button>
+      </div>
+      {accessories.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No accessory rules configured.</p>
+      ) : (
+        accessories.map((rule, index) => {
+          const itemOptions = options[rule.item_type] ?? []
+          return (
+            <div key={index} className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-4">
+              <Label className="grid gap-1.5">
+                Accessory type
+                <Select value={rule.item_type} onChange={(event) => updateRule(index, { item_type: event.target.value as Exclude<PriceItemType, 'board'>, item_ref_id: '' })}>
+                  <option value="extra">Extra</option>
+                  <option value="handle">Handle</option>
+                  <option value="hinge">Hinge</option>
+                  <option value="slide">Slide</option>
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Catalog item
+                <Select
+                  value={rule.item_ref_id}
+                  onChange={(event) => {
+                    const selected = itemOptions.find((option) => option.value === event.target.value)
+                    updateRule(index, { item_ref_id: event.target.value, name: selected?.label ?? rule.name })
+                  }}
+                >
+                  <option value="">Custom item</option>
+                  {itemOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Display name
+                <Input value={rule.name} onChange={(event) => updateRule(index, { name: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Supplier code
+                <Input value={rule.code ?? ''} onChange={(event) => updateRule(index, { code: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Quantity
+                <Input value={String(rule.quantity)} onChange={(event) => updateRule(index, { quantity: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Applies per
+                <Select value={rule.quantity_rule} onChange={(event) => updateRule(index, { quantity_rule: event.target.value as HardwareAccessoryQuantityRule })}>
+                  {accessoryQuantityRules.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Unit
+                <Input value={rule.uom} onChange={(event) => updateRule(index, { uom: event.target.value })} />
+              </Label>
+              <Label className="flex items-center gap-2 pt-6 text-sm">
+                <Checkbox checked={rule.required} onChange={(event) => updateRule(index, { required: event.target.checked })} />
+                Required
+              </Label>
+              {!rule.required ? (
+                <Label className="flex items-center gap-2 text-sm md:col-span-4">
+                  <Checkbox checked={rule.enabled} onChange={(event) => updateRule(index, { enabled: event.target.checked })} />
+                  Include this optional accessory by default
+                </Label>
+              ) : null}
+              <Label className="grid gap-1.5">
+                Condition field
+                <Select value={rule.condition.field} onChange={(event) => updateCondition(index, { field: event.target.value as HardwareAccessoryConditionField })}>
+                  {accessoryConditionFields.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Condition
+                <Select value={rule.condition.operator} onChange={(event) => updateCondition(index, { operator: event.target.value as HardwareAccessoryConditionOperator })}>
+                  {accessoryConditionOperators.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Number value
+                <Input value={rule.condition.value_number ?? ''} onChange={(event) => updateCondition(index, { value_number: event.target.value === '' ? null : Number(event.target.value) })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Text value
+                <Input value={rule.condition.value_text ?? ''} onChange={(event) => updateCondition(index, { value_text: event.target.value })} />
+              </Label>
+              <div className="md:col-span-4">
+                <Button type="button" size="sm" variant="outline" onClick={() => removeRule(index)}>
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  Remove accessory
+                </Button>
+              </div>
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
+
+export function DrawerSystemConfigEditor({
+  config,
+  drawerSystemKind,
+  onChange,
+}: {
+  config: DrawerSystemConfig
+  drawerSystemKind: DrawerSystemKind
+  onChange: (config: DrawerSystemConfig) => void
+}) {
+  if (drawerSystemKind !== 'metal') return null
+
+  function updateConfig(patch: Partial<DrawerSystemConfig>) {
+    onChange({ ...config, ...patch })
+  }
+
+  return (
+    <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:col-span-4 md:grid-cols-4">
+      <p className="text-sm font-medium md:col-span-4">Drawer-system cutting</p>
+      <Label className="grid gap-1.5">
+        Product family
+        <Input value={String(config.product_family ?? '')} onChange={(event) => updateConfig({ product_family: event.target.value })} />
+      </Label>
+      <Label className="grid gap-1.5">
+        Manufacturer
+        <Input value={String(config.manufacturer ?? '')} onChange={(event) => updateConfig({ manufacturer: event.target.value })} />
+      </Label>
+      <Label className="grid gap-1.5">
+        Finish
+        <Input value={String(config.finish ?? '')} onChange={(event) => updateConfig({ finish: event.target.value })} />
+      </Label>
+      <Label className="grid gap-1.5">
+        Load class
+        <Input value={String(config.load_class ?? '')} onChange={(event) => updateConfig({ load_class: event.target.value })} />
+      </Label>
+      <Label className="grid gap-1.5">
+        Side height
+        <Input value={config.side_height_mm ?? ''} onChange={(event) => updateConfig({ side_height_mm: numberOrNull(event.target.value) })} />
+      </Label>
+      <Label className="grid gap-1.5">
+        Installation width
+        <Input value={config.installation_width_mm ?? ''} onChange={(event) => updateConfig({ installation_width_mm: numberOrNull(event.target.value) })} />
+      </Label>
+      <Label className="grid gap-1.5">
+        Min depth
+        <Input value={config.min_depth_mm ?? ''} onChange={(event) => updateConfig({ min_depth_mm: numberOrNull(event.target.value) })} />
+      </Label>
+      <Label className="grid gap-1.5">
+        Min front height
+        <Input value={config.min_front_height_mm ?? ''} onChange={(event) => updateConfig({ min_front_height_mm: numberOrNull(event.target.value) })} />
+      </Label>
+      <Label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={Boolean(config.supplied_metal_sides ?? true)} onChange={(event) => updateConfig({ supplied_metal_sides: event.target.checked })} />
+        Supplied metal sides
+      </Label>
+      <Label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={Boolean(config.cut_bottom_panel ?? true)} onChange={(event) => updateConfig({ cut_bottom_panel: event.target.checked })} />
+        Cut bottom panel
+      </Label>
+      <Label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={Boolean(config.cut_board_back ?? false)} onChange={(event) => updateConfig({ cut_board_back: event.target.checked })} />
+        Cut board back
+      </Label>
+      <Label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={Boolean(config.cut_inset_panel ?? false)} onChange={(event) => updateConfig({ cut_inset_panel: event.target.checked })} />
+        Cut inset panel
+      </Label>
+    </div>
+  )
+}
+
+function numberOrNull(value: string) {
+  if (value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null
 }
 
 export function LibraryBoardsTable({
@@ -178,6 +439,7 @@ export function LibraryBoardsTable({
 }
 
 export function LibrarySlidesTable({
+  accessoryOptions,
   editingSlide,
   isSaving,
   onDelete,
@@ -188,6 +450,7 @@ export function LibrarySlidesTable({
   selectedIds,
   slides,
 }: {
+  accessoryOptions: HardwareAccessoryOptions
   editingSlide: SlideRow | null
   isSaving: boolean
   onDelete: (itemId: string) => Promise<void>
@@ -244,7 +507,7 @@ export function LibrarySlidesTable({
                     <TableCell>{row.side_clearance_total}</TableCell>
                     <TableCell>{row.side_height_uplift}</TableCell>
                     <TableCell className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => onEdit({ ...row, drawer_system_config_json: drawerSystemConfigJson(row) })}>
+                      <Button size="sm" variant="outline" onClick={() => onEdit({ ...row })}>
                         Edit
                       </Button>
                       <Button size="sm" variant="destructive" onClick={() => void onDelete(row.id)}>
@@ -297,14 +560,16 @@ export function LibrarySlidesTable({
                 <option value="metal">Metal system</option>
               </Select>
             </Label>
-            <Label className="grid gap-1.5 md:col-span-4">
-              System config JSON
-              <Textarea
-                rows={10}
-                value={editingSlide.drawer_system_config_json ?? drawerSystemConfigJson(editingSlide)}
-                onChange={(event) => onEditChange({ ...editingSlide, drawer_system_config_json: event.target.value })}
-              />
-            </Label>
+            <DrawerSystemConfigEditor
+              config={editingSlide.drawer_system_config ?? {}}
+              drawerSystemKind={editingSlide.drawer_system_kind ?? 'conventional'}
+              onChange={(drawer_system_config) => onEditChange({ ...editingSlide, drawer_system_config })}
+            />
+            <HardwareAccessoryConfigEditor
+              config={editingSlide.accessory_config ?? { accessories: [] }}
+              onChange={(accessory_config) => onEditChange({ ...editingSlide, accessory_config })}
+              options={accessoryOptions}
+            />
             <div className="md:col-span-4 flex gap-2">
               <Button disabled={isSaving} type="submit">
                 <Save className="h-4 w-4" aria-hidden="true" />
@@ -322,6 +587,7 @@ export function LibrarySlidesTable({
 }
 
 export function LibraryHingesTable({
+  accessoryOptions,
   editingHinge,
   hinges,
   isSaving,
@@ -332,6 +598,7 @@ export function LibraryHingesTable({
   onUpdate,
   selectedIds,
 }: {
+  accessoryOptions: HardwareAccessoryOptions
   editingHinge: HingeRow | null
   hinges: HingeRow[]
   isSaving: boolean
@@ -416,6 +683,11 @@ export function LibraryHingesTable({
               Opening angle
               <Input value={String(editingHinge.opening_angle_deg)} onChange={(event) => onEditChange({ ...editingHinge, opening_angle_deg: Number(event.target.value) || 0 })} />
             </Label>
+            <HardwareAccessoryConfigEditor
+              config={editingHinge.accessory_config ?? { accessories: [] }}
+              onChange={(accessory_config) => onEditChange({ ...editingHinge, accessory_config })}
+              options={accessoryOptions}
+            />
             <div className="md:col-span-4 flex gap-2">
               <Button disabled={isSaving} type="submit">
                 <Save className="h-4 w-4" aria-hidden="true" />

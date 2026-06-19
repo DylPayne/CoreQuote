@@ -61,10 +61,11 @@ SLIDE_CONFIG = ResourceConfig(
         "side_height_uplift",
         "drawer_system_kind",
         "drawer_system_config",
+        "accessory_config",
     ),
     select_clause=(
         "id::text, brand, model, code, length, side_length, "
-        "side_clearance_total, side_height_uplift, drawer_system_kind, drawer_system_config, "
+        "side_clearance_total, side_height_uplift, drawer_system_kind, drawer_system_config, accessory_config, "
         "created_at, updated_at"
     ),
     order_by="brand ASC, model ASC, length ASC, code ASC",
@@ -73,8 +74,8 @@ SLIDE_CONFIG = ResourceConfig(
 
 HINGE_CONFIG = ResourceConfig(
     table="hinges",
-    fields=("brand", "model", "code", "opening_angle_deg"),
-    select_clause="id::text, brand, model, code, opening_angle_deg, created_at, updated_at",
+    fields=("brand", "model", "code", "opening_angle_deg", "accessory_config"),
+    select_clause="id::text, brand, model, code, opening_angle_deg, accessory_config, created_at, updated_at",
     order_by="brand ASC, model ASC, opening_angle_deg ASC, code ASC",
     search_fields=("brand", "model", "code"),
 )
@@ -2814,6 +2815,11 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(config, dict):
             raise LibraryValidationError("Drawer system config must be an object")
         data["drawer_system_config"] = config
+    if "accessory_config" in data:
+        config = data.get("accessory_config") or {}
+        if not isinstance(config, dict):
+            raise LibraryValidationError("Accessory config must be an object")
+        data["accessory_config"] = config
     if data.get("item_ref_id") == "":
         data["item_ref_id"] = None
     if data.get("source_supplier_item_cost_id") == "":

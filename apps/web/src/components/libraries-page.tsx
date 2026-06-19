@@ -41,8 +41,9 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
 import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
-import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, drawerSystemConfigJson, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
-import { LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
+import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, percentStringToBps } from '@/components/libraries/helpers'
+import { DrawerSystemConfigEditor, HardwareAccessoryConfigEditor, LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
+import type { HardwareAccessoryOptions } from '@/components/libraries/tables'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
@@ -1008,6 +1009,15 @@ export function LibrariesPage({
           matchesRecent(row.updated_at, catalogRecentDays),
       ),
     [catalogRecentDays, catalogSearch, hinges],
+  )
+  const accessoryOptions = useMemo<HardwareAccessoryOptions>(
+    () => ({
+      slide: slides.map((row) => ({ label: formatSlideLabel(row), value: row.id })),
+      hinge: hinges.map((row) => ({ label: formatHingeLabel(row), value: row.id })),
+      handle: handles.map((row) => ({ label: formatHandleLabel(row), value: row.id })),
+      extra: extras.map((row) => ({ label: formatExtraLabel(row), value: row.id })),
+    }),
+    [extras, handles, hinges, slides],
   )
   const visibleHandles = useMemo(
     () =>
@@ -1976,7 +1986,8 @@ export function LibrariesPage({
       side_clearance_total: String(editingSlide.side_clearance_total),
       side_height_uplift: String(editingSlide.side_height_uplift),
       drawer_system_kind: editingSlide.drawer_system_kind ?? 'conventional',
-      drawer_system_config_json: editingSlide.drawer_system_config_json ?? drawerSystemConfigJson(editingSlide),
+      drawer_system_config: editingSlide.drawer_system_config ?? {},
+      accessory_config: editingSlide.accessory_config ?? { accessories: [] },
     })
     if (!payload) {
       setActionError('Slide values are invalid.')
@@ -2027,6 +2038,7 @@ export function LibrariesPage({
       model: editingHinge.model,
       code: editingHinge.code,
       opening_angle_deg: String(editingHinge.opening_angle_deg),
+      accessory_config: editingHinge.accessory_config ?? { accessories: [] },
     })
     if (!payload) {
       setActionError('Hinge values are invalid.')
@@ -3360,14 +3372,16 @@ export function LibrariesPage({
                     <option value="metal">Metal system</option>
                   </Select>
                 </Label>
-                <Label className="grid gap-1.5 md:col-span-4">
-                  System config JSON
-                  <Textarea
-                    rows={10}
-                    value={slideDraft.drawer_system_config_json}
-                    onChange={(event) => setSlideDraft((current) => ({ ...current, drawer_system_config_json: event.target.value }))}
-                  />
-                </Label>
+                <DrawerSystemConfigEditor
+                  config={slideDraft.drawer_system_config}
+                  drawerSystemKind={slideDraft.drawer_system_kind}
+                  onChange={(drawer_system_config) => setSlideDraft((current) => ({ ...current, drawer_system_config }))}
+                />
+                <HardwareAccessoryConfigEditor
+                  config={slideDraft.accessory_config}
+                  onChange={(accessory_config) => setSlideDraft((current) => ({ ...current, accessory_config }))}
+                  options={accessoryOptions}
+                />
                 <div className="md:col-span-4">
                   <Button disabled={isSaving} type="submit">
                     <Plus className="h-4 w-4" aria-hidden="true" />
@@ -3381,6 +3395,7 @@ export function LibrariesPage({
           {renderCatalogMaintenance('slides', slides.length, visibleSlides.map((row) => row.id))}
 
           <LibrarySlidesTable
+            accessoryOptions={accessoryOptions}
             editingSlide={editingSlide}
             isSaving={isSaving}
             onDelete={deleteSlide}
@@ -3418,6 +3433,11 @@ export function LibrariesPage({
                   Opening angle
                   <Input value={hingeDraft.opening_angle_deg} onChange={(event) => setHingeDraft((current) => ({ ...current, opening_angle_deg: event.target.value }))} />
                 </Label>
+                <HardwareAccessoryConfigEditor
+                  config={hingeDraft.accessory_config}
+                  onChange={(accessory_config) => setHingeDraft((current) => ({ ...current, accessory_config }))}
+                  options={accessoryOptions}
+                />
                 <div className="md:col-span-4">
                   <Button disabled={isSaving} type="submit">
                     <Plus className="h-4 w-4" aria-hidden="true" />
@@ -3431,6 +3451,7 @@ export function LibrariesPage({
           {renderCatalogMaintenance('hinges', hinges.length, visibleHinges.map((row) => row.id))}
 
           <LibraryHingesTable
+            accessoryOptions={accessoryOptions}
             editingHinge={editingHinge}
             hinges={visibleHinges}
             isSaving={isSaving}

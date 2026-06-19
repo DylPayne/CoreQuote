@@ -2088,7 +2088,7 @@ class WorkspaceStore:
             for row in conn.execute(
                 """
                 SELECT id::text, brand, model, code, length, side_length, side_clearance_total,
-                       side_height_uplift, drawer_system_kind, drawer_system_config
+                       side_height_uplift, drawer_system_kind, drawer_system_config, accessory_config
                 FROM slides
                 WHERE company_id = %s
                 ORDER BY brand ASC, model ASC, code ASC
@@ -2100,7 +2100,7 @@ class WorkspaceStore:
             row["id"]: row
             for row in conn.execute(
                 """
-                SELECT id::text, brand, model, code, opening_angle_deg
+                SELECT id::text, brand, model, code, opening_angle_deg, accessory_config
                 FROM hinges
                 WHERE company_id = %s
                 ORDER BY brand ASC, model ASC, code ASC
@@ -2223,7 +2223,7 @@ class WorkspaceStore:
     def _get_slide_for_validation(self, conn, company_id: str, slide_id: str) -> dict[str, Any]:
         row = conn.execute(
             """
-            SELECT id::text, brand, model, code, length, drawer_system_kind, drawer_system_config
+            SELECT id::text, brand, model, code, length, drawer_system_kind, drawer_system_config, accessory_config
             FROM slides
             WHERE company_id = %s
               AND id = %s

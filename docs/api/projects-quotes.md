@@ -1484,6 +1484,22 @@ Response shape:
             "usage_label": "Quote extra"
           }
         ],
+        "optional_items": [
+          {
+            "item_type": "extra",
+            "type_label": "Extras",
+            "item_key": "extra::optional-extra-uuid",
+            "item_ref_id": "optional-extra-uuid",
+            "item_name": "Wide drawer stabiliser",
+            "supplier": "Grass",
+            "code": "STAB",
+            "quantity": 1,
+            "uom": "pcs",
+            "unit_numbers": [1],
+            "used_in": ["Unit 1 drawers"],
+            "usage_label": "Unit 1 drawers"
+          }
+        ],
         "warnings": [
           {
             "severity": "warning",
@@ -1558,7 +1574,10 @@ item, preserves stable `item_ref_id` values for future supplier ordering, and
 lists affected unit labels where available. Slide and hinge `supplier` values
 come from their catalog brand; handle and extra `supplier` values come from the
 supplier field. The pick list intentionally excludes price, sell, profit, and
-margin fields. Missing slide, hinge, handle, or stale catalog choices appear in
+margin fields. Required and enabled accessory bundle rows are included in
+`hardware_pick_list.items`; optional accessories that are not enabled are visible
+in `hardware_pick_list.optional_items` and are not included in pick quantities or
+pricing totals. Missing slide, hinge, handle, or stale catalog choices appear in
 `hardware_pick_list.warnings` and affect quote readiness.
 
 Line `bucket` values group the spreadsheet-derived pricing categories:
@@ -1578,5 +1597,5 @@ Line `bucket` values group the spreadsheet-derived pricing categories:
 - Pricing tab can load project totals via `GET /projects/{project_id}/pricing` and format all cent values with the returned `currency_code`.
 - Pricing UI should show `missing_prices` before detailed line items and use `guidance_action_label`, `guidance_message`, `library_target`, and `catalog_target` instead of exposing raw item keys.
 - Quote pricing review should show `material_summary` groups and warnings before detailed line items. Treat `estimated_sheets` as an estimate; `null` means sheet dimensions are missing.
-- Quote pricing or output review should show `hardware_pick_list` groups and warnings for internal/workshop use. Do not mix its rows with client-facing margin, profit, or sell-price display.
+- Quote pricing or output review should show `hardware_pick_list.items`, `hardware_pick_list.optional_items`, and warnings for internal/workshop use. Do not mix its rows with client-facing margin, profit, or sell-price display.
 - Quote defaults are designed for fast unit creation UX: set defaults once on quote, then apply during add-unit flows.

@@ -81,6 +81,7 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("side_height_uplift", "Side uplift", ("side uplift", "side_height_uplift", "uplift")),
             ImportField("drawer_system_kind", "Drawer system kind", ("drawer system kind", "drawer_system_kind", "system kind")),
             ImportField("drawer_system_config", "Drawer system config", ("drawer system config", "drawer_system_config", "system config")),
+            ImportField("accessory_config", "Accessory config", ("accessory config", "accessory_config", "bundle config", "accessory bundle")),
         ),
     ),
     "hinges": ImportSpec(
@@ -91,6 +92,7 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("model", "Model", ("model", "description", "hinge model", "name"), True),
             ImportField("code", "Code", ("code", "sku", "item code", "supplier sku")),
             ImportField("opening_angle_deg", "Opening angle", ("opening angle", "opening angle deg", "opening_angle_deg", "angle")),
+            ImportField("accessory_config", "Accessory config", ("accessory config", "accessory_config", "bundle config", "accessory bundle")),
         ),
     ),
     "handles": ImportSpec(
@@ -463,6 +465,7 @@ def _normalize_slide(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dic
         "side_height_uplift": _non_negative_int(raw.get("side_height_uplift"), "side_height_uplift", "Side uplift", problems),
         "drawer_system_kind": _normalize_drawer_system_kind(raw.get("drawer_system_kind"), problems),
         "drawer_system_config": _normalize_json_object(raw.get("drawer_system_config"), "drawer_system_config", "Drawer system config", problems),
+        "accessory_config": _normalize_json_object(raw.get("accessory_config"), "accessory_config", "Accessory config", problems),
     }
 
 
@@ -472,6 +475,7 @@ def _normalize_hinge(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dic
         "model": _required_text(raw, "model", "Model", problems),
         "code": _text(raw.get("code")),
         "opening_angle_deg": _non_negative_int(raw.get("opening_angle_deg"), "opening_angle_deg", "Opening angle", problems),
+        "accessory_config": _normalize_json_object(raw.get("accessory_config"), "accessory_config", "Accessory config", problems),
     }
 
 
@@ -687,8 +691,8 @@ def _find_existing(resource: ImportResource, identity: str, references: dict[str
 def _payload_matches(resource: ImportResource, payload: dict[str, Any], existing: dict[str, Any]) -> bool:
     compare_fields = {
         "boards": ("brand", "material", "thickness", "length_mm", "width_mm", "costing_mode", "grain_policy"),
-        "slides": ("brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift", "drawer_system_kind", "drawer_system_config"),
-        "hinges": ("brand", "model", "code", "opening_angle_deg"),
+        "slides": ("brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift", "drawer_system_kind", "drawer_system_config", "accessory_config"),
+        "hinges": ("brand", "model", "code", "opening_angle_deg", "accessory_config"),
         "handles": ("name", "supplier", "code"),
         "suppliers": ("name", "code", "contact_name", "email", "phone", "notes", "default_discount_bps"),
         "extra_categories": ("name",),

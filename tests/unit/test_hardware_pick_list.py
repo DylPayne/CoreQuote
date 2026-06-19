@@ -166,6 +166,194 @@ def test_hardware_pick_list_prefers_unit_hardware_overrides():
     assert items["handle::handle-override"]["unit_numbers"] == [1, 2]
 
 
+def test_hardware_pick_list_adds_required_slide_accessory_bundle():
+    result = build_hardware_pick_list(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen Quote",
+            "default_slide_id": "slide-dynapro",
+        },
+        units=[unit(1, "Base Draw", height=720, extra_params={"num_drawers": 3, "handle_qty": 0})],
+        quote_extras=[],
+        slide_lookup={
+            "slide-dynapro": {
+                "id": "slide-dynapro",
+                "brand": "Grass",
+                "model": "Dynapro",
+                "code": "DYN-500",
+                "accessory_config": {
+                    "accessories": [
+                        {
+                            "item_type": "extra",
+                            "item_ref_id": "extra-locking-plate",
+                            "name": "3D locking plate",
+                            "quantity": 2,
+                            "quantity_rule": "per_drawer",
+                            "required": True,
+                            "uom": "pcs",
+                        }
+                    ]
+                },
+            }
+        },
+        hinge_lookup={},
+        handle_lookup={},
+        extra_lookup={
+            "extra-locking-plate": {
+                "id": "extra-locking-plate",
+                "name": "Dynapro 3D locking plate",
+                "category_name": "Drawer accessories",
+                "supplier": "Grass",
+                "code": "F134",
+            }
+        },
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert result["warnings"] == []
+    assert result["optional_items"] == []
+    assert items["slide::slide-dynapro"]["quantity"] == 3
+    assert items["extra::extra-locking-plate"]["quantity"] == 6
+    assert items["extra::extra-locking-plate"]["item_name"] == "Dynapro 3D locking plate"
+    assert items["extra::extra-locking-plate"]["used_in"] == ["Unit 1 drawers"]
+
+
+def test_hardware_pick_list_adds_required_hinge_accessory_per_hinge():
+    result = build_hardware_pick_list(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen Quote",
+            "default_hinge_id": "hinge-110",
+            "default_base_handle_id": "handle-base",
+        },
+        units=[unit(2, "Base Door", height=720, extra_params={"num_doors": 2, "handle_qty": 0})],
+        quote_extras=[],
+        slide_lookup={},
+        hinge_lookup={
+            "hinge-110": {
+                "id": "hinge-110",
+                "brand": "Blum",
+                "model": "Clip top",
+                "code": "H110",
+                "accessory_config": {
+                    "accessories": [
+                        {
+                            "item_type": "extra",
+                            "item_ref_id": "extra-mounting-plate",
+                            "name": "Mounting plate",
+                            "quantity": 1,
+                            "quantity_rule": "per_hinge",
+                            "required": True,
+                        }
+                    ]
+                },
+            }
+        },
+        handle_lookup={"handle-base": {"id": "handle-base", "name": "Base pull", "supplier": "Core", "code": "B128"}},
+        extra_lookup={
+            "extra-mounting-plate": {
+                "id": "extra-mounting-plate",
+                "name": "Blum mounting plate",
+                "category_name": "Hinge accessories",
+                "supplier": "Blum",
+                "code": "PLT",
+            }
+        },
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert result["warnings"] == []
+    assert items["hinge::hinge-110"]["quantity"] == 4
+    assert items["extra::extra-mounting-plate"]["quantity"] == 4
+    assert items["extra::extra-mounting-plate"]["unit_numbers"] == [2]
+
+
+def test_hardware_pick_list_applies_height_condition_per_matching_drawer():
+    result = build_hardware_pick_list(
+        quote={"id": "quote-1", "name": "Kitchen Quote", "default_slide_id": "slide-scala"},
+        units=[
+            unit(
+                3,
+                "Base Draw",
+                height=720,
+                extra_params={"num_drawers": 3, "drawer_face_heights": [160, 220, 260], "handle_qty": 0},
+            )
+        ],
+        quote_extras=[],
+        slide_lookup={
+            "slide-scala": {
+                "id": "slide-scala",
+                "brand": "Grass",
+                "model": "Nova Pro Scala",
+                "code": "NPS",
+                "accessory_config": {
+                    "accessories": [
+                        {
+                            "item_type": "extra",
+                            "item_ref_id": "extra-rail",
+                            "name": "Scala rail set",
+                            "quantity": 1,
+                            "quantity_rule": "per_drawer",
+                            "condition": {
+                                "field": "drawer_front_height",
+                                "operator": "greater_than",
+                                "value_number": 180,
+                            },
+                        }
+                    ]
+                },
+            }
+        },
+        hinge_lookup={},
+        handle_lookup={},
+        extra_lookup={"extra-rail": {"id": "extra-rail", "name": "Scala rail set", "category_name": "Drawer accessories"}},
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert items["extra::extra-rail"]["quantity"] == 2
+
+
+def test_hardware_pick_list_keeps_optional_accessories_out_of_totals_until_enabled():
+    result = build_hardware_pick_list(
+        quote={"id": "quote-1", "name": "Kitchen Quote", "default_slide_id": "slide-1"},
+        units=[unit(1, "Base Draw", height=720, extra_params={"num_drawers": 2, "handle_qty": 0})],
+        quote_extras=[],
+        slide_lookup={
+            "slide-1": {
+                "id": "slide-1",
+                "brand": "Grass",
+                "model": "Dynapro",
+                "code": "DYN",
+                "accessory_config": {
+                    "accessories": [
+                        {
+                            "item_type": "extra",
+                            "item_ref_id": "extra-stabiliser",
+                            "name": "Wide drawer stabiliser",
+                            "quantity": 1,
+                            "quantity_rule": "per_unit",
+                            "required": False,
+                            "enabled": False,
+                        }
+                    ]
+                },
+            }
+        },
+        hinge_lookup={},
+        handle_lookup={},
+        extra_lookup={"extra-stabiliser": {"id": "extra-stabiliser", "name": "Wide drawer stabiliser", "category_name": "Drawer accessories"}},
+    )
+
+    assert [item["item_key"] for item in result["items"]] == ["slide::slide-1"]
+    assert result["total_item_count"] == 1
+    assert result["total_quantity"] == 2
+    assert result["optional_items"][0]["item_key"] == "extra::extra-stabiliser"
+    assert result["optional_items"][0]["quantity"] == 1
+
+
 def test_hardware_pick_list_adds_configured_metal_drawer_system_accessories():
     result = build_hardware_pick_list(
         quote={

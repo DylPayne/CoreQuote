@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Mapping
 
 
 SIMPLIFIED_UNIT_TYPE_CANDIDATES: dict[str, tuple[str, ...]] = {
@@ -39,6 +39,7 @@ def build_hardware_pick_list(
     """Return grouped hardware and quote-extra quantities without pricing data."""
 
     items: dict[tuple[str, str], dict[str, Any]] = {}
+    optional_items: dict[tuple[str, str], dict[str, Any]] = {}
     warnings: list[dict[str, Any]] = []
 
     def add_item(
@@ -53,35 +54,43 @@ def build_hardware_pick_list(
         unit_number: int,
         used_in: str,
     ) -> None:
-        item_ref_id = str(item_ref_id or "").strip()
-        quantity = _non_negative_int(quantity, 0)
-        if not item_ref_id or quantity <= 0:
-            return
+        _add_pick_list_item(
+            collection=items,
+            item_type=item_type,
+            item_ref_id=item_ref_id,
+            item_name=item_name,
+            supplier=supplier,
+            code=code,
+            quantity=quantity,
+            uom=uom,
+            unit_number=unit_number,
+            used_in=used_in,
+        )
 
-        key = (item_type, item_ref_id)
-        item = items.get(key)
-        if item is None:
-            item = {
-                "item_type": item_type,
-                "type_label": ITEM_TYPE_LABELS.get(item_type, _title_words(item_type)),
-                "item_key": f"{item_type}::{item_ref_id}",
-                "item_ref_id": item_ref_id,
-                "item_name": item_name,
-                "supplier": supplier,
-                "code": code,
-                "quantity": 0,
-                "uom": uom,
-                "unit_numbers": [],
-                "used_in": [],
-                "usage_label": "",
-            }
-            items[key] = item
-
-        item["quantity"] = int(item["quantity"]) + quantity
-        if unit_number > 0 and unit_number not in item["unit_numbers"]:
-            item["unit_numbers"].append(unit_number)
-        if used_in and used_in not in item["used_in"]:
-            item["used_in"].append(used_in)
+    def add_optional_item(
+        *,
+        item_type: str,
+        item_ref_id: str,
+        item_name: str,
+        supplier: str,
+        code: str,
+        quantity: int,
+        uom: str,
+        unit_number: int,
+        used_in: str,
+    ) -> None:
+        _add_pick_list_item(
+            collection=optional_items,
+            item_type=item_type,
+            item_ref_id=item_ref_id,
+            item_name=item_name,
+            supplier=supplier,
+            code=code,
+            quantity=quantity,
+            uom=uom,
+            unit_number=unit_number,
+            used_in=used_in,
+        )
 
     def add_warning(
         *,
@@ -107,6 +116,8 @@ def build_hardware_pick_list(
         extra_params = unit.get("extra_params", {}) or {}
         unit_number = _non_negative_int(unit.get("unit_number"), 0)
         height = _non_negative_int(unit.get("height"), 0)
+        width = _non_negative_int(unit.get("width"), 0)
+        depth = _non_negative_int(unit.get("depth"), 0)
 
         if canonical_type == "Base Draw":
             num_drawers = _non_negative_int(extra_params.get("num_drawers"), 3)
@@ -133,6 +144,28 @@ def build_hardware_pick_list(
                         uom="pairs",
                         unit_number=unit_number,
                         used_in=location,
+                    )
+                    _add_configured_accessories(
+                        add_item=add_item,
+                        add_optional_item=add_optional_item,
+                        add_warning=add_warning,
+                        primary_item=slide,
+                        primary_item_type="slide",
+                        primary_item_id=slide_id,
+                        extra_lookup=extra_lookup,
+                        handle_lookup=handle_lookup,
+                        hinge_lookup=hinge_lookup,
+                        slide_lookup=slide_lookup,
+                        quantity_context=_drawer_quantity_context(
+                            unit_height=height,
+                            unit_width=width,
+                            unit_depth=depth,
+                            extra_params=extra_params,
+                            slide=slide,
+                            num_drawers=num_drawers,
+                        ),
+                        unit_number=unit_number,
+                        location=location,
                     )
                     _add_drawer_system_hardware_items(
                         add_item=add_item,
@@ -198,6 +231,29 @@ def build_hardware_pick_list(
                     unit_number=unit_number,
                     used_in=location,
                 )
+                _add_configured_accessories(
+                    add_item=add_item,
+                    add_optional_item=add_optional_item,
+                    add_warning=add_warning,
+                    primary_item=hinge,
+                    primary_item_type="hinge",
+                    primary_item_id=hinge_id,
+                    extra_lookup=extra_lookup,
+                    handle_lookup=handle_lookup,
+                    hinge_lookup=hinge_lookup,
+                    slide_lookup=slide_lookup,
+                    quantity_context=_door_quantity_context(
+                        unit_height=height,
+                        unit_width=width,
+                        unit_depth=depth,
+                        extra_params=extra_params,
+                        hinge=hinge,
+                        num_doors=num_doors,
+                        hinges_per_door=hinges_per_door,
+                    ),
+                    unit_number=unit_number,
+                    location=location,
+                )
             else:
                 add_warning(
                     code="missing_hinge_selection",
@@ -256,12 +312,14 @@ def build_hardware_pick_list(
         )
 
     grouped_items = sorted(items.values(), key=_item_sort_key)
-    for item in grouped_items:
+    grouped_optional_items = sorted(optional_items.values(), key=_item_sort_key)
+    for item in [*grouped_items, *grouped_optional_items]:
         item["unit_numbers"] = sorted(int(value) for value in item["unit_numbers"])
         item["usage_label"] = _join_labels(list(item["used_in"]))
 
     return {
         "items": grouped_items,
+        "optional_items": grouped_optional_items,
         "warnings": warnings,
         "total_item_count": len(grouped_items),
         "total_quantity": sum(int(item["quantity"]) for item in grouped_items),
@@ -270,6 +328,331 @@ def build_hardware_pick_list(
 
 def canonical_unit_type(unit_type: str) -> str:
     return UNIT_TYPE_ALIAS_TO_CANONICAL.get(unit_type, unit_type)
+
+
+def _add_pick_list_item(
+    *,
+    collection: dict[tuple[str, str], dict[str, Any]],
+    item_type: str,
+    item_ref_id: str,
+    item_name: str,
+    supplier: str,
+    code: str,
+    quantity: int,
+    uom: str,
+    unit_number: int,
+    used_in: str,
+) -> None:
+    item_ref_id = str(item_ref_id or "").strip()
+    quantity = _non_negative_int(quantity, 0)
+    if not item_ref_id or quantity <= 0:
+        return
+
+    key = (item_type, item_ref_id)
+    item = collection.get(key)
+    if item is None:
+        item = {
+            "item_type": item_type,
+            "type_label": ITEM_TYPE_LABELS.get(item_type, _title_words(item_type)),
+            "item_key": f"{item_type}::{item_ref_id}",
+            "item_ref_id": item_ref_id,
+            "item_name": item_name,
+            "supplier": supplier,
+            "code": code,
+            "quantity": 0,
+            "uom": uom,
+            "unit_numbers": [],
+            "used_in": [],
+            "usage_label": "",
+        }
+        collection[key] = item
+
+    item["quantity"] = int(item["quantity"]) + quantity
+    if unit_number > 0 and unit_number not in item["unit_numbers"]:
+        item["unit_numbers"].append(unit_number)
+    if used_in and used_in not in item["used_in"]:
+        item["used_in"].append(used_in)
+
+
+def _add_configured_accessories(
+    *,
+    add_item,
+    add_optional_item,
+    add_warning,
+    primary_item: dict[str, Any] | None,
+    primary_item_type: str,
+    primary_item_id: str,
+    extra_lookup: dict[str, dict[str, Any]],
+    handle_lookup: dict[str, dict[str, Any]],
+    hinge_lookup: dict[str, dict[str, Any]],
+    slide_lookup: dict[str, dict[str, Any]],
+    quantity_context: dict[str, Any],
+    unit_number: int,
+    location: str,
+) -> None:
+    config = _accessory_config(primary_item)
+    for index, raw_item in enumerate(config.get("accessories") or []):
+        if not isinstance(raw_item, Mapping):
+            continue
+        item_name = str(raw_item.get("name") or "").strip()
+        if not item_name:
+            continue
+
+        item_type = str(raw_item.get("item_type") or "extra").strip().lower()
+        if item_type not in ITEM_TYPE_LABELS:
+            item_type = "extra"
+
+        item_ref_id = str(raw_item.get("item_ref_id") or "").strip()
+        synthetic_ref = False
+        if not item_ref_id:
+            item_ref_id = f"accessory:{primary_item_type}:{primary_item_id}:{index}:{_slug(item_name)}"
+            synthetic_ref = True
+
+        condition = raw_item.get("condition") if isinstance(raw_item.get("condition"), Mapping) else {}
+        quantity_rule = str(raw_item.get("quantity_rule") or "per_unit").strip().lower()
+        base_quantity = _non_negative_int(raw_item.get("quantity"), 1)
+        quantity = _configured_accessory_quantity(
+            base_quantity=base_quantity,
+            quantity_rule=quantity_rule,
+            condition=condition,
+            context=quantity_context,
+        )
+        if quantity <= 0:
+            continue
+
+        catalog_item = _configured_hardware_catalog_item(
+            item_type=item_type,
+            item_ref_id=item_ref_id,
+            extra_lookup=extra_lookup,
+            handle_lookup=handle_lookup,
+            hinge_lookup=hinge_lookup,
+            slide_lookup=slide_lookup,
+        )
+        if item_ref_id and not synthetic_ref and catalog_item is None:
+            add_warning(
+                code="missing_catalog_item",
+                item_type=item_type,
+                unit_number=unit_number,
+                item_ref_id=item_ref_id,
+                message=f"{item_name} {item_ref_id} is not available for {location}.",
+            )
+
+        required = bool(raw_item.get("required", True))
+        enabled = bool(raw_item.get("enabled", False))
+        add_target = add_item if required or enabled else add_optional_item
+        add_target(
+            item_type=item_type,
+            item_ref_id=item_ref_id,
+            item_name=_configured_hardware_name(raw_item, catalog_item, fallback=item_name),
+            supplier=str(raw_item.get("supplier") or _catalog_supplier(catalog_item) or _brand_supplier(primary_item) or "").strip(),
+            code=str(raw_item.get("code") or _catalog_code(catalog_item) or "").strip(),
+            quantity=quantity,
+            uom=str(raw_item.get("uom") or "pcs").strip() or "pcs",
+            unit_number=unit_number,
+            used_in=location,
+        )
+
+
+def _accessory_config(primary_item: dict[str, Any] | None) -> dict[str, Any]:
+    config = (primary_item or {}).get("accessory_config") or {}
+    return dict(config) if isinstance(config, Mapping) else {}
+
+
+def _drawer_quantity_context(
+    *,
+    unit_height: int,
+    unit_width: int,
+    unit_depth: int,
+    extra_params: dict[str, Any],
+    slide: dict[str, Any] | None,
+    num_drawers: int,
+) -> dict[str, Any]:
+    drawer_front_heights = _drawer_front_heights(unit_height=unit_height, extra_params=extra_params, num_drawers=num_drawers)
+    drawer_front_height = max(drawer_front_heights) if drawer_front_heights else 0
+    drawer_front_back_height = max(0, drawer_front_height - 100)
+    side_height_uplift = _non_negative_int(extra_params.get("slide_side_height_uplift") or (slide or {}).get("side_height_uplift"), 0)
+    drawer_side_height = max(0, drawer_front_back_height + side_height_uplift)
+    drawer_system_config = _drawer_system_config(extra_params, slide)
+    return {
+        "unit_height": unit_height,
+        "unit_width": unit_width,
+        "unit_depth": unit_depth,
+        "num_drawers": num_drawers,
+        "drawer_count": num_drawers,
+        "slide_pair_count": num_drawers,
+        "drawer_front_height": drawer_front_height,
+        "drawer_front_heights": drawer_front_heights,
+        "drawer_side_height": drawer_side_height,
+        "hardware_variant": _hardware_variant(slide),
+        "load_class": str(drawer_system_config.get("load_class") or (slide or {}).get("load_class") or "").strip(),
+    }
+
+
+def _door_quantity_context(
+    *,
+    unit_height: int,
+    unit_width: int,
+    unit_depth: int,
+    extra_params: dict[str, Any],
+    hinge: dict[str, Any] | None,
+    num_doors: int,
+    hinges_per_door: int,
+) -> dict[str, Any]:
+    hinge_count = num_doors * hinges_per_door
+    return {
+        "unit_height": unit_height,
+        "unit_width": unit_width,
+        "unit_depth": unit_depth,
+        "door_count": num_doors,
+        "num_doors": num_doors,
+        "hinges_per_door": hinges_per_door,
+        "hinge_count": hinge_count,
+        "hardware_variant": _hardware_variant(hinge),
+        "load_class": str(extra_params.get("load_class") or "").strip(),
+    }
+
+
+def _configured_accessory_quantity(
+    *,
+    base_quantity: int,
+    quantity_rule: str,
+    condition: Mapping[str, Any],
+    context: dict[str, Any],
+) -> int:
+    if not _condition_matches(condition, context):
+        return 0
+    basis = _quantity_basis(quantity_rule=quantity_rule, condition=condition, context=context)
+    return base_quantity * basis
+
+
+def _quantity_basis(*, quantity_rule: str, condition: Mapping[str, Any], context: dict[str, Any]) -> int:
+    normalized = quantity_rule.replace("-", "_")
+    if normalized in {"fixed", "per_unit"}:
+        return 1
+    if normalized in {"per_drawer", "per_slide_pair"}:
+        if _condition_field(condition) == "drawer_front_height":
+            return _matching_drawer_front_count(condition, context)
+        return _non_negative_int(context.get("num_drawers") or context.get("drawer_count") or context.get("slide_pair_count"), 0)
+    if normalized == "per_hinge":
+        return _non_negative_int(context.get("hinge_count"), 0)
+    if normalized == "per_door":
+        return _non_negative_int(context.get("door_count") or context.get("num_doors"), 0)
+    return 1
+
+
+def _condition_matches(condition: Mapping[str, Any], context: Mapping[str, Any]) -> bool:
+    field = _condition_field(condition)
+    operator = _condition_operator(condition)
+    if field == "always" or operator == "always":
+        return True
+    value = context.get(field)
+    if isinstance(value, list):
+        return any(_condition_value_matches(item, operator, condition) for item in value)
+    return _condition_value_matches(value, operator, condition)
+
+
+def _matching_drawer_front_count(condition: Mapping[str, Any], context: Mapping[str, Any]) -> int:
+    values = context.get("drawer_front_heights")
+    if not isinstance(values, list):
+        return _non_negative_int(context.get("num_drawers"), 0) if _condition_matches(condition, context) else 0
+    return sum(1 for value in values if _condition_value_matches(value, _condition_operator(condition), condition))
+
+
+def _condition_value_matches(value: Any, operator: str, condition: Mapping[str, Any]) -> bool:
+    if operator == "always":
+        return True
+    comparison_number = condition.get("value_number")
+    if comparison_number is None and "value" in condition:
+        comparison_number = condition.get("value")
+    comparison_text = str(condition.get("value_text") or condition.get("value") or "").strip()
+
+    if operator in {"greater_than", "greater_than_or_equal", "less_than", "less_than_or_equal"}:
+        actual = _float_or_none(value)
+        expected = _float_or_none(comparison_number)
+        if actual is None or expected is None:
+            return False
+        if operator == "greater_than":
+            return actual > expected
+        if operator == "greater_than_or_equal":
+            return actual >= expected
+        if operator == "less_than":
+            return actual < expected
+        return actual <= expected
+
+    actual_text = str(value or "").strip()
+    if operator == "equals":
+        if comparison_text:
+            return actual_text.lower() == comparison_text.lower()
+        expected = _float_or_none(comparison_number)
+        actual = _float_or_none(value)
+        return expected is not None and actual is not None and actual == expected
+    if operator == "not_equals":
+        if comparison_text:
+            return actual_text.lower() != comparison_text.lower()
+        expected = _float_or_none(comparison_number)
+        actual = _float_or_none(value)
+        return expected is not None and actual is not None and actual != expected
+    return False
+
+
+def _condition_field(condition: Mapping[str, Any]) -> str:
+    field = str(condition.get("field") or "always").strip().lower().replace("-", "_")
+    aliases = {
+        "height": "unit_height",
+        "width": "unit_width",
+        "depth": "unit_depth",
+        "drawer_height": "drawer_front_height",
+        "front_height": "drawer_front_height",
+        "doors": "door_count",
+        "hinges": "hinge_count",
+        "variant": "hardware_variant",
+    }
+    return aliases.get(field, field)
+
+
+def _condition_operator(condition: Mapping[str, Any]) -> str:
+    operator = str(condition.get("operator") or "always").strip().lower().replace("-", "_")
+    aliases = {
+        ">": "greater_than",
+        "gt": "greater_than",
+        ">=": "greater_than_or_equal",
+        "gte": "greater_than_or_equal",
+        "<": "less_than",
+        "lt": "less_than",
+        "<=": "less_than_or_equal",
+        "lte": "less_than_or_equal",
+        "==": "equals",
+        "=": "equals",
+        "eq": "equals",
+        "!=": "not_equals",
+        "neq": "not_equals",
+    }
+    return aliases.get(operator, operator)
+
+
+def _drawer_front_heights(*, unit_height: int, extra_params: dict[str, Any], num_drawers: int) -> list[int]:
+    raw_heights = extra_params.get("drawer_face_heights")
+    if isinstance(raw_heights, list):
+        heights = [_non_negative_int(value, 0) for value in raw_heights]
+        return [height for height in heights if height > 0]
+    if num_drawers <= 0:
+        return []
+    panel_gap = _non_negative_int(extra_params.get("panel_gap_mm"), 3)
+    return [max(0, int((unit_height / num_drawers) - panel_gap)) for _ in range(num_drawers)]
+
+
+def _hardware_variant(row: dict[str, Any] | None) -> str:
+    if not row:
+        return ""
+    return " ".join(
+        part
+        for part in (
+            str(row.get("brand") or "").strip(),
+            str(row.get("model") or "").strip(),
+            str(row.get("code") or "").strip(),
+        )
+        if part
+    )
 
 
 def _add_handle_requirement(
@@ -402,8 +785,9 @@ def _configured_hardware_catalog_item(
     extra_lookup: dict[str, dict[str, Any]],
     handle_lookup: dict[str, dict[str, Any]],
     hinge_lookup: dict[str, dict[str, Any]],
-    slide: dict[str, Any] | None,
-    slide_id: str,
+    slide_lookup: dict[str, dict[str, Any]] | None = None,
+    slide: dict[str, Any] | None = None,
+    slide_id: str = "",
 ) -> dict[str, Any] | None:
     if item_type == "extra":
         return extra_lookup.get(item_ref_id)
@@ -411,8 +795,10 @@ def _configured_hardware_catalog_item(
         return handle_lookup.get(item_ref_id)
     if item_type == "hinge":
         return hinge_lookup.get(item_ref_id)
-    if item_type == "slide" and item_ref_id == slide_id:
-        return slide
+    if item_type == "slide":
+        if item_ref_id == slide_id:
+            return slide
+        return (slide_lookup or {}).get(item_ref_id)
     return None
 
 
@@ -509,3 +895,13 @@ def _non_negative_int(value: Any, default: int) -> int:
     except (TypeError, ValueError):
         parsed = int(default)
     return max(0, parsed)
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
