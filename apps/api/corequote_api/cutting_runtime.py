@@ -61,6 +61,16 @@ CANONICAL_TO_LEGACY_FALLBACK: dict[str, str] = {
     "Wall Door": "Wall Door",
     "Tall Door": "Tall Standard",
 }
+METAL_DRAWER_SUPPRESSED_PARTS = {"Drawer Side", "Drawer Front/Back", "Drawer Base"}
+DRAWER_SYSTEM_NUMERIC_CONFIG_FIELDS = (
+    "side_height_mm",
+    "installation_width_mm",
+    "min_internal_width_mm",
+    "max_internal_width_mm",
+    "min_depth_mm",
+    "min_front_height_mm",
+    "max_front_height_mm",
+)
 
 
 class CuttingRuntimeError(ValueError):
@@ -352,6 +362,19 @@ class CutlistRuntimeService:
             unit_number = int(unit["unit_number"])
             unit_type_key = canonical_unit_type_key(str(unit["unit_type"]))
 
+            if _is_metal_drawer_system_unit(unit, unit_type_key):
+                self._append_metal_drawer_system_rows(
+                    unit=unit,
+                    unit_type_key=unit_type_key,
+                    carcass_rows=carcass_rows,
+                    panel_rows=panel_rows,
+                    hardware_rows=hardware_rows,
+                    extra_rows=extra_rows,
+                    runtime_rows=runtime_rows,
+                    unit_sources=unit_sources,
+                )
+                continue
+
             if not use_db_rulesets:
                 self._append_legacy_unit_rows(
                     unit=unit,
@@ -465,6 +488,120 @@ class CutlistRuntimeService:
         }
         return preview_with_validation(preview)
 
+    def _append_metal_drawer_system_rows(
+        self,
+        *,
+        unit: dict,
+        unit_type_key: str,
+        carcass_rows: list[dict],
+        panel_rows: list[dict],
+        hardware_rows: list[dict],
+        extra_rows: list[dict],
+        runtime_rows: list[dict],
+        unit_sources: list[dict],
+    ) -> None:
+        legacy_unit = {**unit, "unit_type": to_legacy_unit_type(str(unit.get("unit_type", unit_type_key)))}
+        legacy_carcass, legacy_panels = build_cutlist([legacy_unit])
+        unit_number = int(unit["unit_number"])
+
+        for record in legacy_carcass.to_dict(orient="records"):
+            desc = str(record["Desc"])
+            if desc in METAL_DRAWER_SUPPRESSED_PARTS:
+                continue
+            self._append_runtime_row(
+                {
+                    "unit_number": int(record["Unit #"]),
+                    "section": "carcass",
+                    "desc": desc,
+                    "length": int(record["L"]),
+                    "width": int(record["W"]),
+                    "qty": int(record["Qty"]),
+                    "edge_long_1": False,
+                    "edge_long_2": False,
+                    "edge_short_1": False,
+                    "edge_short_2": False,
+                    "grain_direction": "none",
+                    "can_rotate": True,
+                },
+                carcass_rows=carcass_rows,
+                panel_rows=panel_rows,
+                hardware_rows=hardware_rows,
+                extra_rows=extra_rows,
+                runtime_rows=runtime_rows,
+            )
+
+        for record in legacy_panels.to_dict(orient="records"):
+            self._append_runtime_row(
+                {
+                    "unit_number": int(record["Unit #"]),
+                    "section": "panel",
+                    "desc": str(record["Desc"]),
+                    "length": int(record["L"]),
+                    "width": int(record["W"]),
+                    "qty": int(record["Qty"]),
+                    "edge_long_1": False,
+                    "edge_long_2": False,
+                    "edge_short_1": False,
+                    "edge_short_2": False,
+                    "grain_direction": "none",
+                    "can_rotate": True,
+                },
+                carcass_rows=carcass_rows,
+                panel_rows=panel_rows,
+                hardware_rows=hardware_rows,
+                extra_rows=extra_rows,
+                runtime_rows=runtime_rows,
+            )
+
+        config = _drawer_system_config(unit)
+        try:
+            context = self._build_formula_context(unit=unit, unit_type_key=unit_type_key, unit_config=None)
+            context.update(_drawer_system_numeric_context(config))
+            generated_rows = self._evaluate_drawer_system_rows(
+                unit_number=unit_number,
+                rows=list(config.get("panel_formulas") or []),
+                context=context,
+            )
+        except CuttingRuntimeError as exc:
+            generated_rows = [
+                {
+                    "unit_number": unit_number,
+                    "section": "carcass",
+                    "desc": "Metal drawer system configuration error",
+                    "length": 0,
+                    "width": 0,
+                    "qty": 0,
+                    "edge_long_1": False,
+                    "edge_long_2": False,
+                    "edge_short_1": False,
+                    "edge_short_2": False,
+                    "grain_direction": "none",
+                    "can_rotate": True,
+                    "configuration_error": str(exc),
+                }
+            ]
+
+        for row in generated_rows:
+            self._append_runtime_row(
+                row,
+                carcass_rows=carcass_rows,
+                panel_rows=panel_rows,
+                hardware_rows=hardware_rows,
+                extra_rows=extra_rows,
+                runtime_rows=runtime_rows,
+            )
+
+        unit_sources.append(
+            {
+                "unit_number": unit_number,
+                "unit_type_key": unit_type_key,
+                "source": "drawer_system",
+                "ruleset_id": None,
+                "unit_config_id": None,
+                "note": "Configured metal drawer system output.",
+            }
+        )
+
     def _resolve_unit_config(self, company_id: str, unit_type_key: str) -> dict | None:
         for candidate in unit_type_candidates(unit_type_key):
             row = self.store.resolve_unit_config(company_id, candidate)
@@ -550,6 +687,33 @@ class CutlistRuntimeService:
                 "note": note,
             }
         )
+
+    def _append_runtime_row(
+        self,
+        row: dict,
+        *,
+        carcass_rows: list[dict],
+        panel_rows: list[dict],
+        hardware_rows: list[dict],
+        extra_rows: list[dict],
+        runtime_rows: list[dict],
+    ) -> None:
+        runtime_rows.append(row)
+        compact = {
+            "unit_number": row["unit_number"],
+            "desc": row["desc"],
+            "length": row["length"],
+            "width": row["width"],
+            "qty": row["qty"],
+        }
+        if row["section"] == "carcass":
+            carcass_rows.append(compact)
+        elif row["section"] == "panel":
+            panel_rows.append(compact)
+        elif row["section"] == "hardware":
+            hardware_rows.append(compact)
+        elif row["section"] == "extra_panel":
+            extra_rows.append(compact)
 
     def _build_formula_context(
         self,
@@ -662,6 +826,57 @@ class CutlistRuntimeService:
             )
         return generated_rows
 
+    def _evaluate_drawer_system_rows(
+        self,
+        *,
+        unit_number: int,
+        rows: list[dict[str, Any]],
+        context: Mapping[str, float | int | bool],
+    ) -> list[dict]:
+        generated_rows: list[dict] = []
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            condition_expression = str(row.get("condition_formula", "") or "")
+            if not self.evaluator.evaluate_condition(condition_expression, context):
+                continue
+
+            length = self.evaluator.evaluate_numeric(
+                str(row.get("length_formula", "")),
+                context,
+                field_name="length_formula",
+            )
+            width = self.evaluator.evaluate_numeric(
+                str(row.get("width_formula", "")),
+                context,
+                field_name="width_formula",
+            )
+            qty_raw = self.evaluator.evaluate_numeric(
+                str(row.get("qty_formula", "num_drawers") or "num_drawers"),
+                context,
+                field_name="qty_formula",
+            )
+            section = str(row.get("section") or "carcass")
+            if section not in {"carcass", "panel", "extra_panel"}:
+                section = "carcass"
+            generated_rows.append(
+                {
+                    "unit_number": unit_number,
+                    "section": section,
+                    "desc": str(row.get("name") or row.get("description") or "Metal drawer part").strip(),
+                    "length": int(length),
+                    "width": int(width),
+                    "qty": int(qty_raw),
+                    "edge_long_1": bool(row.get("edge_long_1", False)),
+                    "edge_long_2": bool(row.get("edge_long_2", False)),
+                    "edge_short_1": bool(row.get("edge_short_1", False)),
+                    "edge_short_2": bool(row.get("edge_short_2", False)),
+                    "grain_direction": str(row.get("grain_direction") or "none"),
+                    "can_rotate": bool(row.get("can_rotate", True)),
+                }
+            )
+        return generated_rows
+
 
 def canonical_unit_type_key(unit_type: str) -> str:
     return UNIT_TYPE_ALIAS_TO_CANONICAL.get(unit_type, unit_type)
@@ -689,7 +904,39 @@ def _runtime_mode(unit_sources: list[dict]) -> str:
         return "ruleset"
     if sources == {"legacy"}:
         return "legacy"
+    if sources == {"drawer_system"}:
+        return "drawer_system"
     return "mixed"
+
+
+def _is_metal_drawer_system_unit(unit: Mapping[str, Any], unit_type_key: str) -> bool:
+    if canonical_unit_type_key(unit_type_key) != "Base Draw":
+        return False
+    extra_params = unit.get("extra_params", {}) or {}
+    if not isinstance(extra_params, Mapping):
+        return False
+    return str(extra_params.get("drawer_system_kind") or "conventional").strip().lower() == "metal"
+
+
+def _drawer_system_config(unit: Mapping[str, Any]) -> dict[str, Any]:
+    extra_params = unit.get("extra_params", {}) or {}
+    if not isinstance(extra_params, Mapping):
+        return {}
+    config = extra_params.get("drawer_system_config") or {}
+    return dict(config) if isinstance(config, Mapping) else {}
+
+
+def _drawer_system_numeric_context(config: Mapping[str, Any]) -> dict[str, int | float | bool]:
+    context = _numeric_context_entries(config.get("variables") or {})
+    for field in DRAWER_SYSTEM_NUMERIC_CONFIG_FIELDS:
+        value = config.get(field)
+        if value is None:
+            continue
+        numeric = _number_or_default(value, 0)
+        context[field] = numeric
+        if field.endswith("_mm"):
+            context[field[:-3]] = numeric
+    return context
 
 
 def _default_num_doors(unit_type_key: str) -> int:

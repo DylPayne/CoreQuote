@@ -486,7 +486,7 @@ Response shape:
 }
 ```
 
-Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, rows that cannot be tied to a usable board/material choice, and drawer units whose effective slide length is greater than carcass depth. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
+Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, rows that cannot be tied to a usable board/material choice, and drawer units whose effective slide length is greater than carcass depth. For metal drawer systems (`drawer_system_kind: "metal"` on the selected slide/drawer hardware), validation also checks configured minimum depth, compatible side-wall thicknesses, compatible nominal lengths, internal-width limits, and drawer-front height limits. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
 
 ## Quote Readiness
 

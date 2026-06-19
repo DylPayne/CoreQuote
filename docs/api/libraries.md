@@ -393,9 +393,91 @@ Resource: `slides`
   "length": 500,
   "side_length": 500,
   "side_clearance_total": 26,
-  "side_height_uplift": 0
+  "side_height_uplift": 0,
+  "drawer_system_kind": "conventional",
+  "drawer_system_config": {}
 }
 ```
+
+`drawer_system_kind` is `conventional` by default. Set it to `metal` for a
+user-configured supplied drawer-side system such as GRASS Nova Pro Scala, Blum
+Legrabox, or another manufacturer. `drawer_system_config` is a JSON object that
+stores the manufacturer's planning data rather than hard-coding one product
+family into the cutlist engine.
+
+Metal drawer system config supports:
+
+- product metadata: `product_family`, `manufacturer`, `finish`,
+  `side_height_mm`, and `load_class`
+- compatibility limits: `installation_width_mm`,
+  `compatible_side_thicknesses`, `compatible_nominal_lengths`,
+  `min_internal_width_mm`, `max_internal_width_mm`, `min_depth_mm`,
+  `min_front_height_mm`, and `max_front_height_mm`
+- boolean planning flags: `supplied_metal_sides`, `supplied_steel_back`,
+  `cut_board_back`, `cut_bottom_panel`, and `cut_inset_panel`
+- `variables`: custom numeric or boolean values referenced by formulas
+- `panel_formulas`: board-cut rows still required by the metal system
+- `hardware_items`: configured accessories to add to the hardware pick list
+
+Unknown top-level config keys are preserved so company-specific supplier data,
+planning notes, or future manufacturer fields can live alongside the validated
+fields above. Formulas should reference custom numeric/boolean values through
+`variables`.
+
+Example metal system:
+
+```json
+{
+  "brand": "Grass",
+  "model": "Nova Pro Scala",
+  "code": "NPS-H90-500",
+  "length": 500,
+  "side_length": 500,
+  "side_clearance_total": 26,
+  "side_height_uplift": 0,
+  "drawer_system_kind": "metal",
+  "drawer_system_config": {
+    "product_family": "Nova Pro Scala",
+    "manufacturer": "Grass",
+    "finish": "Stone",
+    "side_height_mm": 90,
+    "installation_width_mm": 29,
+    "compatible_side_thicknesses": [16, 19],
+    "compatible_nominal_lengths": [500],
+    "min_depth_mm": 500,
+    "panel_formulas": [
+      {
+        "name": "Metal Drawer Bottom",
+        "section": "carcass",
+        "length_formula": "inner_w - (2 * installation_width_mm)",
+        "width_formula": "slide_length - 19",
+        "qty_formula": "num_drawers"
+      },
+      {
+        "name": "Cut Board Back",
+        "section": "carcass",
+        "length_formula": "inner_w - (2 * installation_width_mm)",
+        "width_formula": "side_height_mm - 12",
+        "qty_formula": "num_drawers"
+      }
+    ],
+    "hardware_items": [
+      {
+        "item_type": "extra",
+        "name": "Front bracket set",
+        "quantity_per_drawer": 2,
+        "uom": "pcs"
+      }
+    ]
+  }
+}
+```
+
+Formula context includes unit dimensions (`h`, `w`, `d`, `t`, `inner_w`,
+`inner_h`), drawer dimensions (`num_drawers`, `drawer_width`, `drawer_depth`,
+`drawer_front_height`, `drawer_front_back_height`, `drawer_side_height`), slide
+fields (`slide_length`, `slide_side_length`, `slide_side_clearance_total`), the
+numeric config fields above, and entries in `variables`.
 
 ### Hinges
 

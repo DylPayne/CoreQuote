@@ -134,6 +134,19 @@ def build_hardware_pick_list(
                         unit_number=unit_number,
                         used_in=location,
                     )
+                    _add_drawer_system_hardware_items(
+                        add_item=add_item,
+                        add_warning=add_warning,
+                        slide=slide,
+                        slide_id=slide_id,
+                        extra_params=extra_params,
+                        extra_lookup=extra_lookup,
+                        handle_lookup=handle_lookup,
+                        hinge_lookup=hinge_lookup,
+                        num_drawers=num_drawers,
+                        unit_number=unit_number,
+                        location=location,
+                    )
                 else:
                     add_warning(
                         code="missing_slide_selection",
@@ -302,6 +315,121 @@ def _add_handle_requirement(
         unit_number=unit_number,
         used_in=location,
     )
+
+
+def _add_drawer_system_hardware_items(
+    *,
+    add_item,
+    add_warning,
+    slide: dict[str, Any] | None,
+    slide_id: str,
+    extra_params: dict[str, Any],
+    extra_lookup: dict[str, dict[str, Any]],
+    handle_lookup: dict[str, dict[str, Any]],
+    hinge_lookup: dict[str, dict[str, Any]],
+    num_drawers: int,
+    unit_number: int,
+    location: str,
+) -> None:
+    if _drawer_system_kind(extra_params, slide) != "metal":
+        return
+    config = _drawer_system_config(extra_params, slide)
+    for index, raw_item in enumerate(config.get("hardware_items") or []):
+        if not isinstance(raw_item, dict):
+            continue
+        item_name = str(raw_item.get("name") or "").strip()
+        if not item_name:
+            continue
+        item_type = str(raw_item.get("item_type") or "extra").strip().lower()
+        if item_type not in ITEM_TYPE_LABELS:
+            item_type = "extra"
+        item_ref_id = str(raw_item.get("item_ref_id") or "").strip()
+        synthetic_ref = False
+        if not item_ref_id:
+            item_ref_id = f"drawer-system:{slide_id}:{index}:{_slug(item_name)}"
+            synthetic_ref = True
+
+        quantity = _non_negative_int(raw_item.get("quantity"), 0)
+        if quantity <= 0:
+            quantity = _non_negative_int(raw_item.get("quantity_per_drawer"), 1) * num_drawers
+        if quantity <= 0:
+            continue
+
+        catalog_item = _configured_hardware_catalog_item(
+            item_type=item_type,
+            item_ref_id=item_ref_id,
+            extra_lookup=extra_lookup,
+            handle_lookup=handle_lookup,
+            hinge_lookup=hinge_lookup,
+            slide=slide,
+            slide_id=slide_id,
+        )
+        if item_ref_id and not synthetic_ref and catalog_item is None and item_type in {"extra", "handle", "hinge"}:
+            add_warning(
+                code="missing_catalog_item",
+                item_type=item_type,
+                unit_number=unit_number,
+                item_ref_id=item_ref_id,
+                message=f"{item_name} {item_ref_id} is not available for {location}.",
+            )
+
+        add_item(
+            item_type=item_type,
+            item_ref_id=item_ref_id,
+            item_name=_configured_hardware_name(raw_item, catalog_item, fallback=item_name),
+            supplier=str(raw_item.get("supplier") or _catalog_supplier(catalog_item) or _brand_supplier(slide) or "").strip(),
+            code=str(raw_item.get("code") or _catalog_code(catalog_item) or "").strip(),
+            quantity=quantity,
+            uom=str(raw_item.get("uom") or "pcs").strip() or "pcs",
+            unit_number=unit_number,
+            used_in=location,
+        )
+
+
+def _drawer_system_kind(extra_params: dict[str, Any], slide: dict[str, Any] | None) -> str:
+    return str(extra_params.get("drawer_system_kind") or (slide or {}).get("drawer_system_kind") or "conventional").strip().lower()
+
+
+def _drawer_system_config(extra_params: dict[str, Any], slide: dict[str, Any] | None) -> dict[str, Any]:
+    config = extra_params.get("drawer_system_config") or (slide or {}).get("drawer_system_config") or {}
+    return dict(config) if isinstance(config, dict) else {}
+
+
+def _configured_hardware_catalog_item(
+    *,
+    item_type: str,
+    item_ref_id: str,
+    extra_lookup: dict[str, dict[str, Any]],
+    handle_lookup: dict[str, dict[str, Any]],
+    hinge_lookup: dict[str, dict[str, Any]],
+    slide: dict[str, Any] | None,
+    slide_id: str,
+) -> dict[str, Any] | None:
+    if item_type == "extra":
+        return extra_lookup.get(item_ref_id)
+    if item_type == "handle":
+        return handle_lookup.get(item_ref_id)
+    if item_type == "hinge":
+        return hinge_lookup.get(item_ref_id)
+    if item_type == "slide" and item_ref_id == slide_id:
+        return slide
+    return None
+
+
+def _configured_hardware_name(raw_item: dict[str, Any], catalog_item: dict[str, Any] | None, *, fallback: str) -> str:
+    if catalog_item:
+        if "name" in catalog_item:
+            return _extra_name(catalog_item) if "category_name" in catalog_item else _handle_name(catalog_item)
+        if "brand" in catalog_item and "model" in catalog_item:
+            return _slide_name(catalog_item) if "length" in catalog_item else _hinge_name(catalog_item)
+    return str(raw_item.get("name") or fallback).strip()
+
+
+def _slug(value: str) -> str:
+    slug = "".join(char.lower() if char.isalnum() else "-" for char in value).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "item"
 
 
 def _unit_location(unit_number: int, part_label: str) -> str:

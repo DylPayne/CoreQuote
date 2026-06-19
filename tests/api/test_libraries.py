@@ -207,14 +207,24 @@ class FakeLibraryStore:
 
     def create_slide(self, company_id: str, payload: dict):
         self.created_payload = ("slides", payload)
-        return slide("slide-2", brand=payload["brand"])
+        return slide(
+            "slide-2",
+            brand=payload["brand"],
+            drawer_system_kind=payload.get("drawer_system_kind", "conventional"),
+            drawer_system_config=payload.get("drawer_system_config") or {},
+        )
 
     def get_slide(self, company_id: str, item_id: str):
         return slide(item_id)
 
     def update_slide(self, company_id: str, item_id: str, payload: dict):
         self.updated_payload = ("slides", item_id, payload)
-        return slide(item_id, brand=payload["brand"])
+        return slide(
+            item_id,
+            brand=payload["brand"],
+            drawer_system_kind=payload.get("drawer_system_kind", "conventional"),
+            drawer_system_config=payload.get("drawer_system_config") or {},
+        )
 
     def delete_slide(self, company_id: str, item_id: str):
         self.deleted.append(("slides", item_id))
@@ -588,7 +598,13 @@ def board(item_id: str, *, brand: str = "PG Bison", grain_policy: str = "require
     }
 
 
-def slide(item_id: str, *, brand: str = "Grass") -> dict:
+def slide(
+    item_id: str,
+    *,
+    brand: str = "Grass",
+    drawer_system_kind: str = "conventional",
+    drawer_system_config: dict | None = None,
+) -> dict:
     return {
         "id": item_id,
         "brand": brand,
@@ -598,6 +614,8 @@ def slide(item_id: str, *, brand: str = "Grass") -> dict:
         "side_length": 500,
         "side_clearance_total": 26,
         "side_height_uplift": 0,
+        "drawer_system_kind": drawer_system_kind,
+        "drawer_system_config": drawer_system_config or {},
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -1206,6 +1224,62 @@ def test_board_type_grain_policy_round_trips_and_validates():
     assert create_response.json()["grain_policy"] == "none"
     assert store.created_payload == ("boards", payload)
     assert invalid_response.status_code == 422
+
+
+def test_slide_drawer_system_config_round_trips():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "brand": "Blum",
+        "model": "Legrabox",
+        "code": "LEG-500",
+        "length": 500,
+        "side_length": 500,
+        "side_clearance_total": 26,
+        "side_height_uplift": 0,
+        "drawer_system_kind": "metal",
+        "drawer_system_config": {
+            "product_family": "Legrabox",
+            "manufacturer": "Blum",
+            "manufacturer_notes": "Custom metadata survives for vendor-specific drawer systems.",
+            "installation_width_mm": 31,
+            "compatible_side_thicknesses": [16, 18],
+            "panel_formulas": [
+                {
+                    "name": "Metal Drawer Bottom",
+                    "section": "carcass",
+                    "length_formula": "inner_w - (2 * installation_width_mm)",
+                    "width_formula": "slide_length - 19",
+                    "qty_formula": "num_drawers",
+                }
+            ],
+            "hardware_items": [
+                {
+                    "item_type": "extra",
+                    "name": "Front bracket set",
+                    "quantity_per_drawer": 2,
+                    "uom": "pcs",
+                }
+            ],
+        },
+    }
+    try:
+        create_response = client.post("/api/v1/libraries/slides", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert create_response.status_code == 201
+    assert create_response.json()["drawer_system_kind"] == "metal"
+    assert create_response.json()["drawer_system_config"]["product_family"] == "Legrabox"
+    assert store.created_payload is not None
+    resource, stored_payload = store.created_payload
+    assert resource == "slides"
+    assert stored_payload["drawer_system_kind"] == "metal"
+    assert stored_payload["drawer_system_config"]["product_family"] == "Legrabox"
+    assert stored_payload["drawer_system_config"]["manufacturer_notes"] == "Custom metadata survives for vendor-specific drawer systems."
+    assert stored_payload["drawer_system_config"]["panel_formulas"][0]["length_formula"] == "inner_w - (2 * installation_width_mm)"
+    assert stored_payload["drawer_system_config"]["hardware_items"][0]["quantity_per_drawer"] == 2
 
 
 def test_catalog_list_accepts_search_and_recent_filters():

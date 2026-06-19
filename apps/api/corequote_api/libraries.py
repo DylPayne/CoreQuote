@@ -51,10 +51,21 @@ BOARD_CONFIG = ResourceConfig(
 
 SLIDE_CONFIG = ResourceConfig(
     table="slides",
-    fields=("brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift"),
+    fields=(
+        "brand",
+        "model",
+        "code",
+        "length",
+        "side_length",
+        "side_clearance_total",
+        "side_height_uplift",
+        "drawer_system_kind",
+        "drawer_system_config",
+    ),
     select_clause=(
         "id::text, brand, model, code, length, side_length, "
-        "side_clearance_total, side_height_uplift, created_at, updated_at"
+        "side_clearance_total, side_height_uplift, drawer_system_kind, drawer_system_config, "
+        "created_at, updated_at"
     ),
     order_by="brand ASC, model ASC, length ASC, code ASC",
     search_fields=("brand", "model", "code"),
@@ -1758,7 +1769,7 @@ class LibraryStore:
     def _create_with_conn(self, conn, config: ResourceConfig, company_id: str, payload: dict[str, Any]) -> dict:
         data = _clean_payload(payload)
         columns = ("company_id", *config.fields)
-        values = [company_id, *[data[field] for field in config.fields]]
+        values = [company_id, *[_db_value(data[field]) for field in config.fields]]
         if config.table in BRAND_TABLES:
             columns = (*columns, "brand_id")
             values.append(self._get_or_create_brand_with_conn(conn, company_id, data["brand"])["id"])
@@ -1801,10 +1812,15 @@ class LibraryStore:
     def _update_with_conn(self, conn, config: ResourceConfig, company_id: str, item_id: str, payload: dict[str, Any]) -> dict:
         data = _clean_payload(payload)
         assignments = ", ".join([f"{field} = %s" for field in config.fields])
-        values = [*[data[field] for field in config.fields], company_id, item_id]
+        values = [*[_db_value(data[field]) for field in config.fields], company_id, item_id]
         if config.table in BRAND_TABLES:
             assignments = f"{assignments}, brand_id = %s"
-            values = [*[data[field] for field in config.fields], self._get_or_create_brand_with_conn(conn, company_id, data["brand"])["id"], company_id, item_id]
+            values = [
+                *[_db_value(data[field]) for field in config.fields],
+                self._get_or_create_brand_with_conn(conn, company_id, data["brand"])["id"],
+                company_id,
+                item_id,
+            ]
         try:
             row = conn.execute(
                 f"""
@@ -2769,6 +2785,12 @@ def _clean(value: Any) -> Any:
     return value
 
 
+def _db_value(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return Jsonb(value)
+    return value
+
+
 def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
     data = {key: _clean(value) for key, value in payload.items()}
     if "costing_mode" in data:
@@ -2783,6 +2805,15 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         data["cost_source"] = str(data["cost_source"] or "manual").strip().lower()
     if "currency_code" in data:
         data["currency_code"] = str(data["currency_code"] or "ZAR").strip().upper()
+    if "drawer_system_kind" in data:
+        data["drawer_system_kind"] = str(data["drawer_system_kind"] or "conventional").strip().lower()
+        if data["drawer_system_kind"] not in {"conventional", "metal"}:
+            raise LibraryValidationError("Drawer system kind must be conventional or metal")
+    if "drawer_system_config" in data:
+        config = data.get("drawer_system_config") or {}
+        if not isinstance(config, dict):
+            raise LibraryValidationError("Drawer system config must be an object")
+        data["drawer_system_config"] = config
     if data.get("item_ref_id") == "":
         data["item_ref_id"] = None
     if data.get("source_supplier_item_cost_id") == "":

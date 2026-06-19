@@ -176,6 +176,9 @@ export type SlideRow = {
   side_length: number
   side_clearance_total: number
   side_height_uplift: number
+  drawer_system_kind: DrawerSystemKind
+  drawer_system_config: DrawerSystemConfig
+  drawer_system_config_json?: string
   created_at: string
   updated_at: string
 }
@@ -323,6 +326,62 @@ export type SlideDraft = {
   side_length: string
   side_clearance_total: string
   side_height_uplift: string
+  drawer_system_kind: DrawerSystemKind
+  drawer_system_config_json: string
+}
+
+export type DrawerSystemKind = 'conventional' | 'metal'
+export type DrawerSystemHardwareItemType = Exclude<PriceItemType, 'board'>
+
+export type DrawerSystemFormulaRow = {
+  name: string
+  section?: 'carcass' | 'panel' | 'extra_panel'
+  length_formula: string
+  width_formula: string
+  qty_formula?: string
+  condition_formula?: string
+  edge_long_1?: boolean
+  edge_long_2?: boolean
+  edge_short_1?: boolean
+  edge_short_2?: boolean
+  grain_direction?: 'none' | 'length' | 'width'
+  can_rotate?: boolean
+}
+
+export type DrawerSystemHardwareItem = {
+  item_type?: DrawerSystemHardwareItemType
+  item_ref_id?: string
+  name: string
+  supplier?: string
+  code?: string
+  quantity?: number
+  quantity_per_drawer?: number
+  uom?: string
+}
+
+export type DrawerSystemConfig = {
+  product_family?: string
+  manufacturer?: string
+  finish?: string
+  side_height_mm?: number | null
+  load_class?: string
+  installation_width_mm?: number | null
+  compatible_side_thicknesses?: number[]
+  compatible_nominal_lengths?: number[]
+  min_internal_width_mm?: number | null
+  max_internal_width_mm?: number | null
+  min_depth_mm?: number | null
+  min_front_height_mm?: number | null
+  max_front_height_mm?: number | null
+  supplied_metal_sides?: boolean
+  supplied_steel_back?: boolean
+  cut_board_back?: boolean
+  cut_bottom_panel?: boolean
+  cut_inset_panel?: boolean
+  variables?: Record<string, number | boolean>
+  panel_formulas?: DrawerSystemFormulaRow[]
+  hardware_items?: DrawerSystemHardwareItem[]
+  [key: string]: unknown
 }
 
 export type HingeDraft = {

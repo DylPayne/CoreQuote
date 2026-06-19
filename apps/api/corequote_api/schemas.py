@@ -83,6 +83,8 @@ HardwarePickListWarningCode = Literal[
     "missing_handle_selection",
     "missing_catalog_item",
 ]
+DrawerSystemKind = Literal["conventional", "metal"]
+DrawerSystemPanelSection = Literal["carcass", "panel", "extra_panel"]
 
 
 class HealthResponse(BaseModel):
@@ -512,7 +514,7 @@ class CutlistReadinessResponse(BaseModel):
 class CutlistUnitSourceResponse(BaseModel):
     unit_number: int
     unit_type_key: str
-    source: Literal["ruleset", "legacy"]
+    source: Literal["ruleset", "legacy", "drawer_system"]
     ruleset_id: str | None = None
     unit_config_id: str | None = None
     note: str | None = None
@@ -524,7 +526,7 @@ class CutlistPreviewResponse(BaseModel):
     hardware: list[CutlistRowResponse] = Field(default_factory=list)
     extras: list[CutlistRowResponse] = Field(default_factory=list)
     runtime_rows: list[CutlistRuntimeRowResponse] = Field(default_factory=list)
-    runtime_mode: Literal["legacy", "ruleset", "mixed"] = "legacy"
+    runtime_mode: Literal["legacy", "ruleset", "drawer_system", "mixed"] = "legacy"
     unit_sources: list[CutlistUnitSourceResponse] = Field(default_factory=list)
     validation_warnings: list[CutlistValidationWarningResponse] = Field(default_factory=list)
     readiness: CutlistReadinessResponse = Field(default_factory=CutlistReadinessResponse)
@@ -1347,6 +1349,62 @@ class BoardTypeResponse(BoardTypeRequest):
     updated_at: datetime
 
 
+class DrawerSystemFormulaRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    section: DrawerSystemPanelSection = "carcass"
+    length_formula: str = Field(min_length=1, max_length=500)
+    width_formula: str = Field(min_length=1, max_length=500)
+    qty_formula: str = Field(default="num_drawers", min_length=1, max_length=500)
+    condition_formula: str = Field(default="", max_length=500)
+    edge_long_1: bool = False
+    edge_long_2: bool = False
+    edge_short_1: bool = False
+    edge_short_2: bool = False
+    grain_direction: ProductionGrainDirection = "none"
+    can_rotate: bool = True
+
+
+class DrawerSystemHardwareItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_type: HardwarePickListItemType = "extra"
+    item_ref_id: str = Field(default="", max_length=120)
+    name: str = Field(min_length=1, max_length=160)
+    supplier: str = Field(default="", max_length=160)
+    code: str = Field(default="", max_length=120)
+    quantity: int = Field(default=0, ge=0)
+    quantity_per_drawer: int = Field(default=1, ge=0)
+    uom: str = Field(default="pcs", min_length=1, max_length=40)
+
+
+class DrawerSystemConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    product_family: str = Field(default="", max_length=160)
+    manufacturer: str = Field(default="", max_length=160)
+    finish: str = Field(default="", max_length=120)
+    side_height_mm: int | None = Field(default=None, ge=0)
+    load_class: str = Field(default="", max_length=120)
+    installation_width_mm: int | None = Field(default=None, ge=0)
+    compatible_side_thicknesses: list[int] = Field(default_factory=list)
+    compatible_nominal_lengths: list[int] = Field(default_factory=list)
+    min_internal_width_mm: int | None = Field(default=None, ge=0)
+    max_internal_width_mm: int | None = Field(default=None, ge=0)
+    min_depth_mm: int | None = Field(default=None, ge=0)
+    min_front_height_mm: int | None = Field(default=None, ge=0)
+    max_front_height_mm: int | None = Field(default=None, ge=0)
+    supplied_metal_sides: bool = True
+    supplied_steel_back: bool = False
+    cut_board_back: bool = False
+    cut_bottom_panel: bool = True
+    cut_inset_panel: bool = False
+    variables: dict[str, int | float | bool] = Field(default_factory=dict)
+    panel_formulas: list[DrawerSystemFormulaRow] = Field(default_factory=list)
+    hardware_items: list[DrawerSystemHardwareItem] = Field(default_factory=list)
+
+
 class SlideRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1357,6 +1415,15 @@ class SlideRequest(BaseModel):
     side_length: int = Field(ge=0)
     side_clearance_total: int = Field(ge=0)
     side_height_uplift: int = Field(default=0, ge=0)
+    drawer_system_kind: DrawerSystemKind = "conventional"
+    drawer_system_config: DrawerSystemConfig = Field(default_factory=DrawerSystemConfig)
+
+    @field_validator("drawer_system_config", mode="before")
+    @classmethod
+    def normalize_drawer_system_config(cls, value):
+        if value in (None, ""):
+            return {}
+        return value
 
 
 class SlideResponse(SlideRequest):

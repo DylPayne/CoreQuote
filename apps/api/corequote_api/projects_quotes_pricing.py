@@ -159,6 +159,8 @@ def _to_runtime_unit(
         extra_params.setdefault("slide_side_length", int(unit_slide.get("side_length", 0) or 0))
         extra_params.setdefault("slide_side_clearance_total", int(unit_slide.get("side_clearance_total", 0) or 0))
         extra_params.setdefault("slide_side_height_uplift", int(unit_slide.get("side_height_uplift", 0) or 0))
+        extra_params.setdefault("drawer_system_kind", str(unit_slide.get("drawer_system_kind") or "conventional"))
+        extra_params.setdefault("drawer_system_config", dict(unit_slide.get("drawer_system_config") or {}))
     try:
         thickness = _resolved_unit_thickness(unit, quote=quote, board_lookup=board_lookup)
     except WorkspaceValidationError as exc:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import json
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO, StringIO
@@ -78,6 +79,8 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("side_length", "Side length", ("side length", "side_length", "runner length")),
             ImportField("side_clearance_total", "Side clearance", ("side clearance", "side_clearance_total", "clearance")),
             ImportField("side_height_uplift", "Side uplift", ("side uplift", "side_height_uplift", "uplift")),
+            ImportField("drawer_system_kind", "Drawer system kind", ("drawer system kind", "drawer_system_kind", "system kind")),
+            ImportField("drawer_system_config", "Drawer system config", ("drawer system config", "drawer_system_config", "system config")),
         ),
     ),
     "hinges": ImportSpec(
@@ -458,6 +461,8 @@ def _normalize_slide(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dic
         "side_length": _non_negative_int(raw.get("side_length"), "side_length", "Side length", problems, default=length),
         "side_clearance_total": _non_negative_int(raw.get("side_clearance_total"), "side_clearance_total", "Side clearance", problems),
         "side_height_uplift": _non_negative_int(raw.get("side_height_uplift"), "side_height_uplift", "Side uplift", problems),
+        "drawer_system_kind": _normalize_drawer_system_kind(raw.get("drawer_system_kind"), problems),
+        "drawer_system_config": _normalize_json_object(raw.get("drawer_system_config"), "drawer_system_config", "Drawer system config", problems),
     }
 
 
@@ -682,7 +687,7 @@ def _find_existing(resource: ImportResource, identity: str, references: dict[str
 def _payload_matches(resource: ImportResource, payload: dict[str, Any], existing: dict[str, Any]) -> bool:
     compare_fields = {
         "boards": ("brand", "material", "thickness", "length_mm", "width_mm", "costing_mode", "grain_policy"),
-        "slides": ("brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift"),
+        "slides": ("brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift", "drawer_system_kind", "drawer_system_config"),
         "hinges": ("brand", "model", "code", "opening_angle_deg"),
         "handles": ("name", "supplier", "code"),
         "suppliers": ("name", "code", "contact_name", "email", "phone", "notes", "default_discount_bps"),
@@ -819,6 +824,35 @@ def _normalize_grain_policy(value: Any) -> str:
     if text in {"yes", "true", "grained", "grain required", "requires grain"}:
         return "required"
     return text
+
+
+def _normalize_drawer_system_kind(value: Any, problems: list[dict[str, Any]]) -> str:
+    text = _text(value).lower()
+    if not text:
+        return "conventional"
+    if text not in {"conventional", "metal"}:
+        problems.append(_problem("drawer_system_kind", "invalid_drawer_system_kind", "Drawer system kind must be conventional or metal.", "Use metal only for supplied drawer-side systems."))
+        return "conventional"
+    return text
+
+
+def _normalize_json_object(value: Any, field: str, label: str, problems: list[dict[str, Any]]) -> dict[str, Any]:
+    if value in (None, ""):
+        return {}
+    if isinstance(value, dict):
+        return value
+    text = _text(value)
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        problems.append(_problem(field, "invalid_json", f"{label} must be a JSON object.", "Paste a valid JSON object such as {}."))
+        return {}
+    if not isinstance(parsed, dict):
+        problems.append(_problem(field, "invalid_json_object", f"{label} must be a JSON object.", "Use an object with formula and hardware settings."))
+        return {}
+    return parsed
 
 
 def _positive_int(value: Any, field: str, label: str, problems: list[dict[str, Any]], default: int | None = None) -> int:

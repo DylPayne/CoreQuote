@@ -1,4 +1,4 @@
-from corequote_api.projects_quotes_pricing import _build_cutting_list_preview, _price_quote
+from corequote_api.projects_quotes_pricing import _build_cutting_list_preview, _price_quote, _to_runtime_unit
 
 
 class FakeRuntimeService:
@@ -96,6 +96,46 @@ def test_quote_pricing_readiness_includes_cutlist_validation_warnings():
     assert result["is_complete"] is False
     assert result["missing_items"] == []
     assert result["cutlist_warnings"][0]["reason"] == "Choose a carcass board for this unit or quote default."
+
+
+def test_runtime_unit_includes_configured_drawer_system_from_slide_lookup():
+    result = _to_runtime_unit(
+        {
+            "unit_number": 1,
+            "unit_type_key": "Base Draw",
+            "height": 780,
+            "width": 600,
+            "depth": 560,
+            "carcass_board_type_id": "board-1",
+            "extra_params": {"slide_id": "slide-metal"},
+        },
+        quote={"default_carcass_board_type_id": "board-1"},
+        board_lookup={"board-1": {"thickness": 16}},
+        slide_lookup={
+            "slide-metal": {
+                "id": "slide-metal",
+                "brand": "Blum",
+                "model": "Legrabox",
+                "code": "LEG-500",
+                "length": 500,
+                "side_length": 500,
+                "side_clearance_total": 26,
+                "side_height_uplift": 0,
+                "drawer_system_kind": "metal",
+                "drawer_system_config": {
+                    "product_family": "Legrabox",
+                    "installation_width_mm": 31,
+                },
+            }
+        },
+    )
+
+    assert result["extra_params"]["slide_length"] == 500
+    assert result["extra_params"]["drawer_system_kind"] == "metal"
+    assert result["extra_params"]["drawer_system_config"] == {
+        "product_family": "Legrabox",
+        "installation_width_mm": 31,
+    }
 
 
 def _preview_with_carcass_row() -> dict:

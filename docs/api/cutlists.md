@@ -142,7 +142,15 @@ When the ruleset runtime is enabled, each unit resolves in this order:
 `runtime_mode` values:
 
 - `ruleset`: all units used ruleset runtime.
+- `drawer_system`: all units used configured metal drawer system runtime.
 - `legacy`: all units used legacy runtime.
 - `mixed`: some units used rulesets and some fell back to legacy.
 
-`unit_sources` explains which path each unit used and includes fallback notes when applicable.
+`unit_sources` explains which path each unit used and includes fallback notes when applicable. Metal drawer system rows use `source: "drawer_system"` when the selected drawer hardware has `drawer_system_kind: "metal"`.
+
+For configured metal drawer systems, normal timber drawer-side, front/back, and
+base drawer-box parts are suppressed. The cut schedule keeps the ordinary
+carcass and drawer-front rows, then adds the selected system's
+`drawer_system_config.panel_formulas` rows. Formula rows can target `carcass`,
+`panel`, or `extra_panel`; hardware/accessory rows are emitted by the hardware
+pick-list from `drawer_system_config.hardware_items`.
