@@ -90,6 +90,7 @@ type PriceStatusFilterValue = 'all' | LibraryEffectiveStatus
 type PriceTypeFilterValue = 'all' | PriceItemType
 type PriceSourceFilterValue = 'all' | PriceListItemRow['cost_source']
 type BulkAccessoryResource = Extract<LibraryCatalogBulkResource, 'slides' | 'hinges'>
+type CatalogBulkMode = 'fields' | 'accessories'
 
 type CatalogBulkField = {
   label: string
@@ -213,6 +214,10 @@ function toggleId(ids: string[], itemId: string, checked: boolean) {
 function onlyVisibleSelected(selectedIds: string[], visibleIds: string[]) {
   const visible = new Set(visibleIds)
   return selectedIds.filter((id) => visible.has(id))
+}
+
+function emptyBulkAccessoryConfig(): HardwareAccessoryConfig {
+  return { accessories: [emptyAccessoryRule()] }
 }
 
 function accessoryRuleKey(rule: HardwareAccessoryRule) {
@@ -435,6 +440,11 @@ function catalogResourceLabel(resource: LibraryCatalogBulkResource) {
   return 'suppliers'
 }
 
+function catalogBulkResourceLabel(resource: LibraryCatalogBulkResource) {
+  if (resource === 'slides') return 'slides'
+  return catalogResourceLabel(resource)
+}
+
 function bulkAccessoryResourceLabel(resource: BulkAccessoryResource) {
   return resource === 'slides' ? 'slides' : 'hinges'
 }
@@ -567,10 +577,16 @@ function BulkPreviewRows({ result }: { result: LibraryBulkUpdateResult | null })
 }
 
 function CatalogBulkPanel({
+  accessoryConfig,
+  accessoryOptions,
+  bulkMode,
   field,
   fields,
   isSaving,
+  onAccessoryConfigChange,
   onApply,
+  onApplyAccessory,
+  onBulkModeChange,
   onClearSelection,
   onFieldChange,
   onPreview,
@@ -582,10 +598,16 @@ function CatalogBulkPanel({
   value,
   visibleCount,
 }: {
+  accessoryConfig?: HardwareAccessoryConfig
+  accessoryOptions?: HardwareAccessoryOptions
+  bulkMode?: CatalogBulkMode
   field: CatalogBulkField | null
   fields: CatalogBulkField[]
   isSaving: boolean
+  onAccessoryConfigChange?: (config: HardwareAccessoryConfig) => void
   onApply: () => void
+  onApplyAccessory?: () => void
+  onBulkModeChange?: (mode: CatalogBulkMode) => void
   onClearSelection: () => void
   onFieldChange: (value: string) => void
   onPreview: () => void
@@ -597,7 +619,12 @@ function CatalogBulkPanel({
   value: string
   visibleCount: number
 }) {
+  const hasAccessoryMode = Boolean(accessoryConfig && accessoryOptions && onAccessoryConfigChange && onApplyAccessory && onBulkModeChange)
+  const activeMode: CatalogBulkMode = hasAccessoryMode ? bulkMode ?? 'fields' : 'fields'
   const applyDisabled = isSaving || selectedCount === 0 || !preview || preview.confirm || preview.failed_count > 0
+  const accessoryRuleCount = accessoryConfig ? normalizeAccessoryConfig(accessoryConfig).accessories?.length ?? 0 : 0
+  const accessoryApplyDisabled = isSaving || selectedCount === 0 || accessoryRuleCount === 0
+  const accessorySingularLabel = resource === 'slides' || resource === 'hinges' ? bulkAccessoryResourceSingularLabel(resource) : catalogBulkResourceLabel(resource)
   const valueDisabled = field?.input === 'select' && (field.options?.length ?? 0) === 0
 
   return (
@@ -605,7 +632,7 @@ function CatalogBulkPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={selectedCount > 0 ? 'default' : 'outline'}>{selectedCount} selected</Badge>
-          <span className="text-sm font-medium">Bulk change selected {catalogResourceLabel(resource)}</span>
+          <span className="text-sm font-medium">Bulk update selected {catalogBulkResourceLabel(resource)}</span>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button disabled={visibleCount === 0 || isSaving} onClick={onSelectVisible} size="sm" type="button" variant="outline">
@@ -618,44 +645,78 @@ function CatalogBulkPanel({
           </Button>
         </div>
       </div>
-      <div className="grid gap-3 md:grid-cols-[14rem_1fr_auto_auto] md:items-end">
-        <Label className="grid gap-1.5">
-          Field
-          <Select value={field?.value ?? ''} onChange={(event) => onFieldChange(event.target.value)}>
-            {fields.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </Label>
-        <Label className="grid gap-1.5">
-          Value
-          {field?.input === 'select' ? (
-            <Select disabled={valueDisabled} value={value} onChange={(event) => onValueChange(event.target.value)}>
-              {(field.options ?? []).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            <Input value={value} onChange={(event) => onValueChange(event.target.value)} />
-          )}
-        </Label>
-        <Button disabled={isSaving || selectedCount === 0 || valueDisabled} onClick={onPreview} type="button" variant="outline">
-          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
-          Preview changes
-        </Button>
-        <Button disabled={applyDisabled} onClick={onApply} type="button">
-          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-          Apply changes
-        </Button>
-      </div>
-      <Alert>
-        Preview first, then apply. Only the selected {catalogResourceLabel(resource)} are changed; pricing and quote totals stay untouched here.
-      </Alert>
-      <BulkPreviewRows result={preview} />
+      {hasAccessoryMode ? (
+        <ControlGroup className="w-fit" role="group" aria-label={`Choose bulk update type for selected ${catalogBulkResourceLabel(resource)}`}>
+          <ControlGroupItem aria-pressed={activeMode === 'fields'} onClick={() => onBulkModeChange?.('fields')}>
+            <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
+            Fields
+          </ControlGroupItem>
+          <ControlGroupItem aria-pressed={activeMode === 'accessories'} onClick={() => onBulkModeChange?.('accessories')}>
+            <PackagePlus className="h-4 w-4" aria-hidden="true" />
+            Accessories
+          </ControlGroupItem>
+        </ControlGroup>
+      ) : null}
+      {activeMode === 'fields' ? (
+        <>
+          <div className="grid gap-3 md:grid-cols-[14rem_1fr_auto_auto] md:items-end">
+            <Label className="grid gap-1.5">
+              Field
+              <Select value={field?.value ?? ''} onChange={(event) => onFieldChange(event.target.value)}>
+                {fields.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
+              Value
+              {field?.input === 'select' ? (
+                <Select disabled={valueDisabled} value={value} onChange={(event) => onValueChange(event.target.value)}>
+                  {(field.options ?? []).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Input value={value} onChange={(event) => onValueChange(event.target.value)} />
+              )}
+            </Label>
+            <Button disabled={isSaving || selectedCount === 0 || valueDisabled} onClick={onPreview} type="button" variant="outline">
+              {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+              Preview changes
+            </Button>
+            <Button disabled={applyDisabled} onClick={onApply} type="button">
+              {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+              Apply changes
+            </Button>
+          </div>
+          <Alert>
+            Preview first, then apply. Only the selected {catalogBulkResourceLabel(resource)} are changed; pricing and quote totals stay untouched here.
+          </Alert>
+          <BulkPreviewRows result={preview} />
+        </>
+      ) : null}
+      {activeMode === 'accessories' && accessoryConfig && accessoryOptions && onAccessoryConfigChange && onApplyAccessory ? (
+        <div className="grid gap-3">
+          <HardwareAccessoryConfigEditor
+            config={accessoryConfig}
+            onChange={onAccessoryConfigChange}
+            options={accessoryOptions}
+          />
+          <Alert>
+            Existing matching accessory rules are updated; new rules are added to each selected {accessorySingularLabel}.
+          </Alert>
+          <div>
+            <Button disabled={accessoryApplyDisabled} onClick={onApplyAccessory} type="button">
+              {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <PackagePlus className="h-4 w-4" aria-hidden="true" />}
+              Add accessory to selected
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -918,8 +979,15 @@ export function LibrariesPage({
   const [priceBulkPreview, setPriceBulkPreview] = useState<LibraryBulkUpdateResult | null>(null)
   const [bulkError, setBulkError] = useState<string | null>(null)
   const [isBulkSaving, setIsBulkSaving] = useState(false)
-  const [bulkAccessoryResource, setBulkAccessoryResource] = useState<BulkAccessoryResource | null>(null)
-  const [bulkAccessoryConfig, setBulkAccessoryConfig] = useState<HardwareAccessoryConfig>({ accessories: [emptyAccessoryRule()] })
+  const [createHardwareResource, setCreateHardwareResource] = useState<BulkAccessoryResource | null>(null)
+  const [catalogBulkModes, setCatalogBulkModes] = useState<Record<BulkAccessoryResource, CatalogBulkMode>>({
+    hinges: 'fields',
+    slides: 'fields',
+  })
+  const [bulkAccessoryConfigs, setBulkAccessoryConfigs] = useState<Record<BulkAccessoryResource, HardwareAccessoryConfig>>(() => ({
+    hinges: emptyBulkAccessoryConfig(),
+    slides: emptyBulkAccessoryConfig(),
+  }))
   const displayCurrencyCode = normalizeCurrencyCode(currencyCode)
 
   const selectedPriceList = useMemo(
@@ -1645,6 +1713,7 @@ export function LibrariesPage({
 
   function renderCatalogMaintenance(resource: LibraryCatalogBulkResource, totalCount: number, visibleIds: string[]) {
     const selectedCount = onlyVisibleSelected(selectedCatalogIds[resource], visibleIds).length
+    const accessoryResource = resource === 'slides' || resource === 'hinges' ? resource : null
     return (
       <div className="grid gap-3">
         <MaintenanceToolbar
@@ -1666,22 +1735,26 @@ export function LibrariesPage({
               </Select>
             </Label>
           ) : null}
-          {resource === 'slides' || resource === 'hinges' ? (
-            <Button disabled={selectedCount === 0 || isSaving} type="button" variant="outline" onClick={() => openBulkAccessoryDialog(resource)}>
-              <PackagePlus className="h-4 w-4" aria-hidden="true" />
-              Add accessory
-            </Button>
-          ) : null}
         </MaintenanceToolbar>
         <CatalogBulkPanel
+          accessoryConfig={accessoryResource ? bulkAccessoryConfigs[accessoryResource] : undefined}
+          accessoryOptions={accessoryResource ? accessoryOptions : undefined}
+          bulkMode={accessoryResource ? catalogBulkModes[accessoryResource] : undefined}
           field={activeCatalogBulkField}
           fields={activeCatalogBulkFields}
           isSaving={isBulkSaving}
+          onAccessoryConfigChange={accessoryResource
+            ? (config) => setBulkAccessoryConfigs((current) => ({ ...current, [accessoryResource]: config }))
+            : undefined}
           preview={catalogBulkPreview}
           resource={resource}
           selectedCount={selectedCount}
           value={catalogBulkValue}
           visibleCount={visibleIds.length}
+          onApplyAccessory={accessoryResource ? () => void applyBulkAccessory(accessoryResource) : undefined}
+          onBulkModeChange={accessoryResource
+            ? (mode) => setCatalogBulkModes((current) => ({ ...current, [accessoryResource]: mode }))
+            : undefined}
           onApply={() => {
             void runCatalogBulkUpdate(true)
           }}
@@ -2036,6 +2109,7 @@ export function LibrariesPage({
     await withActionState(async () => {
       await apiRequest('/api/v1/libraries/slides', { body: payload, method: 'POST', token: authToken })
       setSlideDraft(defaultSlideDraft)
+      setCreateHardwareResource(null)
       await refreshCatalog()
     }, 'Slide added.')
   }
@@ -2092,6 +2166,7 @@ export function LibrariesPage({
     await withActionState(async () => {
       await apiRequest('/api/v1/libraries/hinges', { body: payload, method: 'POST', token: authToken })
       setHingeDraft(defaultHingeDraft)
+      setCreateHardwareResource(null)
       await refreshCatalog()
     }, 'Hinge added.')
   }
@@ -2132,19 +2207,10 @@ export function LibrariesPage({
     }, 'Hinge deleted.')
   }
 
-  function openBulkAccessoryDialog(resource: BulkAccessoryResource) {
-    setBulkAccessoryResource(resource)
-    setBulkAccessoryConfig({ accessories: [emptyAccessoryRule()] })
-    setActionError(null)
-  }
-
-  async function applyBulkAccessory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!bulkAccessoryResource) return
-
-    const visibleIds = bulkAccessoryResource === 'slides' ? visibleSlides.map((row) => row.id) : visibleHinges.map((row) => row.id)
-    const selectedIds = onlyVisibleSelected(selectedCatalogIds[bulkAccessoryResource], visibleIds)
-    const additions = normalizeAccessoryConfig(bulkAccessoryConfig).accessories ?? []
+  async function applyBulkAccessory(resource: BulkAccessoryResource) {
+    const visibleIds = resource === 'slides' ? visibleSlides.map((row) => row.id) : visibleHinges.map((row) => row.id)
+    const selectedIds = onlyVisibleSelected(selectedCatalogIds[resource], visibleIds)
+    const additions = normalizeAccessoryConfig(bulkAccessoryConfigs[resource]).accessories ?? []
     if (selectedIds.length === 0) {
       setActionError('Select at least one visible slide or hinge before adding an accessory.')
       return
@@ -2156,7 +2222,7 @@ export function LibrariesPage({
 
     const selected = new Set(selectedIds)
     await withActionState(async () => {
-      if (bulkAccessoryResource === 'slides') {
+      if (resource === 'slides') {
         const selectedSlides = slides.filter((row) => selected.has(row.id))
         for (const row of selectedSlides) {
           const payload = buildSlidePayload({
@@ -2189,11 +2255,10 @@ export function LibrariesPage({
         }
       }
 
-      clearCatalogSelection(bulkAccessoryResource)
-      setBulkAccessoryResource(null)
-      setBulkAccessoryConfig({ accessories: [emptyAccessoryRule()] })
+      clearCatalogSelection(resource)
+      setBulkAccessoryConfigs((current) => ({ ...current, [resource]: emptyBulkAccessoryConfig() }))
       await refreshCatalog()
-    }, () => `Accessory bundle added to ${selectedIds.length} selected ${bulkAccessoryResourceCountLabel(bulkAccessoryResource, selectedIds.length)}.`)
+    }, () => `Accessory bundle added to ${selectedIds.length} selected ${bulkAccessoryResourceCountLabel(resource, selectedIds.length)}.`)
   }
 
   async function createSupplier(event: FormEvent<HTMLFormElement>) {
@@ -2552,46 +2617,112 @@ export function LibrariesPage({
     ? importPreview.summary.create_count + importPreview.summary.update_count
     : 0
   const importHasBlockedRows = (importPreview?.summary.blocked_count ?? 0) > 0
-  const bulkAccessoryVisibleIds = bulkAccessoryResource === 'slides'
-    ? visibleSlides.map((row) => row.id)
-    : bulkAccessoryResource === 'hinges'
-      ? visibleHinges.map((row) => row.id)
-      : []
-  const bulkAccessorySelectedCount = bulkAccessoryResource
-    ? onlyVisibleSelected(selectedCatalogIds[bulkAccessoryResource], bulkAccessoryVisibleIds).length
-    : 0
-  const bulkAccessoryRuleCount = normalizeAccessoryConfig(bulkAccessoryConfig).accessories?.length ?? 0
-  const bulkAccessoryCountLabel = bulkAccessoryResource
-    ? bulkAccessoryResourceCountLabel(bulkAccessoryResource, bulkAccessorySelectedCount)
-    : 'hardware rows'
-  const bulkAccessorySingularLabel = bulkAccessoryResource ? bulkAccessoryResourceSingularLabel(bulkAccessoryResource) : 'hardware row'
 
   return (
     <div className="grid gap-4">
       <Dialog
-        open={Boolean(bulkAccessoryResource)}
+        open={createHardwareResource === 'slides'}
         onOpenChange={(open) => {
-          if (!open) setBulkAccessoryResource(null)
+          if (!open) setCreateHardwareResource(null)
         }}
-        title="Add Accessory to Selected Hardware"
-        description={`${bulkAccessorySelectedCount} selected ${bulkAccessoryCountLabel}`}
+        title="Add Drawer Hardware"
+        description="Create a slide or drawer system entry for the hardware library."
         size="wide"
       >
-        <form className="grid gap-3" onSubmit={applyBulkAccessory}>
+        <form className="grid gap-3 md:grid-cols-4" onSubmit={createSlide}>
+          <Label className="grid gap-1.5">
+            Brand
+            <Input value={slideDraft.brand} onChange={(event) => setSlideDraft((current) => ({ ...current, brand: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Model
+            <Input value={slideDraft.model} onChange={(event) => setSlideDraft((current) => ({ ...current, model: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Code
+            <Input value={slideDraft.code} onChange={(event) => setSlideDraft((current) => ({ ...current, code: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Length
+            <Input value={slideDraft.length} onChange={(event) => setSlideDraft((current) => ({ ...current, length: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Side length
+            <Input value={slideDraft.side_length} onChange={(event) => setSlideDraft((current) => ({ ...current, side_length: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Clearance total
+            <Input value={slideDraft.side_clearance_total} onChange={(event) => setSlideDraft((current) => ({ ...current, side_clearance_total: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Side uplift
+            <Input value={slideDraft.side_height_uplift} onChange={(event) => setSlideDraft((current) => ({ ...current, side_height_uplift: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Drawer system
+            <Select value={slideDraft.drawer_system_kind} onChange={(event) => setSlideDraft((current) => ({ ...current, drawer_system_kind: event.target.value as DrawerSystemKind }))}>
+              <option value="conventional">Conventional slide</option>
+              <option value="metal">Metal system</option>
+            </Select>
+          </Label>
+          <DrawerSystemConfigEditor
+            config={slideDraft.drawer_system_config}
+            drawerSystemKind={slideDraft.drawer_system_kind}
+            onChange={(drawer_system_config) => setSlideDraft((current) => ({ ...current, drawer_system_config }))}
+          />
           <HardwareAccessoryConfigEditor
-            config={bulkAccessoryConfig}
-            onChange={setBulkAccessoryConfig}
+            config={slideDraft.accessory_config}
+            onChange={(accessory_config) => setSlideDraft((current) => ({ ...current, accessory_config }))}
             options={accessoryOptions}
           />
-          <Alert>
-            Existing matching accessory rules are updated; new rules are added to each selected {bulkAccessorySingularLabel}.
-          </Alert>
-          <div className="flex flex-wrap gap-2">
-            <Button disabled={isSaving || bulkAccessorySelectedCount === 0 || bulkAccessoryRuleCount === 0} type="submit">
-              {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <PackagePlus className="h-4 w-4" aria-hidden="true" />}
-              Add to selected
+          <div className="md:col-span-4 flex flex-wrap gap-2">
+            <Button disabled={isSaving} type="submit">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Drawer Hardware
             </Button>
-            <Button type="button" variant="outline" onClick={() => setBulkAccessoryResource(null)}>
+            <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+      <Dialog
+        open={createHardwareResource === 'hinges'}
+        onOpenChange={(open) => {
+          if (!open) setCreateHardwareResource(null)
+        }}
+        title="Add Hinge"
+        description="Create a hinge entry for the hardware library."
+        size="wide"
+      >
+        <form className="grid gap-3 md:grid-cols-4" onSubmit={createHinge}>
+          <Label className="grid gap-1.5">
+            Brand
+            <Input value={hingeDraft.brand} onChange={(event) => setHingeDraft((current) => ({ ...current, brand: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Model
+            <Input value={hingeDraft.model} onChange={(event) => setHingeDraft((current) => ({ ...current, model: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Code
+            <Input value={hingeDraft.code} onChange={(event) => setHingeDraft((current) => ({ ...current, code: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Opening angle
+            <Input value={hingeDraft.opening_angle_deg} onChange={(event) => setHingeDraft((current) => ({ ...current, opening_angle_deg: event.target.value }))} />
+          </Label>
+          <HardwareAccessoryConfigEditor
+            config={hingeDraft.accessory_config}
+            onChange={(accessory_config) => setHingeDraft((current) => ({ ...current, accessory_config }))}
+            options={accessoryOptions}
+          />
+          <div className="md:col-span-4 flex flex-wrap gap-2">
+            <Button disabled={isSaving} type="submit">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Hinge
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
               Cancel
             </Button>
           </div>
@@ -3503,66 +3634,12 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'slides' ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Add Drawer Hardware</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 md:grid-cols-4" onSubmit={createSlide}>
-                <Label className="grid gap-1.5">
-                  Brand
-                  <Input value={slideDraft.brand} onChange={(event) => setSlideDraft((current) => ({ ...current, brand: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Model
-                  <Input value={slideDraft.model} onChange={(event) => setSlideDraft((current) => ({ ...current, model: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Code
-                  <Input value={slideDraft.code} onChange={(event) => setSlideDraft((current) => ({ ...current, code: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Length
-                  <Input value={slideDraft.length} onChange={(event) => setSlideDraft((current) => ({ ...current, length: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Side length
-                  <Input value={slideDraft.side_length} onChange={(event) => setSlideDraft((current) => ({ ...current, side_length: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Clearance total
-                  <Input value={slideDraft.side_clearance_total} onChange={(event) => setSlideDraft((current) => ({ ...current, side_clearance_total: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Side uplift
-                  <Input value={slideDraft.side_height_uplift} onChange={(event) => setSlideDraft((current) => ({ ...current, side_height_uplift: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Drawer system
-                  <Select value={slideDraft.drawer_system_kind} onChange={(event) => setSlideDraft((current) => ({ ...current, drawer_system_kind: event.target.value as DrawerSystemKind }))}>
-                    <option value="conventional">Conventional slide</option>
-                    <option value="metal">Metal system</option>
-                  </Select>
-                </Label>
-                <DrawerSystemConfigEditor
-                  config={slideDraft.drawer_system_config}
-                  drawerSystemKind={slideDraft.drawer_system_kind}
-                  onChange={(drawer_system_config) => setSlideDraft((current) => ({ ...current, drawer_system_config }))}
-                />
-                <HardwareAccessoryConfigEditor
-                  config={slideDraft.accessory_config}
-                  onChange={(accessory_config) => setSlideDraft((current) => ({ ...current, accessory_config }))}
-                  options={accessoryOptions}
-                />
-                <div className="md:col-span-4">
-                  <Button disabled={isSaving} type="submit">
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                    Add Drawer Hardware
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('slides')}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Drawer Hardware
+            </Button>
+          </div>
 
           {renderCatalogMaintenance('slides', slides.length, visibleSlides.map((row) => row.id))}
 
@@ -3583,42 +3660,12 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'hinges' ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Add Hinge</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 md:grid-cols-4" onSubmit={createHinge}>
-                <Label className="grid gap-1.5">
-                  Brand
-                  <Input value={hingeDraft.brand} onChange={(event) => setHingeDraft((current) => ({ ...current, brand: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Model
-                  <Input value={hingeDraft.model} onChange={(event) => setHingeDraft((current) => ({ ...current, model: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Code
-                  <Input value={hingeDraft.code} onChange={(event) => setHingeDraft((current) => ({ ...current, code: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Opening angle
-                  <Input value={hingeDraft.opening_angle_deg} onChange={(event) => setHingeDraft((current) => ({ ...current, opening_angle_deg: event.target.value }))} />
-                </Label>
-                <HardwareAccessoryConfigEditor
-                  config={hingeDraft.accessory_config}
-                  onChange={(accessory_config) => setHingeDraft((current) => ({ ...current, accessory_config }))}
-                  options={accessoryOptions}
-                />
-                <div className="md:col-span-4">
-                  <Button disabled={isSaving} type="submit">
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                    Add Hinge
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('hinges')}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Hinge
+            </Button>
+          </div>
 
           {renderCatalogMaintenance('hinges', hinges.length, visibleHinges.map((row) => row.id))}
 
