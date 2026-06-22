@@ -1,5 +1,5 @@
-import { Save, Trash2 } from 'lucide-react'
-import type { FormEvent } from 'react'
+import { Eye, Plus, Save, Trash2 } from 'lucide-react'
+import { useState, type FormEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -73,6 +73,42 @@ const accessoryConditionOperators: Array<{ label: string; value: HardwareAccesso
   { label: 'Does not equal', value: 'not_equals' },
 ]
 
+function accessoryItemTypeLabel(itemType: Exclude<PriceItemType, 'board'>) {
+  if (itemType === 'extra') return 'Extra'
+  if (itemType === 'handle') return 'Handle'
+  if (itemType === 'hinge') return 'Hinge'
+  return 'Slide'
+}
+
+function accessoryOptionLabel(rule: HardwareAccessoryRule, options: HardwareAccessoryOptions) {
+  const itemOptions = options[rule.item_type] ?? []
+  return itemOptions.find((option) => option.value === rule.item_ref_id)?.label ?? rule.name.trim()
+}
+
+function accessoryDisplayLabel(rule: HardwareAccessoryRule, options: HardwareAccessoryOptions) {
+  const label = accessoryOptionLabel(rule, options)
+  if (label) return label
+  if (rule.item_ref_id) return 'Selected catalog item'
+  return 'Custom accessory'
+}
+
+function accessoryQuantityLabel(rule: HardwareAccessoryRule) {
+  return accessoryQuantityRules.find((option) => option.value === rule.quantity_rule)?.label ?? rule.quantity_rule
+}
+
+function accessoryConditionSummary(rule: HardwareAccessoryRule) {
+  const condition = rule.condition ?? emptyAccessoryRule().condition
+  if (condition.field === 'always' || condition.operator === 'always') return 'Always'
+  const field = accessoryConditionFields.find((option) => option.value === condition.field)?.label ?? condition.field
+  const operator = accessoryConditionOperators.find((option) => option.value === condition.operator)?.label ?? condition.operator
+  const value = condition.value_text?.trim() || (condition.value_number !== null && condition.value_number !== undefined ? String(condition.value_number) : '')
+  return value ? `${field} ${operator.toLowerCase()} ${value}` : `${field} ${operator.toLowerCase()}`
+}
+
+function isAccessoryRuleComplete(rule: HardwareAccessoryRule | null | undefined) {
+  return Boolean(rule?.item_ref_id || rule?.name.trim())
+}
+
 export function HardwareAccessoryConfigEditor({
   config,
   onChange,
@@ -82,7 +118,11 @@ export function HardwareAccessoryConfigEditor({
   onChange: (config: HardwareAccessoryConfig) => void
   options: HardwareAccessoryOptions
 }) {
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const accessories = Array.isArray(config.accessories) ? config.accessories : []
+  const editingRule = editingIndex === null ? null : accessories[editingIndex] ?? null
+  const editingItemOptions = editingRule ? options[editingRule.item_type] ?? [] : []
+  const editingCondition = editingRule?.condition ?? emptyAccessoryRule().condition
 
   function updateRule(index: number, patch: Partial<HardwareAccessoryRule>) {
     onChange({
@@ -97,127 +137,210 @@ export function HardwareAccessoryConfigEditor({
   }
 
   function addRule() {
+    const nextIndex = accessories.length
     onChange({ ...config, accessories: [...accessories, emptyAccessoryRule()] })
+    setEditingIndex(nextIndex)
   }
 
   function removeRule(index: number) {
     onChange({ ...config, accessories: accessories.filter((_, ruleIndex) => ruleIndex !== index) })
+    setEditingIndex((current) => {
+      if (current === null) return null
+      if (current === index) return null
+      return current > index ? current - 1 : current
+    })
+  }
+
+  function closeEditor(discardEmpty = true) {
+    if (discardEmpty && editingIndex !== null) {
+      const current = accessories[editingIndex]
+      if (current && !isAccessoryRuleComplete(current)) {
+        removeRule(editingIndex)
+        return
+      }
+    }
+    setEditingIndex(null)
   }
 
   return (
     <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:col-span-4">
+      <Dialog
+        open={Boolean(editingRule)}
+        onOpenChange={(open) => {
+          if (!open) closeEditor()
+        }}
+        title="Accessory Details"
+        description={editingRule ? accessoryDisplayLabel(editingRule, options) : undefined}
+        size="wide"
+      >
+        {editingRule && editingIndex !== null ? (
+          <div className="grid gap-3 md:grid-cols-4">
+            <Label className="grid gap-1.5">
+              Accessory type
+              <Select
+                value={editingRule.item_type}
+                onChange={(event) => updateRule(editingIndex, {
+                  code: '',
+                  item_ref_id: '',
+                  item_type: event.target.value as Exclude<PriceItemType, 'board'>,
+                  name: '',
+                  supplier: '',
+                })}
+              >
+                <option value="extra">Extra</option>
+                <option value="handle">Handle</option>
+                <option value="hinge">Hinge</option>
+                <option value="slide">Slide</option>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5 md:col-span-2">
+              Catalog item
+              <Select
+                value={editingRule.item_ref_id}
+                onChange={(event) => {
+                  const selected = editingItemOptions.find((option) => option.value === event.target.value)
+                  updateRule(editingIndex, {
+                    code: '',
+                    item_ref_id: event.target.value,
+                    name: selected?.label ?? '',
+                    supplier: '',
+                  })
+                }}
+              >
+                <option value="">Custom item</option>
+                {editingItemOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Label>
+            {!editingRule.item_ref_id ? (
+              <Label className="grid gap-1.5 md:col-span-4">
+                Custom accessory
+                <Input value={editingRule.name} onChange={(event) => updateRule(editingIndex, { name: event.target.value })} />
+              </Label>
+            ) : null}
+            <Label className="grid gap-1.5">
+              Quantity
+              <Input value={String(editingRule.quantity)} onChange={(event) => updateRule(editingIndex, { quantity: Number(event.target.value) || 0 })} />
+            </Label>
+            <Label className="grid gap-1.5">
+              Applies per
+              <Select value={editingRule.quantity_rule} onChange={(event) => updateRule(editingIndex, { quantity_rule: event.target.value as HardwareAccessoryQuantityRule })}>
+                {accessoryQuantityRules.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
+              Unit
+              <Input value={editingRule.uom} onChange={(event) => updateRule(editingIndex, { uom: event.target.value })} />
+            </Label>
+            <Label className="flex items-center gap-2 pt-6 text-sm">
+              <Checkbox checked={editingRule.required} onChange={(event) => updateRule(editingIndex, { required: event.target.checked })} />
+              Required
+            </Label>
+            {!editingRule.required ? (
+              <Label className="flex items-center gap-2 text-sm md:col-span-4">
+                <Checkbox checked={editingRule.enabled} onChange={(event) => updateRule(editingIndex, { enabled: event.target.checked })} />
+                Include this optional accessory by default
+              </Label>
+            ) : null}
+            <details className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:col-span-4">
+              <summary className="cursor-pointer text-sm font-medium">Advanced conditions</summary>
+              <div className="mt-3 grid gap-3 md:grid-cols-4">
+                <Label className="grid gap-1.5">
+                  Condition field
+                  <Select value={editingCondition.field} onChange={(event) => updateCondition(editingIndex, { field: event.target.value as HardwareAccessoryConditionField })}>
+                    {accessoryConditionFields.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Label>
+                <Label className="grid gap-1.5">
+                  Condition
+                  <Select value={editingCondition.operator} onChange={(event) => updateCondition(editingIndex, { operator: event.target.value as HardwareAccessoryConditionOperator })}>
+                    {accessoryConditionOperators.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Label>
+                <Label className="grid gap-1.5">
+                  Number value
+                  <Input value={editingCondition.value_number ?? ''} onChange={(event) => updateCondition(editingIndex, { value_number: event.target.value === '' ? null : Number(event.target.value) })} />
+                </Label>
+                <Label className="grid gap-1.5">
+                  Text value
+                  <Input value={editingCondition.value_text ?? ''} onChange={(event) => updateCondition(editingIndex, { value_text: event.target.value })} />
+                </Label>
+              </div>
+            </details>
+            <div className="flex flex-wrap gap-2 md:col-span-4">
+              <Button disabled={!isAccessoryRuleComplete(editingRule)} type="button" onClick={() => closeEditor(false)}>
+                <Save className="h-4 w-4" aria-hidden="true" />
+                Save Accessory
+              </Button>
+              <Button type="button" variant="outline" onClick={() => closeEditor()}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-medium">Accessory bundle</p>
         <Button type="button" size="sm" variant="outline" onClick={addRule}>
+          <Plus className="h-4 w-4" aria-hidden="true" />
           Add accessory
         </Button>
       </div>
       {accessories.length === 0 ? (
         <p className="text-sm text-muted-foreground">No accessory rules configured.</p>
       ) : (
-        accessories.map((rule, index) => {
-          const itemOptions = options[rule.item_type] ?? []
-          return (
-            <div key={index} className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-4">
-              <Label className="grid gap-1.5">
-                Accessory type
-                <Select value={rule.item_type} onChange={(event) => updateRule(index, { item_type: event.target.value as Exclude<PriceItemType, 'board'>, item_ref_id: '' })}>
-                  <option value="extra">Extra</option>
-                  <option value="handle">Handle</option>
-                  <option value="hinge">Hinge</option>
-                  <option value="slide">Slide</option>
-                </Select>
-              </Label>
-              <Label className="grid gap-1.5">
-                Catalog item
-                <Select
-                  value={rule.item_ref_id}
-                  onChange={(event) => {
-                    const selected = itemOptions.find((option) => option.value === event.target.value)
-                    updateRule(index, { item_ref_id: event.target.value, name: selected?.label ?? rule.name })
-                  }}
-                >
-                  <option value="">Custom item</option>
-                  {itemOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </Label>
-              <Label className="grid gap-1.5">
-                Display name
-                <Input value={rule.name} onChange={(event) => updateRule(index, { name: event.target.value })} />
-              </Label>
-              <Label className="grid gap-1.5">
-                Supplier code
-                <Input value={rule.code ?? ''} onChange={(event) => updateRule(index, { code: event.target.value })} />
-              </Label>
-              <Label className="grid gap-1.5">
-                Quantity
-                <Input value={String(rule.quantity)} onChange={(event) => updateRule(index, { quantity: Number(event.target.value) || 0 })} />
-              </Label>
-              <Label className="grid gap-1.5">
-                Applies per
-                <Select value={rule.quantity_rule} onChange={(event) => updateRule(index, { quantity_rule: event.target.value as HardwareAccessoryQuantityRule })}>
-                  {accessoryQuantityRules.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </Label>
-              <Label className="grid gap-1.5">
-                Unit
-                <Input value={rule.uom} onChange={(event) => updateRule(index, { uom: event.target.value })} />
-              </Label>
-              <Label className="flex items-center gap-2 pt-6 text-sm">
-                <Checkbox checked={rule.required} onChange={(event) => updateRule(index, { required: event.target.checked })} />
-                Required
-              </Label>
-              {!rule.required ? (
-                <Label className="flex items-center gap-2 text-sm md:col-span-4">
-                  <Checkbox checked={rule.enabled} onChange={(event) => updateRule(index, { enabled: event.target.checked })} />
-                  Include this optional accessory by default
-                </Label>
-              ) : null}
-              <Label className="grid gap-1.5">
-                Condition field
-                <Select value={rule.condition.field} onChange={(event) => updateCondition(index, { field: event.target.value as HardwareAccessoryConditionField })}>
-                  {accessoryConditionFields.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </Label>
-              <Label className="grid gap-1.5">
-                Condition
-                <Select value={rule.condition.operator} onChange={(event) => updateCondition(index, { operator: event.target.value as HardwareAccessoryConditionOperator })}>
-                  {accessoryConditionOperators.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              </Label>
-              <Label className="grid gap-1.5">
-                Number value
-                <Input value={rule.condition.value_number ?? ''} onChange={(event) => updateCondition(index, { value_number: event.target.value === '' ? null : Number(event.target.value) })} />
-              </Label>
-              <Label className="grid gap-1.5">
-                Text value
-                <Input value={rule.condition.value_text ?? ''} onChange={(event) => updateCondition(index, { value_text: event.target.value })} />
-              </Label>
-              <div className="md:col-span-4">
-                <Button type="button" size="sm" variant="outline" onClick={() => removeRule(index)}>
-                  <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  Remove accessory
-                </Button>
-              </div>
-            </div>
-          )
-        })
+        <TableContainer>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Accessory</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Qty</TableHead>
+                <TableHead>Required</TableHead>
+                <TableHead>Condition</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {accessories.map((rule, index) => (
+                <TableRow key={`${rule.item_type}-${rule.item_ref_id || rule.name || index}`}>
+                  <TableCell className="font-medium">{accessoryDisplayLabel(rule, options)}</TableCell>
+                  <TableCell>{accessoryItemTypeLabel(rule.item_type)}</TableCell>
+                  <TableCell>{rule.quantity} x {accessoryQuantityLabel(rule)}</TableCell>
+                  <TableCell>{rule.required ? 'Required' : rule.enabled ? 'Optional default' : 'Optional'}</TableCell>
+                  <TableCell>{accessoryConditionSummary(rule)}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => setEditingIndex(index)}>
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                        Details
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => removeRule(index)}>
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        Remove
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
       )}
     </div>
   )

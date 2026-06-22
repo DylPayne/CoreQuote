@@ -395,14 +395,15 @@ def _add_configured_accessories(
         if not isinstance(raw_item, Mapping):
             continue
         item_name = str(raw_item.get("name") or "").strip()
-        if not item_name:
-            continue
 
         item_type = str(raw_item.get("item_type") or "extra").strip().lower()
         if item_type not in ITEM_TYPE_LABELS:
             item_type = "extra"
 
         item_ref_id = str(raw_item.get("item_ref_id") or "").strip()
+        if not item_name and not item_ref_id:
+            continue
+
         synthetic_ref = False
         if not item_ref_id:
             item_ref_id = f"accessory:{primary_item_type}:{primary_item_id}:{index}:{_slug(item_name)}"
@@ -428,13 +429,16 @@ def _add_configured_accessories(
             hinge_lookup=hinge_lookup,
             slide_lookup=slide_lookup,
         )
+        resolved_item_name = _configured_hardware_name(raw_item, catalog_item, fallback=item_name or item_ref_id)
+        if not resolved_item_name:
+            continue
         if item_ref_id and not synthetic_ref and catalog_item is None:
             add_warning(
                 code="missing_catalog_item",
                 item_type=item_type,
                 unit_number=unit_number,
                 item_ref_id=item_ref_id,
-                message=f"{item_name} {item_ref_id} is not available for {location}.",
+                message=f"{resolved_item_name} {item_ref_id} is not available for {location}.",
             )
 
         required = bool(raw_item.get("required", True))
@@ -443,7 +447,7 @@ def _add_configured_accessories(
         add_target(
             item_type=item_type,
             item_ref_id=item_ref_id,
-            item_name=_configured_hardware_name(raw_item, catalog_item, fallback=item_name),
+            item_name=resolved_item_name,
             supplier=str(raw_item.get("supplier") or _catalog_supplier(catalog_item) or _brand_supplier(primary_item) or "").strip(),
             code=str(raw_item.get("code") or _catalog_code(catalog_item) or "").strip(),
             quantity=quantity,

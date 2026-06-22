@@ -79,7 +79,7 @@ export function normalizeAccessoryConfig(config: HardwareAccessoryConfig | undef
   const accessories = Array.isArray(config?.accessories) ? config.accessories : []
   return {
     ...(config ?? {}),
-    accessories: accessories.map(normalizeAccessoryRule).filter((rule) => rule.name.trim()),
+    accessories: accessories.map(normalizeAccessoryRule).filter((rule) => rule.item_ref_id || rule.name.trim()),
   }
 }
 
@@ -206,14 +206,15 @@ export function buildHingePayload(draft: HingeDraft) {
 
 function normalizeAccessoryRule(rule: HardwareAccessoryRule): HardwareAccessoryRule {
   const quantity = Number(rule.quantity)
+  const item_ref_id = stringValue(rule.item_ref_id)
   return {
     ...emptyAccessoryRule(),
     ...rule,
     item_type: rule.item_type ?? 'extra',
-    item_ref_id: stringValue(rule.item_ref_id),
-    name: stringValue(rule.name),
-    supplier: stringValue(rule.supplier),
-    code: stringValue(rule.code),
+    item_ref_id,
+    name: item_ref_id ? '' : stringValue(rule.name),
+    supplier: '',
+    code: '',
     quantity: Number.isFinite(quantity) && quantity >= 0 ? Math.floor(quantity) : 0,
     quantity_rule: rule.quantity_rule ?? 'per_unit',
     required: Boolean(rule.required),

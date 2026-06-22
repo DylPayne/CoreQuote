@@ -1274,7 +1274,6 @@ def test_slide_drawer_system_config_round_trips():
                 {
                     "item_type": "extra",
                     "item_ref_id": "extra-locking-plate",
-                    "name": "3D locking plate",
                     "quantity": 2,
                     "quantity_rule": "per_drawer",
                     "required": True,
@@ -1317,7 +1316,6 @@ def test_hinge_accessory_config_round_trips():
                 {
                     "item_type": "extra",
                     "item_ref_id": "extra-mounting-plate",
-                    "name": "Mounting plate",
                     "quantity": 1,
                     "quantity_rule": "per_hinge",
                     "required": True,

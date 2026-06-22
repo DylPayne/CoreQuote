@@ -1418,7 +1418,7 @@ class HardwareAccessoryRule(BaseModel):
 
     item_type: HardwarePickListItemType = "extra"
     item_ref_id: str = Field(default="", max_length=120)
-    name: str = Field(min_length=1, max_length=160)
+    name: str = Field(default="", max_length=160)
     supplier: str = Field(default="", max_length=160)
     code: str = Field(default="", max_length=120)
     quantity: int = Field(default=1, ge=0)

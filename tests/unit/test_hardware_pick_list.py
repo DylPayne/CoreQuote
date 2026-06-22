@@ -186,7 +186,6 @@ def test_hardware_pick_list_adds_required_slide_accessory_bundle():
                         {
                             "item_type": "extra",
                             "item_ref_id": "extra-locking-plate",
-                            "name": "3D locking plate",
                             "quantity": 2,
                             "quantity_rule": "per_drawer",
                             "required": True,
@@ -241,7 +240,6 @@ def test_hardware_pick_list_adds_required_hinge_accessory_per_hinge():
                         {
                             "item_type": "extra",
                             "item_ref_id": "extra-mounting-plate",
-                            "name": "Mounting plate",
                             "quantity": 1,
                             "quantity_rule": "per_hinge",
                             "required": True,
