@@ -484,6 +484,7 @@ def _drawer_quantity_context(
         "num_drawers": num_drawers,
         "drawer_count": num_drawers,
         "slide_pair_count": num_drawers,
+        "primary_hardware_count": num_drawers,
         "drawer_front_height": drawer_front_height,
         "drawer_front_heights": drawer_front_heights,
         "drawer_side_height": drawer_side_height,
@@ -511,6 +512,7 @@ def _door_quantity_context(
         "num_doors": num_doors,
         "hinges_per_door": hinges_per_door,
         "hinge_count": hinge_count,
+        "primary_hardware_count": hinge_count,
         "hardware_variant": _hardware_variant(hinge),
         "load_class": str(extra_params.get("load_class") or "").strip(),
     }
@@ -531,8 +533,10 @@ def _configured_accessory_quantity(
 
 def _quantity_basis(*, quantity_rule: str, condition: Mapping[str, Any], context: dict[str, Any]) -> int:
     normalized = quantity_rule.replace("-", "_")
-    if normalized in {"fixed", "per_unit"}:
+    if normalized == "fixed":
         return 1
+    if normalized in {"per_unit", "per_hardware_item", "per_parent_hardware"}:
+        return _non_negative_int(context.get("primary_hardware_count"), 0)
     if normalized in {"per_drawer", "per_slide_pair"}:
         if _condition_field(condition) == "drawer_front_height":
             return _matching_drawer_front_count(condition, context)
@@ -541,7 +545,7 @@ def _quantity_basis(*, quantity_rule: str, condition: Mapping[str, Any], context
         return _non_negative_int(context.get("hinge_count"), 0)
     if normalized == "per_door":
         return _non_negative_int(context.get("door_count") or context.get("num_doors"), 0)
-    return 1
+    return _non_negative_int(context.get("primary_hardware_count"), 0)
 
 
 def _condition_matches(condition: Mapping[str, Any], context: Mapping[str, Any]) -> bool:

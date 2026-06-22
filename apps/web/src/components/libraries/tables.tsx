@@ -41,12 +41,16 @@ function EmptyTableMessage({ detail, title }: { detail: string; title: string })
 export type HardwareAccessoryOptions = Record<Exclude<PriceItemType, 'board'>, Array<{ label: string; value: string }>>
 
 const accessoryQuantityRules: Array<{ label: string; value: HardwareAccessoryQuantityRule }> = [
-  { label: 'Fixed quantity', value: 'fixed' },
-  { label: 'Per unit', value: 'per_unit' },
+  { label: 'Per slide/hinge', value: 'per_unit' },
   { label: 'Per drawer', value: 'per_drawer' },
   { label: 'Per slide pair', value: 'per_slide_pair' },
   { label: 'Per hinge', value: 'per_hinge' },
   { label: 'Per door', value: 'per_door' },
+]
+
+const accessoryQuantityRuleLabels: Array<{ label: string; value: HardwareAccessoryQuantityRule }> = [
+  { label: 'Fixed quantity', value: 'fixed' },
+  ...accessoryQuantityRules,
 ]
 
 const accessoryConditionFields: Array<{ label: string; value: HardwareAccessoryConditionField }> = [
@@ -93,7 +97,7 @@ function accessoryDisplayLabel(rule: HardwareAccessoryRule, options: HardwareAcc
 }
 
 function accessoryQuantityLabel(rule: HardwareAccessoryRule) {
-  return accessoryQuantityRules.find((option) => option.value === rule.quantity_rule)?.label ?? rule.quantity_rule
+  return accessoryQuantityRuleLabels.find((option) => option.value === rule.quantity_rule)?.label ?? rule.quantity_rule
 }
 
 function accessoryConditionSummary(rule: HardwareAccessoryRule) {
@@ -228,6 +232,7 @@ export function HardwareAccessoryConfigEditor({
             <Label className="grid gap-1.5">
               Applies per
               <Select value={editingRule.quantity_rule} onChange={(event) => updateRule(editingIndex, { quantity_rule: event.target.value as HardwareAccessoryQuantityRule })}>
+                {editingRule.quantity_rule === 'fixed' ? <option value="fixed">Fixed quantity</option> : null}
                 {accessoryQuantityRules.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}

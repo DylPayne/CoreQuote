@@ -524,8 +524,13 @@ fields (`slide_length`, `slide_side_length`, `slide_side_clearance_total`), the
 numeric config fields above, and entries in `variables`.
 
 `accessory_config.accessories` is the normal hardware bundle model for slides,
-hinges, and future hardware rows. Supported `quantity_rule` values are `fixed`,
-`per_unit`, `per_drawer`, `per_slide_pair`, `per_hinge`, and `per_door`.
+hinges, and future hardware rows. `quantity` is the accessory count needed for
+one parent hardware item: one slide pair on slide bundles, or one hinge on hinge
+bundles. The pick-list multiplies that quantity by the hardware count used in
+each quote unit before aggregating totals. Supported `quantity_rule` values are
+`fixed`, `per_unit`, `per_drawer`, `per_slide_pair`, `per_hinge`, and `per_door`;
+`per_unit` is kept for compatibility and means per parent hardware item, not per
+cabinet/unit.
 Required accessories are automatically added to `hardware_pick_list.items`.
 Optional accessories are returned in `hardware_pick_list.optional_items` unless
 `enabled` is true, in which case they are added to the picked and priced rows.
