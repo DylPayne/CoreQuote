@@ -499,6 +499,33 @@ def test_list_quotes_returns_unit_counts():
     assert response.json()[0]["revision"] == 1
 
 
+def test_quote_responses_hide_internal_hardware_snapshot():
+    class SnapshotWorkspaceStore(FakeWorkspaceStore):
+        def list_quotes(self, company_id: str, project_id: str) -> list[dict]:
+            row = quote("quote-1", project_id=project_id, unit_count=3)
+            row["hardware_catalog_snapshot"] = {"version": 1, "items": {"slides": []}}
+            return [row]
+
+        def get_quote(self, company_id: str, quote_id: str) -> dict:
+            row = quote(quote_id, project_id="project-1", unit_count=2)
+            row["hardware_catalog_snapshot"] = {"version": 1, "items": {"slides": []}}
+            return row
+
+    store = SnapshotWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        list_response = client.get("/api/v1/projects/project-1/quotes", headers=auth_header())
+        detail_response = client.get("/api/v1/quotes/quote-1", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert list_response.status_code == 200
+    assert detail_response.status_code == 200
+    assert "hardware_catalog_snapshot" not in list_response.json()[0]
+    assert "hardware_catalog_snapshot" not in detail_response.json()
+
+
 def test_create_quote_returns_404_if_project_not_visible():
     store = FakeWorkspaceStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
