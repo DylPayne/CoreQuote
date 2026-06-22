@@ -100,6 +100,7 @@ QUOTE_SELECT = """
     q.unit_defaults,
     q.production_metadata,
     q.custom_panels,
+    q.hardware_catalog_snapshot,
     COALESCE(count(qu.id), 0)::int AS unit_count,
     q.created_at,
     q.updated_at
@@ -110,6 +111,7 @@ PRICING_SETTINGS_SELECT = ", ".join(PRICING_SETTINGS_COLUMNS)
 PRICING_SETTINGS_PLACEHOLDERS = ", ".join(["%s"] * len(PRICING_SETTINGS_COLUMNS))
 PROJECT_PRICING_SETTINGS_SELECT = f"company_id::text, project_id::text, {PRICING_SETTINGS_SELECT}, created_at, updated_at"
 QUOTE_PRICING_SETTINGS_SELECT = f"company_id::text, quote_id::text, {PRICING_SETTINGS_SELECT}, created_at, updated_at"
+HARDWARE_CATALOG_SNAPSHOT_VERSION = 1
 
 UNIT_SELECT = """
     u.id::text,
@@ -171,6 +173,108 @@ def _sum_bucket_totals(quote_summaries: list[dict[str, Any]]) -> list[dict[str, 
 
 def _quote_pricing_as_of(quote: dict[str, Any]) -> datetime:
     return _coerce_effective_datetime(quote.get("updated_at") or quote.get("created_at"))
+
+
+def _quote_hardware_snapshot_refs(
+    *,
+    quote: dict[str, Any],
+    units: list[dict],
+    quote_extras: list[dict],
+    lookups: dict[str, dict[str, dict]],
+) -> dict[str, set[str]]:
+    refs: dict[str, set[str]] = {"slides": set(), "hinges": set(), "handles": set(), "extras": set()}
+
+    _add_ref(refs, "slides", quote.get("default_slide_id"))
+    _add_ref(refs, "hinges", quote.get("default_hinge_id"))
+    for key in ("default_base_handle_id", "default_wall_handle_id", "default_tall_handle_id", "default_drawer_handle_id"):
+        _add_ref(refs, "handles", quote.get(key))
+
+    for unit in units:
+        canonical_type = canonical_unit_type(str(unit.get("unit_type_key") or ""))
+        extra_params = unit.get("extra_params") if isinstance(unit.get("extra_params"), dict) else {}
+        if canonical_type == "Base Draw":
+            slide_id = str(extra_params.get("slide_id") or quote.get("default_slide_id") or "").strip()
+            _add_ref(refs, "slides", slide_id)
+            slide = lookups.get("slides", {}).get(slide_id)
+            _add_configured_hardware_refs(refs, slide)
+            _add_drawer_system_hardware_refs(refs, slide)
+            _add_ref(refs, "handles", extra_params.get("handle_id") or quote.get("default_drawer_handle_id"))
+        elif canonical_type in {"Base Door", "Wall Door", "Tall Door"}:
+            hinge_id = str(extra_params.get("hinge_id") or quote.get("default_hinge_id") or "").strip()
+            _add_ref(refs, "hinges", hinge_id)
+            _add_configured_hardware_refs(refs, lookups.get("hinges", {}).get(hinge_id))
+            _add_ref(refs, "handles", extra_params.get("handle_id") or _default_door_handle_id(quote, canonical_type))
+
+    for selected_extra in quote_extras:
+        _add_ref(refs, "extras", selected_extra.get("extra_id"))
+
+    return refs
+
+
+def _default_door_handle_id(quote: dict[str, Any], canonical_type: str) -> str | None:
+    if canonical_type == "Wall Door":
+        return quote.get("default_wall_handle_id")
+    if canonical_type == "Tall Door":
+        return quote.get("default_tall_handle_id")
+    return quote.get("default_base_handle_id")
+
+
+def _add_configured_hardware_refs(refs: dict[str, set[str]], item: dict[str, Any] | None) -> None:
+    config = (item or {}).get("accessory_config")
+    if not isinstance(config, dict):
+        return
+    for raw_item in config.get("accessories") or []:
+        if not isinstance(raw_item, dict):
+            continue
+        _add_ref(refs, _hardware_item_collection(raw_item.get("item_type")), raw_item.get("item_ref_id"))
+
+
+def _add_drawer_system_hardware_refs(refs: dict[str, set[str]], slide: dict[str, Any] | None) -> None:
+    config = (slide or {}).get("drawer_system_config")
+    if not isinstance(config, dict):
+        return
+    for raw_item in config.get("hardware_items") or []:
+        if not isinstance(raw_item, dict):
+            continue
+        _add_ref(refs, _hardware_item_collection(raw_item.get("item_type")), raw_item.get("item_ref_id"))
+
+
+def _hardware_item_collection(item_type: object) -> str:
+    normalized = str(item_type or "extra").strip().lower()
+    if normalized == "slide":
+        return "slides"
+    if normalized == "hinge":
+        return "hinges"
+    if normalized == "handle":
+        return "handles"
+    return "extras"
+
+
+def _add_ref(refs: dict[str, set[str]], collection: str, item_id: object) -> None:
+    value = str(item_id or "").strip()
+    if value:
+        refs.setdefault(collection, set()).add(value)
+
+
+def _snapshot_rows(lookup: dict[str, dict], item_ids: set[str]) -> list[dict]:
+    return [
+        dict(lookup[item_id])
+        for item_id in sorted(item_ids)
+        if item_id in lookup
+    ]
+
+
+def _snapshot_lookup(rows: object) -> dict[str, dict]:
+    if not isinstance(rows, list):
+        return {}
+    lookup: dict[str, dict] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        item_id = str(row.get("id") or "").strip()
+        if item_id:
+            lookup[item_id] = dict(row)
+    return lookup
 
 
 def _default_pricing_settings() -> dict[str, int]:
@@ -521,16 +625,27 @@ class WorkspaceStore:
     def update_quote_status(self, company_id: str, quote_id: str, status: str) -> dict:
         cleaned_status = _clean_quote_status(status)
         with self._connect() as conn:
-            row = conn.execute(
-                """
-                UPDATE quotes
-                SET status = %s
-                WHERE company_id = %s
-                  AND id = %s
-                RETURNING id::text
-                """,
-                (cleaned_status, company_id, quote_id),
-            ).fetchone()
+            with conn.transaction():
+                quote = self._ensure_quote_visible(conn, company_id, quote_id, for_update=True)
+                snapshot = quote.get("hardware_catalog_snapshot")
+                if cleaned_status == "draft":
+                    snapshot = None
+                elif not snapshot:
+                    units = self._list_units_for_quote(conn, company_id, quote_id)
+                    quote_extras = self._list_quote_extras_for_quote(conn, company_id, quote_id)
+                    snapshot = self._build_hardware_catalog_snapshot(conn, company_id, quote, units, quote_extras)
+
+                row = conn.execute(
+                    """
+                    UPDATE quotes
+                    SET status = %s,
+                        hardware_catalog_snapshot = %s
+                    WHERE company_id = %s
+                      AND id = %s
+                    RETURNING id::text
+                    """,
+                    (cleaned_status, Jsonb(snapshot) if snapshot is not None else None, company_id, quote_id),
+                ).fetchone()
         if not row:
             raise WorkspaceNotFound("Quote not found")
         return self.get_quote(company_id, quote_id)
@@ -719,16 +834,7 @@ class WorkspaceStore:
     def list_units(self, company_id: str, quote_id: str) -> list[dict]:
         with self._connect() as conn:
             self._ensure_quote_visible(conn, company_id, quote_id)
-            return conn.execute(
-                f"""
-                SELECT {UNIT_SELECT}
-                FROM quote_units u
-                WHERE u.company_id = %s
-                  AND u.quote_id = %s
-                ORDER BY u.unit_number ASC, u.created_at ASC
-                """,
-                (company_id, quote_id),
-            ).fetchall()
+            return self._list_units_for_quote(conn, company_id, quote_id)
 
     def create_unit(self, company_id: str, quote_id: str, payload: dict[str, Any]) -> dict:
         data = _clean_unit_payload(payload)
@@ -1257,6 +1363,7 @@ class WorkspaceStore:
 
         with self._connect() as conn:
             lookups = self._load_company_item_lookups(conn, company_id)
+        hardware_lookups = self._hardware_lookups_for_quote(quote, lookups)
 
         return _build_cutting_list_preview(
             company_id=company_id,
@@ -1265,7 +1372,7 @@ class WorkspaceStore:
             runtime_service=runtime_service,
             use_rulesets=use_rulesets,
             board_lookup=lookups["boards"],
-            slide_lookup=lookups["slides"],
+            slide_lookup=hardware_lookups["slides"],
         )
 
     def get_quote_readiness(
@@ -1465,6 +1572,7 @@ class WorkspaceStore:
             active_price_list_id = self._get_active_price_list_id(conn, company_id, pricing_as_of)
             price_lookup = self._get_price_lookup(conn, company_id, active_price_list_id, pricing_as_of)
             lookups = self._load_company_item_lookups(conn, company_id)
+            hardware_lookups = self._hardware_lookups_for_quote(quote, lookups)
             try:
                 quote_extras = conn.execute(
                     """
@@ -1483,10 +1591,10 @@ class WorkspaceStore:
             quote=quote,
             units=units,
             quote_extras=quote_extras,
-            slide_lookup=lookups["slides"],
-            hinge_lookup=lookups["hinges"],
-            handle_lookup=lookups["handles"],
-            extra_lookup=lookups["extras"],
+            slide_lookup=hardware_lookups["slides"],
+            hinge_lookup=hardware_lookups["hinges"],
+            handle_lookup=hardware_lookups["handles"],
+            extra_lookup=hardware_lookups["extras"],
         )
 
         cutting_list = None
@@ -1499,7 +1607,7 @@ class WorkspaceStore:
                 runtime_service=runtime_service,
                 use_rulesets=use_rulesets,
                 board_lookup=lookups["boards"],
-                slide_lookup=lookups["slides"],
+                slide_lookup=hardware_lookups["slides"],
             )
         except WorkspaceValidationError as exc:
             cutting_error = str(exc)
@@ -1517,10 +1625,10 @@ class WorkspaceStore:
                     use_rulesets=use_rulesets,
                     price_lookup=price_lookup,
                     board_lookup=lookups["boards"],
-                    slide_lookup=lookups["slides"],
-                    hinge_lookup=lookups["hinges"],
-                    handle_lookup=lookups["handles"],
-                    extra_lookup=lookups["extras"],
+                    slide_lookup=hardware_lookups["slides"],
+                    hinge_lookup=hardware_lookups["hinges"],
+                    handle_lookup=hardware_lookups["handles"],
+                    extra_lookup=hardware_lookups["extras"],
                     active_price_list_id=active_price_list_id,
                     pricing_settings=quote_settings,
                 )
@@ -1600,16 +1708,7 @@ class WorkspaceStore:
         try:
             with self._connect() as conn:
                 self._ensure_quote_visible(conn, company_id, quote_id)
-                return conn.execute(
-                    """
-                    SELECT extra_id::text, quantity
-                    FROM quote_extras
-                    WHERE company_id = %s
-                      AND quote_id = %s
-                    ORDER BY created_at ASC, id ASC
-                    """,
-                    (company_id, quote_id),
-                ).fetchall()
+                return self._list_quote_extras_for_quote(conn, company_id, quote_id)
         except psycopg.errors.UndefinedTable:
             return []
 
@@ -1718,6 +1817,7 @@ class WorkspaceStore:
         for quote in quotes:
             quote_settings = quote_pricing_settings[quote["id"]]
             quote_price_list_id = quote_price_list_ids.get(quote["id"])
+            hardware_lookups = self._hardware_lookups_for_quote(quote, lookups)
             summary = _price_quote(
                 quote=quote,
                 units=units_by_quote.get(quote["id"], []),
@@ -1727,10 +1827,10 @@ class WorkspaceStore:
                 use_rulesets=use_rulesets,
                 price_lookup=quote_price_lookups.get(quote["id"], {}),
                 board_lookup=lookups["boards"],
-                slide_lookup=lookups["slides"],
-                hinge_lookup=lookups["hinges"],
-                handle_lookup=lookups["handles"],
-                extra_lookup=lookups["extras"],
+                slide_lookup=hardware_lookups["slides"],
+                hinge_lookup=hardware_lookups["hinges"],
+                handle_lookup=hardware_lookups["handles"],
+                extra_lookup=hardware_lookups["extras"],
                 active_price_list_id=quote_price_list_id,
                 pricing_settings=quote_settings,
             )
@@ -2143,6 +2243,72 @@ class WorkspaceStore:
             "extras": extras,
         }
 
+    def _list_units_for_quote(self, conn, company_id: str, quote_id: str) -> list[dict]:
+        return conn.execute(
+            f"""
+            SELECT {UNIT_SELECT}
+            FROM quote_units u
+            WHERE u.company_id = %s
+              AND u.quote_id = %s
+            ORDER BY u.unit_number ASC, u.created_at ASC
+            """,
+            (company_id, quote_id),
+        ).fetchall()
+
+    def _list_quote_extras_for_quote(self, conn, company_id: str, quote_id: str) -> list[dict]:
+        try:
+            return conn.execute(
+                """
+                SELECT quote_id::text, extra_id::text, quantity
+                FROM quote_extras
+                WHERE company_id = %s
+                  AND quote_id = %s
+                ORDER BY created_at ASC, id ASC
+                """,
+                (company_id, quote_id),
+            ).fetchall()
+        except psycopg.errors.UndefinedTable:
+            return []
+
+    def _build_hardware_catalog_snapshot(
+        self,
+        conn,
+        company_id: str,
+        quote: dict[str, Any],
+        units: list[dict],
+        quote_extras: list[dict],
+    ) -> dict[str, Any]:
+        live_lookups = self._load_company_item_lookups(conn, company_id)
+        refs = _quote_hardware_snapshot_refs(quote=quote, units=units, quote_extras=quote_extras, lookups=live_lookups)
+        return {
+            "version": HARDWARE_CATALOG_SNAPSHOT_VERSION,
+            "captured_at": datetime.now(UTC).isoformat(),
+            "items": {
+                "slides": _snapshot_rows(live_lookups["slides"], refs["slides"]),
+                "hinges": _snapshot_rows(live_lookups["hinges"], refs["hinges"]),
+                "handles": _snapshot_rows(live_lookups["handles"], refs["handles"]),
+                "extras": _snapshot_rows(live_lookups["extras"], refs["extras"]),
+            },
+        }
+
+    def _hardware_lookups_for_quote(self, quote: dict[str, Any], live_lookups: dict[str, dict[str, dict]]) -> dict[str, dict[str, dict]]:
+        if str(quote.get("status") or "draft") == "draft":
+            return live_lookups
+        snapshot = quote.get("hardware_catalog_snapshot")
+        if not isinstance(snapshot, dict):
+            return live_lookups
+        snapshot_items = snapshot.get("items")
+        if not isinstance(snapshot_items, dict):
+            return live_lookups
+
+        return {
+            **live_lookups,
+            "slides": _snapshot_lookup(snapshot_items.get("slides")),
+            "hinges": _snapshot_lookup(snapshot_items.get("hinges")),
+            "handles": _snapshot_lookup(snapshot_items.get("handles")),
+            "extras": _snapshot_lookup(snapshot_items.get("extras")),
+        }
+
     def _validate_quote_defaults(self, conn, company_id: str, data: dict[str, Any]) -> None:
         self._ensure_library_item_visible(
             conn,
@@ -2342,20 +2508,28 @@ class WorkspaceStore:
             raise WorkspaceNotFound("Project not found")
         return row
 
-    def _ensure_quote_visible(self, conn, company_id: str, quote_id: str) -> dict:
+    def _ensure_quote_visible(self, conn, company_id: str, quote_id: str, *, for_update: bool = False) -> dict:
+        lock_clause = "FOR UPDATE" if for_update else ""
         row = conn.execute(
-            """
+            f"""
             SELECT
                 id::text,
                 project_id::text,
+                status,
                 default_carcass_board_type_id::text,
                 default_slide_id::text,
                 default_hinge_id::text,
+                default_base_handle_id::text,
+                default_wall_handle_id::text,
+                default_tall_handle_id::text,
+                default_drawer_handle_id::text,
+                hardware_catalog_snapshot,
                 created_at,
                 updated_at
             FROM quotes
             WHERE company_id = %s
               AND id = %s
+            {lock_clause}
             """,
             (company_id, quote_id),
         ).fetchone()

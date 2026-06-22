@@ -173,6 +173,13 @@ Status update payload:
 ```
 
 Status changes are permissive in this version so cabinetmakers can reflect the real job conversation without workflow lock-in.
+When a quote moves from `draft` to any non-draft status, CoreQuote captures an
+internal hardware catalog snapshot for the selected slides, hinges, handles,
+extras, and configured accessory bundles used by that quote. Non-draft quote
+outputs use that frozen hardware snapshot so later library edits do not change
+the historical hardware pick list, pricing lines, or hardware-driven drawer
+cutting behavior. Moving a quote back to `draft` clears the snapshot and makes
+the quote use the live libraries again.
 
 Duplicating a quote:
 
@@ -196,7 +203,7 @@ POST /api/v1/quotes/{quote_id}/revisions
 
 Permission: `quotes:write`
 
-The API copies the source quote header, defaults, production metadata, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. The source quote is not changed, so a sent or accepted record remains visible as it was.
+The API copies the source quote header, defaults, production metadata, units, custom panel configuration, selected extras, and quote pricing settings. The new quote keeps the same `quote_number`, increments `revision`, links `previous_revision_id`, and starts as `draft`. Hardware snapshots are not copied to the new draft, so the revision can use current libraries until it is marked ready/sent/accepted. The source quote is not changed, so a sent or accepted record remains visible as it was.
 
 ## Quote Units
 
@@ -1590,6 +1597,7 @@ Line `bucket` values group the spreadsheet-derived pricing categories:
 - Opening a project should call `GET /projects/{project_id}/quotes`.
 - Opening a quote should call `GET /quotes/{quote_id}/units`.
 - Quote cards and workspace headers should show `status`, `quote_number`, and `revision`; use `PATCH /quotes/{quote_id}/status` for status controls.
+- Non-draft quotes automatically use their frozen hardware snapshot for outputs; avoid exposing this as a separate version picker in normal UI.
 - Use `POST /quotes/{quote_id}/revisions` when client changes require a new editable revision of a sent or accepted quote.
 - Panels tab can load and save quote panel config via `GET/PUT /quotes/{quote_id}/custom-panels`.
 - Cutting list tab can call `GET /quotes/{quote_id}/cutting-list`.
