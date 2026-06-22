@@ -212,6 +212,7 @@ class FakeLibraryStore:
             brand=payload["brand"],
             drawer_system_kind=payload.get("drawer_system_kind", "conventional"),
             drawer_system_config=payload.get("drawer_system_config") or {},
+            accessory_config=payload.get("accessory_config") or {},
         )
 
     def get_slide(self, company_id: str, item_id: str):
@@ -224,6 +225,7 @@ class FakeLibraryStore:
             brand=payload["brand"],
             drawer_system_kind=payload.get("drawer_system_kind", "conventional"),
             drawer_system_config=payload.get("drawer_system_config") or {},
+            accessory_config=payload.get("accessory_config") or {},
         )
 
     def delete_slide(self, company_id: str, item_id: str):
@@ -234,14 +236,14 @@ class FakeLibraryStore:
 
     def create_hinge(self, company_id: str, payload: dict):
         self.created_payload = ("hinges", payload)
-        return hinge("hinge-2", brand=payload["brand"])
+        return hinge("hinge-2", brand=payload["brand"], accessory_config=payload.get("accessory_config") or {})
 
     def get_hinge(self, company_id: str, item_id: str):
         return hinge(item_id)
 
     def update_hinge(self, company_id: str, item_id: str, payload: dict):
         self.updated_payload = ("hinges", item_id, payload)
-        return hinge(item_id, brand=payload["brand"])
+        return hinge(item_id, brand=payload["brand"], accessory_config=payload.get("accessory_config") or {})
 
     def delete_hinge(self, company_id: str, item_id: str):
         self.deleted.append(("hinges", item_id))
@@ -320,14 +322,14 @@ class FakeLibraryStore:
 
     def create_extra(self, company_id: str, payload: dict):
         self.created_payload = ("extras", payload)
-        return extra("extra-2", name=payload["name"])
+        return extra("extra-2", name=payload["name"], supplier_id=payload.get("supplier_id"))
 
     def get_extra(self, company_id: str, item_id: str):
         return extra(item_id)
 
     def update_extra(self, company_id: str, item_id: str, payload: dict):
         self.updated_payload = ("extras", item_id, payload)
-        return extra(item_id, name=payload["name"])
+        return extra(item_id, name=payload["name"], supplier_id=payload.get("supplier_id"))
 
     def delete_extra(self, company_id: str, item_id: str):
         self.deleted.append(("extras", item_id))
@@ -604,6 +606,7 @@ def slide(
     brand: str = "Grass",
     drawer_system_kind: str = "conventional",
     drawer_system_config: dict | None = None,
+    accessory_config: dict | None = None,
 ) -> dict:
     return {
         "id": item_id,
@@ -616,18 +619,20 @@ def slide(
         "side_height_uplift": 0,
         "drawer_system_kind": drawer_system_kind,
         "drawer_system_config": drawer_system_config or {},
+        "accessory_config": accessory_config or {},
         "created_at": NOW,
         "updated_at": NOW,
     }
 
 
-def hinge(item_id: str, *, brand: str = "Blum") -> dict:
+def hinge(item_id: str, *, brand: str = "Blum", accessory_config: dict | None = None) -> dict:
     return {
         "id": item_id,
         "brand": brand,
         "model": "Clip Top",
         "code": "BL-110",
         "opening_angle_deg": 110,
+        "accessory_config": accessory_config or {},
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -663,13 +668,14 @@ def extra_category(item_id: str, *, name: str = "Appliances") -> dict:
     return {"id": item_id, "name": name, "created_at": NOW, "updated_at": NOW}
 
 
-def extra(item_id: str, *, name: str = "Stove") -> dict:
+def extra(item_id: str, *, name: str = "Stove", supplier_id: str | None = "supplier-1") -> dict:
     return {
         "id": item_id,
         "name": name,
         "category_id": "category-1",
         "category_name": "Appliances",
-        "supplier": "Defy",
+        "supplier_id": supplier_id,
+        "supplier": "Grass ZA" if supplier_id else "",
         "code": "DFY-600",
         "notes": "",
         "created_at": NOW,
@@ -842,7 +848,7 @@ CATALOG_CASES = [
     ("extra-categories", {"name": "Lighting"}, "name", "Lighting"),
     (
         "extras",
-        {"name": "LED Strip", "category_id": "category-1", "supplier": "Veti", "code": "LED-5M", "notes": "Warm white"},
+        {"name": "LED Strip", "category_id": "category-1", "supplier_id": "supplier-1", "code": "LED-5M", "notes": "Warm white"},
         "name",
         "LED Strip",
     ),
@@ -1263,6 +1269,18 @@ def test_slide_drawer_system_config_round_trips():
                 }
             ],
         },
+        "accessory_config": {
+            "accessories": [
+                {
+                    "item_type": "extra",
+                    "item_ref_id": "extra-locking-plate",
+                    "quantity": 2,
+                    "quantity_rule": "per_drawer",
+                    "required": True,
+                    "condition": {"field": "always", "operator": "always"},
+                }
+            ]
+        },
     }
     try:
         create_response = client.post("/api/v1/libraries/slides", json=payload, headers=auth_header())
@@ -1272,6 +1290,7 @@ def test_slide_drawer_system_config_round_trips():
     assert create_response.status_code == 201
     assert create_response.json()["drawer_system_kind"] == "metal"
     assert create_response.json()["drawer_system_config"]["product_family"] == "Legrabox"
+    assert create_response.json()["accessory_config"]["accessories"][0]["quantity_rule"] == "per_drawer"
     assert store.created_payload is not None
     resource, stored_payload = store.created_payload
     assert resource == "slides"
@@ -1280,6 +1299,87 @@ def test_slide_drawer_system_config_round_trips():
     assert stored_payload["drawer_system_config"]["manufacturer_notes"] == "Custom metadata survives for vendor-specific drawer systems."
     assert stored_payload["drawer_system_config"]["panel_formulas"][0]["length_formula"] == "inner_w - (2 * installation_width_mm)"
     assert stored_payload["drawer_system_config"]["hardware_items"][0]["quantity_per_drawer"] == 2
+    assert stored_payload["accessory_config"]["accessories"][0]["item_ref_id"] == "extra-locking-plate"
+
+
+def test_hinge_accessory_config_round_trips():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "brand": "Blum",
+        "model": "Clip Top",
+        "code": "BL-110",
+        "opening_angle_deg": 110,
+        "accessory_config": {
+            "accessories": [
+                {
+                    "item_type": "extra",
+                    "item_ref_id": "extra-mounting-plate",
+                    "quantity": 1,
+                    "quantity_rule": "per_hinge",
+                    "required": True,
+                }
+            ]
+        },
+    }
+    try:
+        create_response = client.post("/api/v1/libraries/hinges", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert create_response.status_code == 201
+    assert create_response.json()["accessory_config"]["accessories"][0]["quantity_rule"] == "per_hinge"
+    assert store.created_payload is not None
+    resource, stored_payload = store.created_payload
+    assert resource == "hinges"
+    assert stored_payload["accessory_config"]["accessories"][0]["item_ref_id"] == "extra-mounting-plate"
+
+
+def test_extra_supplier_must_be_null_or_existing_supplier_id():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    selected_payload = {
+        "name": "LED strip",
+        "category_id": "category-1",
+        "supplier_id": "supplier-1",
+        "code": "LED-5M",
+        "notes": "Warm white",
+    }
+    null_payload = {
+        "name": "Site delivery",
+        "category_id": "category-1",
+        "supplier_id": "",
+        "code": "DEL",
+        "notes": "",
+    }
+    try:
+        selected_response = client.post("/api/v1/libraries/extras", json=selected_payload, headers=auth_header())
+        selected_store_payload = store.created_payload
+        null_response = client.post("/api/v1/libraries/extras", json=null_payload, headers=auth_header())
+        null_store_payload = store.created_payload
+        free_text_response = client.post(
+            "/api/v1/libraries/extras",
+            json={
+                "name": "Typed supplier extra",
+                "category_id": "category-1",
+                "supplier": "Typed Supplier",
+                "code": "TS",
+                "notes": "",
+            },
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert selected_response.status_code == 201
+    assert selected_response.json()["supplier_id"] == "supplier-1"
+    assert selected_store_payload == ("extras", selected_payload)
+    assert null_response.status_code == 201
+    assert null_response.json()["supplier_id"] is None
+    assert null_store_payload == ("extras", {**null_payload, "supplier_id": None})
+    assert free_text_response.status_code == 422
 
 
 def test_catalog_list_accepts_search_and_recent_filters():

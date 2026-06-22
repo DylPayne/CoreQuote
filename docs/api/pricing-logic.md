@@ -24,8 +24,9 @@ Pricing in the workbook is split across a few major areas:
 ## App Pricing Model
 
 CoreQuote treats pricing as a quote-scoped calculation from the current quote
-state, the active price list effective at the quote's pricing timestamp, and
-the quote's pricing settings.
+state, the active price list effective at the quote's pricing timestamp, the
+quote's pricing settings, and any frozen hardware catalog snapshot captured when
+the quote leaves draft.
 
 The active price list stores base costs. Pricing settings store sell-side
 multipliers and operational rates. Company pricing settings are defaults for new
@@ -98,7 +99,16 @@ Each quote calculation also produces `hardware_pick_list` for internal workshop
 or purchasing review. It uses the same component-count source as pricing for
 slides, hinges, handles, and selected quote extras, but returns only catalog
 identity, supplier/code, quantity, unit associations, and setup warnings. It
-does not expose cost, sell, profit, markup, or margin fields.
+also resolves configured slide and hinge accessory bundles. Required accessories
+and optional accessories marked `enabled` are priced as normal hardware rows
+when an active catalog price exists. Optional accessories that are not enabled
+are returned in `hardware_pick_list.optional_items` for review but are not added
+to totals. The pick list does not expose cost, sell, profit, markup, or margin
+fields.
+
+Draft quotes use the live hardware libraries. Non-draft quotes use their
+captured hardware catalog snapshot when present, so later slide, hinge, handle,
+extra, or accessory-bundle edits do not change historical quote outputs.
 
 The calculation keeps legacy response totals for existing callers:
 

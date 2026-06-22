@@ -2,6 +2,7 @@ from pathlib import Path
 
 
 MIGRATION_0016 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0016_quote_status_revisions.sql"
+MIGRATION_0026 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0026_quote_hardware_catalog_snapshot.sql"
 
 
 def test_quote_status_revision_migration_adds_visible_quote_metadata():
@@ -24,3 +25,13 @@ def test_quote_status_revision_migration_backfills_project_quote_numbers():
     assert "PARTITION BY company_id, project_id" in sql
     assert "'Q-' || lpad(ranked.quote_index::text, 3, '0')" in sql
     assert "ALTER COLUMN quote_number SET NOT NULL" in sql
+
+
+def test_quote_hardware_catalog_snapshot_migration_adds_internal_freeze_payload():
+    sql = MIGRATION_0026.read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS hardware_catalog_snapshot JSONB" in sql
+    assert "quotes_hardware_catalog_snapshot_object_chk" in sql
+    assert "jsonb_typeof(hardware_catalog_snapshot) = 'object'" in sql
+    assert "old quotes" not in sql.lower()
+    assert "sqlite" not in sql.lower()

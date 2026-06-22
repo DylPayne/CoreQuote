@@ -324,7 +324,7 @@ Supported fields:
 - `slides`: `brand`, `code`
 - `hinges`: `brand`, `code`
 - `handles`: `supplier`, `code`
-- `extras`: `category_id`, `supplier`, `code`, `notes`
+- `extras`: `category_id`, `supplier_id`, `code`, `notes`
 - `suppliers`: `contact_name`, `email`, `phone`, `notes`, `default_discount_bps`
 
 Response:
@@ -395,7 +395,27 @@ Resource: `slides`
   "side_clearance_total": 26,
   "side_height_uplift": 0,
   "drawer_system_kind": "conventional",
-  "drawer_system_config": {}
+  "drawer_system_config": {},
+  "accessory_config": {
+    "accessories": [
+      {
+        "item_type": "extra",
+        "item_ref_id": "extra-uuid",
+        "name": "3D locking plate",
+        "quantity": 2,
+        "quantity_rule": "per_drawer",
+        "required": true,
+        "enabled": false,
+        "uom": "pcs",
+        "condition": {
+          "field": "always",
+          "operator": "always",
+          "value_number": null,
+          "value_text": ""
+        }
+      }
+    ]
+  }
 }
 ```
 
@@ -417,7 +437,9 @@ Metal drawer system config supports:
   `cut_board_back`, `cut_bottom_panel`, and `cut_inset_panel`
 - `variables`: custom numeric or boolean values referenced by formulas
 - `panel_formulas`: board-cut rows still required by the metal system
-- `hardware_items`: configured accessories to add to the hardware pick list
+- `hardware_items`: legacy metal-system accessory rows still accepted for
+  compatibility. New required, optional, and conditional hardware bundles should
+  use `accessory_config`.
 
 Unknown top-level config keys are preserved so company-specific supplier data,
 planning notes, or future manufacturer fields can live alongside the validated
@@ -460,13 +482,35 @@ Example metal system:
         "width_formula": "side_height_mm - 12",
         "qty_formula": "num_drawers"
       }
-    ],
-    "hardware_items": [
+    ]
+  },
+  "accessory_config": {
+    "accessories": [
       {
         "item_type": "extra",
+        "item_ref_id": "front-bracket-extra-uuid",
         "name": "Front bracket set",
-        "quantity_per_drawer": 2,
-        "uom": "pcs"
+        "quantity": 2,
+        "quantity_rule": "per_drawer",
+        "required": true,
+        "enabled": false,
+        "uom": "pcs",
+        "condition": { "field": "always", "operator": "always" }
+      },
+      {
+        "item_type": "extra",
+        "item_ref_id": "scala-rail-extra-uuid",
+        "name": "Scala rail set",
+        "quantity": 1,
+        "quantity_rule": "per_drawer",
+        "required": true,
+        "enabled": false,
+        "uom": "sets",
+        "condition": {
+          "field": "drawer_front_height",
+          "operator": "greater_than",
+          "value_number": 180
+        }
       }
     ]
   }
@@ -479,6 +523,21 @@ Formula context includes unit dimensions (`h`, `w`, `d`, `t`, `inner_w`,
 fields (`slide_length`, `slide_side_length`, `slide_side_clearance_total`), the
 numeric config fields above, and entries in `variables`.
 
+`accessory_config.accessories` is the normal hardware bundle model for slides,
+hinges, and future hardware rows. `quantity` is the accessory count needed for
+one parent hardware item: one slide pair on slide bundles, or one hinge on hinge
+bundles. The pick-list multiplies that quantity by the hardware count used in
+each quote unit before aggregating totals. Supported `quantity_rule` values are
+`fixed`, `per_unit`, `per_drawer`, `per_slide_pair`, `per_hinge`, and `per_door`;
+`per_unit` is kept for compatibility and means per parent hardware item, not per
+cabinet/unit.
+Required accessories are automatically added to `hardware_pick_list.items`.
+Optional accessories are returned in `hardware_pick_list.optional_items` unless
+`enabled` is true, in which case they are added to the picked and priced rows.
+Conditions support common unit fields such as `drawer_front_height`,
+`drawer_side_height`, `unit_width`, `unit_height`, `unit_depth`, `num_drawers`,
+`door_count`, `hinge_count`, `hardware_variant`, and `load_class`.
+
 ### Hinges
 
 Resource: `hinges`
@@ -488,7 +547,22 @@ Resource: `hinges`
   "brand": "Blum",
   "model": "Clip Top",
   "code": "BL-110",
-  "opening_angle_deg": 110
+  "opening_angle_deg": 110,
+  "accessory_config": {
+    "accessories": [
+      {
+        "item_type": "extra",
+        "item_ref_id": "mounting-plate-extra-uuid",
+        "name": "Mounting plate",
+        "quantity": 1,
+        "quantity_rule": "per_hinge",
+        "required": true,
+        "enabled": false,
+        "uom": "pcs",
+        "condition": { "field": "always", "operator": "always" }
+      }
+    ]
+  }
 }
 ```
 
@@ -583,13 +657,17 @@ Resource: `extras`
 {
   "name": "Stove",
   "category_id": "extra-category-uuid",
-  "supplier": "Defy",
+  "supplier_id": "supplier-uuid",
   "code": "DFY-600",
   "notes": ""
 }
 ```
 
-Responses include `category_name` so the frontend can render the library table without an extra lookup.
+Set `supplier_id` to `null` when the extra has no supplier. Non-null values
+must reference an existing supplier in the same company; free-text supplier
+names are not accepted on create/update. Responses include `category_name` and
+the display-only `supplier` name so the frontend can render the library table
+without an extra lookup.
 
 ## Pricing Libraries
 

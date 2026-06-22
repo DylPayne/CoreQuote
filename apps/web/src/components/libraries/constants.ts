@@ -31,7 +31,8 @@ export const defaultSlideDraft: SlideDraft = {
   side_clearance_total: '26',
   side_height_uplift: '0',
   drawer_system_kind: 'conventional',
-  drawer_system_config_json: '{}',
+  drawer_system_config: {},
+  accessory_config: { accessories: [] },
 }
 
 export const defaultHingeDraft: HingeDraft = {
@@ -39,6 +40,7 @@ export const defaultHingeDraft: HingeDraft = {
   model: '',
   code: '',
   opening_angle_deg: '110',
+  accessory_config: { accessories: [] },
 }
 
 export const defaultSupplierDraft: SupplierDraft = {
@@ -79,7 +81,7 @@ export const defaultExtraCategoryDraft: ExtraCategoryDraft = {
 export const defaultExtraDraft: ExtraDraft = {
   name: '',
   category_id: '',
-  supplier: '',
+  supplier_id: '',
   code: '',
   notes: '',
 }

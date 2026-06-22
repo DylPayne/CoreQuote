@@ -178,7 +178,7 @@ export type SlideRow = {
   side_height_uplift: number
   drawer_system_kind: DrawerSystemKind
   drawer_system_config: DrawerSystemConfig
-  drawer_system_config_json?: string
+  accessory_config: HardwareAccessoryConfig
   created_at: string
   updated_at: string
 }
@@ -189,6 +189,7 @@ export type HingeRow = {
   model: string
   code: string
   opening_angle_deg: number
+  accessory_config: HardwareAccessoryConfig
   created_at: string
   updated_at: string
 }
@@ -227,6 +228,7 @@ export type ExtraRow = {
   name: string
   category_id: string
   category_name: string
+  supplier_id: string | null
   supplier: string
   code: string
   notes: string
@@ -327,11 +329,59 @@ export type SlideDraft = {
   side_clearance_total: string
   side_height_uplift: string
   drawer_system_kind: DrawerSystemKind
-  drawer_system_config_json: string
+  drawer_system_config: DrawerSystemConfig
+  accessory_config: HardwareAccessoryConfig
 }
 
 export type DrawerSystemKind = 'conventional' | 'metal'
 export type DrawerSystemHardwareItemType = Exclude<PriceItemType, 'board'>
+export type HardwareAccessoryQuantityRule = 'fixed' | 'per_unit' | 'per_drawer' | 'per_slide_pair' | 'per_hinge' | 'per_door'
+export type HardwareAccessoryConditionField =
+  | 'always'
+  | 'drawer_front_height'
+  | 'drawer_side_height'
+  | 'unit_width'
+  | 'unit_height'
+  | 'unit_depth'
+  | 'num_drawers'
+  | 'door_count'
+  | 'hinge_count'
+  | 'hardware_variant'
+  | 'load_class'
+export type HardwareAccessoryConditionOperator =
+  | 'always'
+  | 'greater_than'
+  | 'greater_than_or_equal'
+  | 'less_than'
+  | 'less_than_or_equal'
+  | 'equals'
+  | 'not_equals'
+
+export type HardwareAccessoryCondition = {
+  field: HardwareAccessoryConditionField
+  operator: HardwareAccessoryConditionOperator
+  value_number?: number | null
+  value_text?: string
+}
+
+export type HardwareAccessoryRule = {
+  item_type: DrawerSystemHardwareItemType
+  item_ref_id: string
+  name: string
+  supplier?: string
+  code?: string
+  quantity: number
+  quantity_rule: HardwareAccessoryQuantityRule
+  required: boolean
+  enabled: boolean
+  uom: string
+  condition: HardwareAccessoryCondition
+}
+
+export type HardwareAccessoryConfig = {
+  accessories?: HardwareAccessoryRule[]
+  [key: string]: unknown
+}
 
 export type DrawerSystemFormulaRow = {
   name: string
@@ -389,6 +439,7 @@ export type HingeDraft = {
   model: string
   code: string
   opening_angle_deg: string
+  accessory_config: HardwareAccessoryConfig
 }
 
 export type SupplierDraft = {
@@ -429,7 +480,7 @@ export type ExtraCategoryDraft = {
 export type ExtraDraft = {
   name: string
   category_id: string
-  supplier: string
+  supplier_id: string
   code: string
   notes: string
 }

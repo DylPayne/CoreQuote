@@ -138,6 +138,86 @@ def test_runtime_unit_includes_configured_drawer_system_from_slide_lookup():
     }
 
 
+def test_quote_pricing_includes_required_slide_accessory_prices():
+    result = _price_quote(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen",
+            "default_slide_id": "slide-dynapro",
+        },
+        units=[
+            {
+                "unit_number": 1,
+                "unit_type_key": "Base Draw",
+                "height": 720,
+                "width": 600,
+                "depth": 560,
+                "extra_params": {"num_drawers": 2, "handle_qty": 0},
+            }
+        ],
+        quote_extras=[],
+        runtime_service=FakeRuntimeService(
+            {
+                "carcass": [],
+                "panels": [],
+                "hardware": [],
+                "extras": [],
+                "runtime_rows": [],
+                "runtime_mode": "legacy",
+                "unit_sources": [],
+            }
+        ),
+        company_id="company-1",
+        use_rulesets=False,
+        price_lookup={
+            ("slide", "slide::slide-dynapro", "unit"): {"unit_price_cents": 10000},
+            ("extra", "extra::extra-locking-plate", "unit"): {"unit_price_cents": 2500},
+        },
+        board_lookup={},
+        slide_lookup={
+            "slide-dynapro": {
+                "id": "slide-dynapro",
+                "brand": "Grass",
+                "model": "Dynapro",
+                "code": "DYN-500",
+                "accessory_config": {
+                    "accessories": [
+                        {
+                            "item_type": "extra",
+                            "item_ref_id": "extra-locking-plate",
+                            "name": "3D locking plate",
+                            "quantity": 2,
+                            "quantity_rule": "per_drawer",
+                            "required": True,
+                        }
+                    ]
+                },
+            }
+        },
+        hinge_lookup={},
+        handle_lookup={},
+        extra_lookup={
+            "extra-locking-plate": {
+                "id": "extra-locking-plate",
+                "name": "Dynapro 3D locking plate",
+                "category_name": "Drawer accessories",
+                "supplier": "Grass",
+                "code": "F134",
+            }
+        },
+        active_price_list_id="price-list-1",
+        pricing_settings={},
+    )
+
+    lines = {line["item_key"]: line for line in result["lines"]}
+
+    assert result["missing_prices"] == []
+    assert result["hardware_pick_list"]["items"][1]["item_key"] == "extra::extra-locking-plate"
+    assert lines["slide::slide-dynapro"]["qty"] == 2.0
+    assert lines["extra::extra-locking-plate"]["qty"] == 4.0
+    assert lines["extra::extra-locking-plate"]["cost_total_cents"] == 10000
+
+
 def _preview_with_carcass_row() -> dict:
     return {
         "carcass": [{"unit_number": 1, "desc": "Side", "length": 748, "width": 544, "qty": 2}],

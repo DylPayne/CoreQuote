@@ -83,6 +83,29 @@ HardwarePickListWarningCode = Literal[
     "missing_handle_selection",
     "missing_catalog_item",
 ]
+HardwareAccessoryQuantityRule = Literal["fixed", "per_unit", "per_drawer", "per_slide_pair", "per_hinge", "per_door"]
+HardwareAccessoryConditionField = Literal[
+    "always",
+    "drawer_front_height",
+    "drawer_side_height",
+    "unit_width",
+    "unit_height",
+    "unit_depth",
+    "num_drawers",
+    "door_count",
+    "hinge_count",
+    "hardware_variant",
+    "load_class",
+]
+HardwareAccessoryConditionOperator = Literal[
+    "always",
+    "greater_than",
+    "greater_than_or_equal",
+    "less_than",
+    "less_than_or_equal",
+    "equals",
+    "not_equals",
+]
 DrawerSystemKind = Literal["conventional", "metal"]
 DrawerSystemPanelSection = Literal["carcass", "panel", "extra_panel"]
 
@@ -681,6 +704,7 @@ class HardwarePickListWarningResponse(BaseModel):
 
 class HardwarePickListResponse(BaseModel):
     items: list[HardwarePickListItemResponse] = Field(default_factory=list)
+    optional_items: list[HardwarePickListItemResponse] = Field(default_factory=list)
     warnings: list[HardwarePickListWarningResponse] = Field(default_factory=list)
     total_item_count: int = Field(default=0, ge=0)
     total_quantity: int = Field(default=0, ge=0)
@@ -851,6 +875,7 @@ class ProductionHandoffHardwareItemResponse(BaseModel):
 
 class ProductionHandoffHardwarePickListResponse(BaseModel):
     items: list[ProductionHandoffHardwareItemResponse] = Field(default_factory=list)
+    optional_items: list[HardwarePickListItemResponse] = Field(default_factory=list)
     warnings: list[HardwarePickListWarningResponse] = Field(default_factory=list)
     total_item_count: int = Field(default=0, ge=0)
     total_quantity: int = Field(default=0, ge=0)
@@ -1379,6 +1404,37 @@ class DrawerSystemHardwareItem(BaseModel):
     uom: str = Field(default="pcs", min_length=1, max_length=40)
 
 
+class HardwareAccessoryCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: HardwareAccessoryConditionField = "always"
+    operator: HardwareAccessoryConditionOperator = "always"
+    value_number: float | None = None
+    value_text: str = Field(default="", max_length=160)
+
+
+class HardwareAccessoryRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_type: HardwarePickListItemType = "extra"
+    item_ref_id: str = Field(default="", max_length=120)
+    name: str = Field(default="", max_length=160)
+    supplier: str = Field(default="", max_length=160)
+    code: str = Field(default="", max_length=120)
+    quantity: int = Field(default=1, ge=0)
+    quantity_rule: HardwareAccessoryQuantityRule = "per_unit"
+    required: bool = True
+    enabled: bool = False
+    uom: str = Field(default="pcs", min_length=1, max_length=40)
+    condition: HardwareAccessoryCondition = Field(default_factory=HardwareAccessoryCondition)
+
+
+class HardwareAccessoryConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    accessories: list[HardwareAccessoryRule] = Field(default_factory=list)
+
+
 class DrawerSystemConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -1417,10 +1473,18 @@ class SlideRequest(BaseModel):
     side_height_uplift: int = Field(default=0, ge=0)
     drawer_system_kind: DrawerSystemKind = "conventional"
     drawer_system_config: DrawerSystemConfig = Field(default_factory=DrawerSystemConfig)
+    accessory_config: HardwareAccessoryConfig = Field(default_factory=HardwareAccessoryConfig)
 
     @field_validator("drawer_system_config", mode="before")
     @classmethod
     def normalize_drawer_system_config(cls, value):
+        if value in (None, ""):
+            return {}
+        return value
+
+    @field_validator("accessory_config", mode="before")
+    @classmethod
+    def normalize_accessory_config(cls, value):
         if value in (None, ""):
             return {}
         return value
@@ -1441,6 +1505,14 @@ class HingeRequest(BaseModel):
     model: str = Field(min_length=1, max_length=120)
     code: str = Field(default="", max_length=120)
     opening_angle_deg: int = Field(ge=0)
+    accessory_config: HardwareAccessoryConfig = Field(default_factory=HardwareAccessoryConfig)
+
+    @field_validator("accessory_config", mode="before")
+    @classmethod
+    def normalize_accessory_config(cls, value):
+        if value in (None, ""):
+            return {}
+        return value
 
 
 class HingeResponse(HingeRequest):
@@ -1527,16 +1599,29 @@ class ExtraRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     category_id: str = Field(description="Extra category UUID in the current company.")
-    supplier: str = Field(default="", max_length=120)
+    supplier_id: str | None = Field(default=None, description="Optional supplier UUID in the current company.")
     code: str = Field(default="", max_length=120)
     notes: str = Field(default="", max_length=1000)
 
+    @field_validator("supplier_id", mode="before")
+    @classmethod
+    def normalize_supplier_id(cls, value: Any) -> Any:
+        if value in (None, ""):
+            return None
+        return value
 
-class ExtraResponse(ExtraRequest):
+
+class ExtraResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    name: str
+    category_id: str
     category_name: str
+    supplier_id: str | None = None
+    supplier: str = ""
+    code: str
+    notes: str
     created_at: datetime
     updated_at: datetime
 

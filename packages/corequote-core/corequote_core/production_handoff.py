@@ -98,6 +98,7 @@ def build_production_handoff(
         "board_requirements": board_requirements,
         "hardware_pick_list": {
             "items": hardware,
+            "optional_items": list(hardware_pick_list.get("optional_items") or []) if isinstance(hardware_pick_list, dict) else [],
             "warnings": list(hardware_pick_list.get("warnings") or []) if isinstance(hardware_pick_list, dict) else [],
             "total_item_count": len(hardware),
             "total_quantity": sum(int(item["quantity"]) for item in hardware),

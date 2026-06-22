@@ -364,7 +364,8 @@ function downloadBlob(blob: Blob, filename: string | null, fallbackFilename: str
 
 function HardwarePickListReview({ pickList }: { pickList?: HardwarePickList }) {
   if (!pickList) return null
-  if (pickList.items.length === 0 && pickList.warnings.length === 0) return null
+  const optionalItems = pickList.optional_items ?? []
+  if (pickList.items.length === 0 && optionalItems.length === 0 && pickList.warnings.length === 0) return null
 
   return (
     <div className="grid gap-3 border-y border-border py-4">
@@ -405,6 +406,33 @@ function HardwarePickListReview({ pickList }: { pickList?: HardwarePickList }) {
             <TableBody>
               {pickList.items.map((item) => (
                 <TableRow key={item.item_key}>
+                  <TableCell>{item.type_label}</TableCell>
+                  <TableCell>{item.item_name}</TableCell>
+                  <TableCell>{formatSupplierCode(item.supplier, item.code)}</TableCell>
+                  <TableCell>{item.usage_label || '-'}</TableCell>
+                  <TableCell className="text-right">{`${formatPricingQty(item.quantity)} ${item.uom}`}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      ) : null}
+
+      {optionalItems.length > 0 ? (
+        <TableContainer>
+          <Table className="min-w-[780px] text-xs">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Optional</TableHead>
+                <TableHead>Item</TableHead>
+                <TableHead>Supplier / Code</TableHead>
+                <TableHead>Used in</TableHead>
+                <TableHead className="text-right">Qty</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {optionalItems.map((item) => (
+                <TableRow key={`optional:${item.item_key}`}>
                   <TableCell>{item.type_label}</TableCell>
                   <TableCell>{item.item_name}</TableCell>
                   <TableCell>{formatSupplierCode(item.supplier, item.code)}</TableCell>
@@ -1267,6 +1295,32 @@ function ProductionHandoffPanel({
               </TableBody>
             </Table>
           </TableContainer>
+          {(handoff.hardware_pick_list.optional_items ?? []).length > 0 ? (
+            <TableContainer>
+              <Table className="min-w-[900px] text-xs">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Optional</TableHead>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Supplier / Code</TableHead>
+                    <TableHead>Used in</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(handoff.hardware_pick_list.optional_items ?? []).map((item) => (
+                    <TableRow key={`optional:${item.item_key}`}>
+                      <TableCell>{item.type_label}</TableCell>
+                      <TableCell>{item.item_name}</TableCell>
+                      <TableCell>{formatSupplierCode(item.supplier, item.code)}</TableCell>
+                      <TableCell>{item.usage_label || '-'}</TableCell>
+                      <TableCell className="text-right">{`${formatPricingQty(item.quantity)} ${item.uom}`}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : null}
         </ProductionCollapsibleSection>
       ) : null}
 

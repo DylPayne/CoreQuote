@@ -98,6 +98,11 @@ export type DrawerSystemConfig = {
   [key: string]: unknown
 }
 
+export type HardwareAccessoryConfig = {
+  accessories?: Array<Record<string, unknown>>
+  [key: string]: unknown
+}
+
 export type SlideRow = {
   id: string
   brand: string
@@ -106,6 +111,7 @@ export type SlideRow = {
   length: number
   drawer_system_kind: DrawerSystemKind
   drawer_system_config: DrawerSystemConfig
+  accessory_config: HardwareAccessoryConfig
 }
 
 export type HingeRow = {
@@ -114,6 +120,7 @@ export type HingeRow = {
   model: string
   code: string
   opening_angle_deg: number
+  accessory_config: HardwareAccessoryConfig
 }
 
 export type HandleRow = {
@@ -413,6 +420,7 @@ export type HardwarePickListWarning = {
 
 export type HardwarePickList = {
   items: HardwarePickListItem[]
+  optional_items: HardwarePickListItem[]
   warnings: HardwarePickListWarning[]
   total_item_count: number
   total_quantity: number
@@ -589,6 +597,7 @@ export type ProductionHandoffHardwareItem = {
 
 export type ProductionHandoffHardwarePickList = {
   items: ProductionHandoffHardwareItem[]
+  optional_items: HardwarePickListItem[]
   warnings: HardwarePickListWarning[]
   total_item_count: number
   total_quantity: number
