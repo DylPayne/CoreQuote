@@ -59,6 +59,15 @@ PricingWriter = Annotated[AuthUserResponse, Depends(require_permission("pricing:
 ProductionReader = Annotated[AuthUserResponse, Depends(require_permission("production:read"))]
 StoreDep = Annotated[WorkspaceStore, Depends(get_workspace_store)]
 CutlistRuntimeDep = Annotated[CutlistRuntimeService, Depends(get_cutlist_runtime_service)]
+INTERNAL_QUOTE_FIELDS = {"hardware_catalog_snapshot"}
+
+
+def _quote_response(row: dict[str, Any]) -> QuoteResponse:
+    return QuoteResponse.model_validate(_public_quote_payload(row))
+
+
+def _public_quote_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in dict(row).items() if key not in INTERNAL_QUOTE_FIELDS}
 
 
 @router.get("/projects", response_model=list[ProjectResponse], summary="List projects")
@@ -117,7 +126,7 @@ def list_quotes(
         rows = store.list_quotes(current_user.company_id, project_id)
     except WorkspaceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found") from exc
-    return [QuoteResponse.model_validate(row) for row in rows]
+    return [_quote_response(row) for row in rows]
 
 
 @router.post(
@@ -140,7 +149,7 @@ def create_quote(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except WorkspaceConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return QuoteResponse.model_validate(row)
+    return _quote_response(row)
 
 
 @router.get("/quotes/{quote_id}", response_model=QuoteResponse, summary="Get quote")
@@ -177,7 +186,7 @@ def update_quote_status(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except WorkspaceConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return QuoteResponse.model_validate(row)
+    return _quote_response(row)
 
 
 @router.post(
@@ -199,7 +208,7 @@ def duplicate_quote(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except WorkspaceConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return QuoteResponse.model_validate(row)
+    return _quote_response(row)
 
 
 @router.post(
@@ -221,7 +230,7 @@ def create_quote_revision(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except WorkspaceConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return QuoteResponse.model_validate(row)
+    return _quote_response(row)
 
 
 @router.delete("/quotes/{quote_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete quote")
@@ -842,7 +851,7 @@ def _create_response(response_model, callback, *args):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WorkspaceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return response_model.model_validate(row)
+    return _model_response(response_model, row)
 
 
 def _get_response(response_model, callback, *args):
@@ -850,7 +859,7 @@ def _get_response(response_model, callback, *args):
         row = callback(*args)
     except WorkspaceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return response_model.model_validate(row)
+    return _model_response(response_model, row)
 
 
 def _update_response(response_model, callback, *args):
@@ -862,6 +871,12 @@ def _update_response(response_model, callback, *args):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except WorkspaceNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return _model_response(response_model, row)
+
+
+def _model_response(response_model, row: dict[str, Any]):
+    if response_model is QuoteResponse:
+        return _quote_response(row)
     return response_model.model_validate(row)
 
 
