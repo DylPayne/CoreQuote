@@ -523,57 +523,66 @@ export function LibraryBoardsTable({
           </Table>
         </TableContainer>
 
-        {editingBoard ? (
-          <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-3" onSubmit={(event) => void onUpdate(event)}>
-            <p className="md:col-span-3 text-sm font-medium">Edit board</p>
-            <Label className="grid gap-1.5">
-              Brand
-              <Input value={editingBoard.brand} onChange={(event) => onEditChange({ ...editingBoard, brand: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Material
-              <Input value={editingBoard.material} onChange={(event) => onEditChange({ ...editingBoard, material: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Costing mode
-              <Select value={editingBoard.costing_mode} onChange={(event) => onEditChange({ ...editingBoard, costing_mode: event.target.value as 'sheet' | 'sqm' })}>
-                <option value="sheet">sheet</option>
-                <option value="sqm">sqm</option>
-              </Select>
-            </Label>
-            <Label className="grid gap-1.5">
-              Grain
-              <Select value={editingBoard.grain_policy} onChange={(event) => onEditChange({ ...editingBoard, grain_policy: event.target.value as BoardGrainPolicy })}>
-                {boardGrainPolicyOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-            </Label>
-            <Label className="grid gap-1.5">
-              Thickness
-              <Input value={String(editingBoard.thickness)} onChange={(event) => onEditChange({ ...editingBoard, thickness: Number(event.target.value) || 0 })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Length (mm)
-              <Input value={String(editingBoard.length_mm)} onChange={(event) => onEditChange({ ...editingBoard, length_mm: Number(event.target.value) || 0 })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Width (mm)
-              <Input value={String(editingBoard.width_mm)} onChange={(event) => onEditChange({ ...editingBoard, width_mm: Number(event.target.value) || 0 })} />
-            </Label>
-            <div className="md:col-span-3 flex gap-2">
-              <Button disabled={isSaving} type="submit">
-                <Save className="h-4 w-4" aria-hidden="true" />
-                Save Changes
-              </Button>
-              <Button type="button" variant="outline" onClick={() => onEdit(null)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        ) : null}
+        <Dialog
+          open={Boolean(editingBoard)}
+          onOpenChange={(open) => {
+            if (!open) onEdit(null)
+          }}
+          title="Edit Board"
+          description={editingBoard ? `${editingBoard.brand} ${editingBoard.material}`.trim() : undefined}
+          size="wide"
+        >
+          {editingBoard ? (
+            <form className="grid gap-3 md:grid-cols-3" onSubmit={(event) => void onUpdate(event)}>
+              <Label className="grid gap-1.5">
+                Brand
+                <Input value={editingBoard.brand} onChange={(event) => onEditChange({ ...editingBoard, brand: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Material
+                <Input value={editingBoard.material} onChange={(event) => onEditChange({ ...editingBoard, material: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Costing mode
+                <Select value={editingBoard.costing_mode} onChange={(event) => onEditChange({ ...editingBoard, costing_mode: event.target.value as 'sheet' | 'sqm' })}>
+                  <option value="sheet">sheet</option>
+                  <option value="sqm">sqm</option>
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Grain
+                <Select value={editingBoard.grain_policy} onChange={(event) => onEditChange({ ...editingBoard, grain_policy: event.target.value as BoardGrainPolicy })}>
+                  {boardGrainPolicyOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Thickness
+                <Input value={String(editingBoard.thickness)} onChange={(event) => onEditChange({ ...editingBoard, thickness: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Length (mm)
+                <Input value={String(editingBoard.length_mm)} onChange={(event) => onEditChange({ ...editingBoard, length_mm: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Width (mm)
+                <Input value={String(editingBoard.width_mm)} onChange={(event) => onEditChange({ ...editingBoard, width_mm: Number(event.target.value) || 0 })} />
+              </Label>
+              <div className="md:col-span-3 flex flex-wrap gap-2">
+                <Button disabled={isSaving} type="submit">
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  Save Changes
+                </Button>
+                <Button type="button" variant="outline" onClick={() => onEdit(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </Dialog>
       </CardContent>
     </Card>
   )
@@ -973,75 +982,84 @@ export function LibraryHandlesTable({
           </Table>
         </TableContainer>
 
-        {editingHandle ? (
-          <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-3" onSubmit={(event) => void onUpdate(event)}>
-            <p className="md:col-span-3 text-sm font-medium">Edit handle</p>
-            <Label className="grid gap-1.5">
-              Name
-              <Input value={editingHandle.name} onChange={(event) => onEditChange({ ...editingHandle, name: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Type
-              <Select
-                value={editingHandle.handle_type}
-                onChange={(event) =>
-                  onEditChange({
-                    ...editingHandle,
-                    handle_type: event.target.value as HandleType,
-                    front_reduction_mm: event.target.value === 'standard' ? 0 : editingHandle.front_reduction_mm,
-                  })
-                }
-              >
-                {handleTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-            </Label>
-            {editingHandle.handle_type !== 'standard' ? (
+        <Dialog
+          open={Boolean(editingHandle)}
+          onOpenChange={(open) => {
+            if (!open) onEdit(null)
+          }}
+          title="Edit Handle"
+          description={editingHandle?.name}
+          size="wide"
+        >
+          {editingHandle ? (
+            <form className="grid gap-3 md:grid-cols-3" onSubmit={(event) => void onUpdate(event)}>
               <Label className="grid gap-1.5">
-                Front reduction (mm)
-                <Input
-                  min={0}
-                  onChange={(event) => onEditChange({ ...editingHandle, front_reduction_mm: Number(event.target.value) })}
-                  type="number"
-                  value={editingHandle.front_reduction_mm}
-                />
+                Name
+                <Input value={editingHandle.name} onChange={(event) => onEditChange({ ...editingHandle, name: event.target.value })} />
               </Label>
-            ) : null}
-            <Label className="grid gap-1.5">
-              Supplier
-              <Select
-                value={editingHandle.supplier_id ?? ''}
-                onChange={(event) => {
-                  const supplier = suppliers.find((item) => item.id === event.target.value)
-                  onEditChange({
-                    ...editingHandle,
-                    supplier_id: event.target.value || null,
-                    supplier_name: supplier?.name ?? '',
-                  })
-                }}
-              >
-                <option value="">No supplier</option>
-                {suppliers.map((supplier) => (
-                  <option key={supplier.id} value={supplier.id}>
-                    {supplier.name}
-                  </option>
-                ))}
-              </Select>
-            </Label>
-            <div className="md:col-span-3 flex gap-2">
-              <Button disabled={isSaving} type="submit">
-                <Save className="h-4 w-4" aria-hidden="true" />
-                Save Changes
-              </Button>
-              <Button type="button" variant="outline" onClick={() => onEdit(null)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        ) : null}
+              <Label className="grid gap-1.5">
+                Type
+                <Select
+                  value={editingHandle.handle_type}
+                  onChange={(event) =>
+                    onEditChange({
+                      ...editingHandle,
+                      handle_type: event.target.value as HandleType,
+                      front_reduction_mm: event.target.value === 'standard' ? 0 : editingHandle.front_reduction_mm,
+                    })
+                  }
+                >
+                  {handleTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              {editingHandle.handle_type !== 'standard' ? (
+                <Label className="grid gap-1.5">
+                  Front reduction (mm)
+                  <Input
+                    min={0}
+                    onChange={(event) => onEditChange({ ...editingHandle, front_reduction_mm: Number(event.target.value) })}
+                    type="number"
+                    value={editingHandle.front_reduction_mm}
+                  />
+                </Label>
+              ) : null}
+              <Label className="grid gap-1.5">
+                Supplier
+                <Select
+                  value={editingHandle.supplier_id ?? ''}
+                  onChange={(event) => {
+                    const supplier = suppliers.find((item) => item.id === event.target.value)
+                    onEditChange({
+                      ...editingHandle,
+                      supplier_id: event.target.value || null,
+                      supplier_name: supplier?.name ?? '',
+                    })
+                  }}
+                >
+                  <option value="">No supplier</option>
+                  {suppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <div className="md:col-span-3 flex flex-wrap gap-2">
+                <Button disabled={isSaving} type="submit">
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  Save Changes
+                </Button>
+                <Button type="button" variant="outline" onClick={() => onEdit(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </Dialog>
       </CardContent>
     </Card>
   )
@@ -1108,21 +1126,30 @@ export function LibraryExtraCategoriesTable({
           </Table>
         </TableContainer>
 
-        {editingCategory ? (
-          <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-[1fr_auto_auto] md:items-end" onSubmit={(event) => void onUpdate(event)}>
-            <Label className="grid gap-1.5">
-              Category name
-              <Input value={editingCategory.name} onChange={(event) => onEditChange({ ...editingCategory, name: event.target.value })} />
-            </Label>
-            <Button disabled={isSaving} type="submit">
-              <Save className="h-4 w-4" aria-hidden="true" />
-              Save
-            </Button>
-            <Button type="button" variant="outline" onClick={() => onEdit(null)}>
-              Cancel
-            </Button>
-          </form>
-        ) : null}
+        <Dialog
+          open={Boolean(editingCategory)}
+          onOpenChange={(open) => {
+            if (!open) onEdit(null)
+          }}
+          title="Edit Extra Category"
+          description={editingCategory?.name}
+        >
+          {editingCategory ? (
+            <form className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end" onSubmit={(event) => void onUpdate(event)}>
+              <Label className="grid gap-1.5">
+                Category name
+                <Input value={editingCategory.name} onChange={(event) => onEditChange({ ...editingCategory, name: event.target.value })} />
+              </Label>
+              <Button disabled={isSaving} type="submit">
+                <Save className="h-4 w-4" aria-hidden="true" />
+                Save Changes
+              </Button>
+              <Button type="button" variant="outline" onClick={() => onEdit(null)}>
+                Cancel
+              </Button>
+            </form>
+          ) : null}
+        </Dialog>
       </CardContent>
     </Card>
   )
@@ -1210,57 +1237,66 @@ export function LibraryExtrasTable({
           </Table>
         </TableContainer>
 
-        {editingExtra ? (
-          <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-2" onSubmit={(event) => void onUpdate(event)}>
-            <p className="md:col-span-2 text-sm font-medium">Edit extra</p>
-            <Label className="grid gap-1.5">
-              Name
-              <Input value={editingExtra.name} onChange={(event) => onEditChange({ ...editingExtra, name: event.target.value })} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Category
-              <Select
-                value={editingExtra.category_id}
-                onChange={(event) => onEditChange({ ...editingExtra, category_id: event.target.value })}
-              >
-                <option value="">Select a category</option>
-                {categories.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </Select>
-            </Label>
-            <Label className="grid gap-1.5">
-              Supplier
-              <Select value={editingExtra.supplier_id ?? ''} onChange={(event) => onEditChange({ ...editingExtra, supplier_id: event.target.value || null })}>
-                <option value="">No supplier</option>
-                {suppliers.map((supplier) => (
-                  <option key={supplier.id} value={supplier.id}>
-                    {supplier.name}
-                  </option>
-                ))}
-              </Select>
-            </Label>
-            <Label className="grid gap-1.5">
-              Code
-              <Input value={editingExtra.code} onChange={(event) => onEditChange({ ...editingExtra, code: event.target.value })} />
-            </Label>
-            <Label className="md:col-span-2 grid gap-1.5">
-              Notes
-              <Textarea value={editingExtra.notes} onChange={(event) => onEditChange({ ...editingExtra, notes: event.target.value })} />
-            </Label>
-            <div className="md:col-span-2 flex gap-2">
-              <Button disabled={isSaving} type="submit">
-                <Save className="h-4 w-4" aria-hidden="true" />
-                Save Changes
-              </Button>
-              <Button type="button" variant="outline" onClick={() => onEdit(null)}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        ) : null}
+        <Dialog
+          open={Boolean(editingExtra)}
+          onOpenChange={(open) => {
+            if (!open) onEdit(null)
+          }}
+          title="Edit Extra"
+          description={editingExtra?.name}
+          size="wide"
+        >
+          {editingExtra ? (
+            <form className="grid gap-3 md:grid-cols-2" onSubmit={(event) => void onUpdate(event)}>
+              <Label className="grid gap-1.5">
+                Name
+                <Input value={editingExtra.name} onChange={(event) => onEditChange({ ...editingExtra, name: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Category
+                <Select
+                  value={editingExtra.category_id}
+                  onChange={(event) => onEditChange({ ...editingExtra, category_id: event.target.value })}
+                >
+                  <option value="">Select a category</option>
+                  {categories.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Supplier
+                <Select value={editingExtra.supplier_id ?? ''} onChange={(event) => onEditChange({ ...editingExtra, supplier_id: event.target.value || null })}>
+                  <option value="">No supplier</option>
+                  {suppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Code
+                <Input value={editingExtra.code} onChange={(event) => onEditChange({ ...editingExtra, code: event.target.value })} />
+              </Label>
+              <Label className="md:col-span-2 grid gap-1.5">
+                Notes
+                <Textarea value={editingExtra.notes} onChange={(event) => onEditChange({ ...editingExtra, notes: event.target.value })} />
+              </Label>
+              <div className="md:col-span-2 flex flex-wrap gap-2">
+                <Button disabled={isSaving} type="submit">
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  Save Changes
+                </Button>
+                <Button type="button" variant="outline" onClick={() => onEdit(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </Dialog>
       </CardContent>
     </Card>
   )
