@@ -1856,46 +1856,56 @@ export function LibrariesPage({
             </Label>
           ) : null}
         </MaintenanceToolbar>
-        <CatalogBulkPanel
-          accessoryConfig={accessoryResource ? bulkAccessoryConfigs[accessoryResource] : undefined}
-          accessoryOptions={accessoryResource ? accessoryOptions : undefined}
-          bulkMode={accessoryResource ? catalogBulkModes[accessoryResource] : undefined}
-          field={activeCatalogBulkField}
-          fields={activeCatalogBulkFields}
-          isSaving={isBulkSaving}
-          onAccessoryConfigChange={accessoryResource
-            ? (config) => setBulkAccessoryConfigs((current) => ({ ...current, [accessoryResource]: config }))
-            : undefined}
-          preview={catalogBulkPreview}
-          resource={resource}
-          selectedCount={selectedCount}
-          value={catalogBulkValue}
-          visibleCount={visibleIds.length}
-          onApplyAccessory={accessoryResource ? () => void applyBulkAccessory(accessoryResource) : undefined}
-          onBulkModeChange={accessoryResource
-            ? (mode) => setCatalogBulkModes((current) => ({ ...current, [accessoryResource]: mode }))
-            : undefined}
-          onApply={() => {
-            void runCatalogBulkUpdate(true)
-          }}
-          onClearSelection={() => clearCatalogSelection(resource)}
-          onFieldChange={(fieldValue) => {
-            const nextField = activeCatalogBulkFields.find((field) => field.value === fieldValue)
-            setCatalogBulkField(fieldValue)
-            setCatalogBulkValue(nextField?.options?.[0]?.value ?? '')
-            setCatalogBulkPreview(null)
-            setBulkError(null)
-          }}
-          onPreview={() => {
-            void runCatalogBulkUpdate(false)
-          }}
-          onSelectVisible={() => selectVisibleCatalogRows(resource)}
-          onValueChange={(value) => {
-            setCatalogBulkValue(value)
-            setCatalogBulkPreview(null)
-            setBulkError(null)
-          }}
-        />
+        <details className="rounded-[var(--control-radius)] border border-border p-3">
+          <summary className="cursor-pointer text-sm font-semibold">
+            <span className="inline-flex flex-wrap items-center gap-2">
+              Bulk edits and row maintenance
+              <Badge variant={selectedCount > 0 ? 'default' : 'outline'}>{selectedCount} selected</Badge>
+            </span>
+          </summary>
+          <div className="mt-3">
+            <CatalogBulkPanel
+              accessoryConfig={accessoryResource ? bulkAccessoryConfigs[accessoryResource] : undefined}
+              accessoryOptions={accessoryResource ? accessoryOptions : undefined}
+              bulkMode={accessoryResource ? catalogBulkModes[accessoryResource] : undefined}
+              field={activeCatalogBulkField}
+              fields={activeCatalogBulkFields}
+              isSaving={isBulkSaving}
+              onAccessoryConfigChange={accessoryResource
+                ? (config) => setBulkAccessoryConfigs((current) => ({ ...current, [accessoryResource]: config }))
+                : undefined}
+              preview={catalogBulkPreview}
+              resource={resource}
+              selectedCount={selectedCount}
+              value={catalogBulkValue}
+              visibleCount={visibleIds.length}
+              onApplyAccessory={accessoryResource ? () => void applyBulkAccessory(accessoryResource) : undefined}
+              onBulkModeChange={accessoryResource
+                ? (mode) => setCatalogBulkModes((current) => ({ ...current, [accessoryResource]: mode }))
+                : undefined}
+              onApply={() => {
+                void runCatalogBulkUpdate(true)
+              }}
+              onClearSelection={() => clearCatalogSelection(resource)}
+              onFieldChange={(fieldValue) => {
+                const nextField = activeCatalogBulkFields.find((field) => field.value === fieldValue)
+                setCatalogBulkField(fieldValue)
+                setCatalogBulkValue(nextField?.options?.[0]?.value ?? '')
+                setCatalogBulkPreview(null)
+                setBulkError(null)
+              }}
+              onPreview={() => {
+                void runCatalogBulkUpdate(false)
+              }}
+              onSelectVisible={() => selectVisibleCatalogRows(resource)}
+              onValueChange={(value) => {
+                setCatalogBulkValue(value)
+                setCatalogBulkPreview(null)
+                setBulkError(null)
+              }}
+            />
+          </div>
+        </details>
         <FilteredEmptyNotice filteredCount={visibleIds.length} totalCount={totalCount} />
       </div>
     )
@@ -2826,6 +2836,58 @@ export function LibrariesPage({
     ? importPreview.summary.create_count + importPreview.summary.update_count
     : 0
   const importHasBlockedRows = (importPreview?.summary.blocked_count ?? 0) > 0
+  const everydayTabs = libraryTabs.filter((tab) => tab.value !== 'setup-imports' && tab.value !== 'extra-categories')
+  const advancedTabs = libraryTabs.filter((tab) => tab.value === 'setup-imports' || tab.value === 'extra-categories')
+  const setupQuickActions: Array<{
+    badge: string
+    detail: string
+    icon: ReactNode
+    label: string
+    target: LibraryTab
+  }> = [
+    {
+      badge: setupChecklist ? `${setupChecklist.complete_count}/${setupChecklist.total_count} ready` : 'Checking',
+      detail: nextSetupItem ? `Next: ${nextSetupItem.label}` : 'Review what must be ready before quoting.',
+      icon: <ClipboardCheck className="h-4 w-4" aria-hidden="true" />,
+      label: 'Setup checklist',
+      target: 'setup-imports',
+    },
+    {
+      badge: `${boards.length} saved`,
+      detail: 'Boards used for carcasses, doors, panels, cutlists, and material prices.',
+      icon: <PackagePlus className="h-4 w-4" aria-hidden="true" />,
+      label: 'Board materials',
+      target: 'boards',
+    },
+    {
+      badge: `${slides.length + hinges.length} saved`,
+      detail: 'Drawer hardware and hinges used by quote defaults and readiness checks.',
+      icon: <PackagePlus className="h-4 w-4" aria-hidden="true" />,
+      label: 'Hardware',
+      target: 'slides',
+    },
+    {
+      badge: `${suppliers.length} saved`,
+      detail: 'Supplier details and cost sources for generating reliable selling prices.',
+      icon: <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />,
+      label: 'Suppliers and costs',
+      target: 'suppliers',
+    },
+    {
+      badge: `${handles.length + extras.length} saved`,
+      detail: 'Handles, extras, add-ons, delivery, installation, and accessories.',
+      icon: <PackagePlus className="h-4 w-4" aria-hidden="true" />,
+      label: 'Handles and extras',
+      target: 'handles',
+    },
+    {
+      badge: missingPriceRows.length > 0 ? `${missingPriceRows.length} missing` : 'Current',
+      detail: 'Current sell prices used when checking quote totals.',
+      icon: <CircleDollarSign className="h-4 w-4" aria-hidden="true" />,
+      label: 'Pricing setup',
+      target: 'pricing',
+    },
+  ]
 
   return (
     <div className="grid gap-4">
@@ -3377,9 +3439,9 @@ export function LibrariesPage({
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <CardTitle>Libraries and Pricing</CardTitle>
+            <CardTitle>Setup Libraries</CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
-              Keep board, hardware, supplier cost, and sell-price libraries ready for quoting.
+              Keep the materials, hardware, suppliers, extras, and prices that quoting users pick every day.
             </p>
           </div>
           <Button
@@ -3395,18 +3457,64 @@ export function LibrariesPage({
             Refresh
           </Button>
         </CardHeader>
-        <CardContent className="grid gap-3">
-          <ControlGroup className="flex-wrap" role="tablist" aria-label="Libraries tabs">
-            {libraryTabs.map((tab) => (
-              <ControlGroupItem
-                aria-pressed={activeTab === tab.value}
-                key={tab.value}
-                onClick={() => setActiveTab(tab.value)}
+        <CardContent className="grid gap-4">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {setupQuickActions.map((item) => (
+              <Button
+                className="h-auto min-h-24 justify-start whitespace-normal p-3 text-left"
+                key={item.label}
+                onClick={() => setActiveTab(item.target)}
+                type="button"
+                variant={activeTab === item.target ? 'secondary' : 'outline'}
               >
-                {tab.label}
-              </ControlGroupItem>
+                <span className="grid w-full gap-2">
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="inline-flex items-center gap-2 font-semibold">
+                      {item.icon}
+                      {item.label}
+                    </span>
+                    <Badge variant="outline">{item.badge}</Badge>
+                  </span>
+                  <span className="text-xs font-normal leading-5 text-muted-foreground">{item.detail}</span>
+                </span>
+              </Button>
             ))}
-          </ControlGroup>
+          </div>
+
+          <div className="grid gap-2">
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Everyday setup</p>
+            <ControlGroup className="flex-wrap" role="tablist" aria-label="Everyday library setup tabs">
+              {everydayTabs.map((tab) => (
+                <ControlGroupItem
+                  aria-pressed={activeTab === tab.value}
+                  key={tab.value}
+                  onClick={() => setActiveTab(tab.value)}
+                >
+                  {tab.label}
+                </ControlGroupItem>
+              ))}
+            </ControlGroup>
+          </div>
+
+          <details className="rounded-[var(--control-radius)] border border-border p-3">
+            <summary className="cursor-pointer text-sm font-semibold">Advanced setup and imports</summary>
+            <div className="mt-3 grid gap-2">
+              <p className="text-sm text-muted-foreground">
+                Use these when you need to check readiness, import supplier sheets, or manage supporting categories.
+              </p>
+              <ControlGroup className="flex-wrap" role="tablist" aria-label="Advanced library setup tabs">
+                {advancedTabs.map((tab) => (
+                  <ControlGroupItem
+                    aria-pressed={activeTab === tab.value}
+                    key={tab.value}
+                    onClick={() => setActiveTab(tab.value)}
+                  >
+                    {tab.label}
+                  </ControlGroupItem>
+                ))}
+              </ControlGroup>
+            </div>
+          </details>
 
           {catalogError ? <Alert variant="destructive">Could not load the library rows. Refresh and try again. {catalogError}</Alert> : null}
           {pricingError ? <Alert variant="destructive">Could not load pricing rows. Refresh and try again. {pricingError}</Alert> : null}
@@ -3488,6 +3596,14 @@ export function LibrariesPage({
             </CardContent>
           </Card>
 
+          <details className="rounded-[var(--card-radius)] border border-border p-3">
+            <summary className="cursor-pointer text-sm font-semibold">
+              Import catalog rows from a supplier sheet or CSV
+            </summary>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Preview imports here when you need bulk setup. Everyday material and hardware edits live in the catalog sections above.
+            </p>
+            <div className="mt-3">
           <Card>
             <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
@@ -3802,6 +3918,8 @@ export function LibrariesPage({
               ) : null}
             </CardContent>
           </Card>
+            </div>
+          </details>
         </>
       ) : null}
 
@@ -4505,51 +4623,60 @@ export function LibrariesPage({
                 </Table>
               </TableContainer>
 
-              {editingSupplier ? (
-                <form className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3 md:grid-cols-3" onSubmit={updateSupplier}>
-                  <p className="md:col-span-3 text-sm font-medium">Edit supplier</p>
-                  <Label className="grid gap-1.5">
-                    Name
-                    <Input value={editingSupplier.name} onChange={(event) => setEditingSupplier({ ...editingSupplier, name: event.target.value })} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Code
-                    <Input value={editingSupplier.code} onChange={(event) => setEditingSupplier({ ...editingSupplier, code: event.target.value })} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Contact
-                    <Input value={editingSupplier.contact_name} onChange={(event) => setEditingSupplier({ ...editingSupplier, contact_name: event.target.value })} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Email
-                    <Input value={editingSupplier.email} onChange={(event) => setEditingSupplier({ ...editingSupplier, email: event.target.value })} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Phone
-                    <Input value={editingSupplier.phone} onChange={(event) => setEditingSupplier({ ...editingSupplier, phone: event.target.value })} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Default discount (%)
-                    <Input
-                      value={bpsToPercentString(editingSupplier.default_discount_bps)}
-                      onChange={(event) => setEditingSupplier({ ...editingSupplier, default_discount_bps: percentStringToBps(event.target.value) ?? 0 })}
-                    />
-                  </Label>
-                  <Label className="grid gap-1.5 md:col-span-3">
-                    Notes
-                    <Textarea value={editingSupplier.notes} onChange={(event) => setEditingSupplier({ ...editingSupplier, notes: event.target.value })} />
-                  </Label>
-                  <div className="md:col-span-3 flex gap-2">
-                    <Button disabled={isSaving} type="submit">
-                      <Save className="h-4 w-4" aria-hidden="true" />
-                      Save Changes
-                    </Button>
-                    <Button type="button" variant="outline" onClick={() => setEditingSupplier(null)}>
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              ) : null}
+              <Dialog
+                open={Boolean(editingSupplier)}
+                onOpenChange={(open) => {
+                  if (!open) setEditingSupplier(null)
+                }}
+                title="Edit Supplier"
+                description={editingSupplier?.name}
+                size="wide"
+              >
+                {editingSupplier ? (
+                  <form className="grid gap-3 md:grid-cols-3" onSubmit={updateSupplier}>
+                    <Label className="grid gap-1.5">
+                      Name
+                      <Input value={editingSupplier.name} onChange={(event) => setEditingSupplier({ ...editingSupplier, name: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Code
+                      <Input value={editingSupplier.code} onChange={(event) => setEditingSupplier({ ...editingSupplier, code: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Contact
+                      <Input value={editingSupplier.contact_name} onChange={(event) => setEditingSupplier({ ...editingSupplier, contact_name: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Email
+                      <Input value={editingSupplier.email} onChange={(event) => setEditingSupplier({ ...editingSupplier, email: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Phone
+                      <Input value={editingSupplier.phone} onChange={(event) => setEditingSupplier({ ...editingSupplier, phone: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Default discount (%)
+                      <Input
+                        value={bpsToPercentString(editingSupplier.default_discount_bps)}
+                        onChange={(event) => setEditingSupplier({ ...editingSupplier, default_discount_bps: percentStringToBps(event.target.value) ?? 0 })}
+                      />
+                    </Label>
+                    <Label className="grid gap-1.5 md:col-span-3">
+                      Notes
+                      <Textarea value={editingSupplier.notes} onChange={(event) => setEditingSupplier({ ...editingSupplier, notes: event.target.value })} />
+                    </Label>
+                    <div className="md:col-span-3 flex flex-wrap gap-2">
+                      <Button disabled={isSaving} type="submit">
+                        <Save className="h-4 w-4" aria-hidden="true" />
+                        Save Changes
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => setEditingSupplier(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                ) : null}
+              </Dialog>
             </CardContent>
           </Card>
 
