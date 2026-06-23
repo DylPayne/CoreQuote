@@ -18,3 +18,6 @@ real cabinetry acceptance evidence.
   shared Phase 5 scenario for production grouping, stable part IDs, labels,
   board requirements, hardware pick list, warning review, and production-safe
   CSV/XLSX exports.
+- [Smith Kitchen UX Navigation Smoke](smith-kitchen-ux-navigation-smoke.md):
+  app-wide UX scenario for daily work, setup libraries, pricing guidance,
+  modal-based catalog edits, advanced access, and mobile navigation.
