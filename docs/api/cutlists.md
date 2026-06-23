@@ -148,6 +148,13 @@ When the ruleset runtime is enabled, each unit resolves in this order:
 
 `unit_sources` explains which path each unit used and includes fallback notes when applicable. Metal drawer system rows use `source: "drawer_system"` when the selected drawer hardware has `drawer_system_kind: "metal"`.
 
+Drawer runner metadata from the selected slide is copied into the cutting
+formula context. Rules can read `slide_length`, `slide_side_length`,
+`slide_side_clearance_total`, `slide_mount_type`, `slide_product_family`,
+`slide_required_depth_mm`, and `slide_box_width_deduction_mm`. When
+`slide_box_width_deduction_mm` is zero, legacy drawer width calculation still
+uses `2 * slide_side_clearance_total`.
+
 For configured metal drawer systems, normal timber drawer-side, front/back, and
 base drawer-box parts are suppressed. The cut schedule keeps the ordinary
 carcass and drawer-front rows, then adds the selected system's

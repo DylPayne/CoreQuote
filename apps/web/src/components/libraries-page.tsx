@@ -42,14 +42,14 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
-import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
-import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, emptyAccessoryRule, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, itemTypeDefaultUom, normalizeAccessoryConfig, percentStringToBps } from '@/components/libraries/helpers'
+import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideRangeDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
+import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSlideRangePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, emptyAccessoryRule, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, formatSlideMountType, itemTypeDefaultUom, normalizeAccessoryConfig, percentStringToBps } from '@/components/libraries/helpers'
 import { DrawerSystemConfigEditor, HardwareAccessoryConfigEditor, LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
 import type { HardwareAccessoryOptions } from '@/components/libraries/tables'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemKind, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideMountType, SlideRangeCreateResponse, SlideRangeDraft, SlideRangeLengthDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -218,6 +218,106 @@ function onlyVisibleSelected(selectedIds: string[], visibleIds: string[]) {
 
 function emptyBulkAccessoryConfig(): HardwareAccessoryConfig {
   return { accessories: [emptyAccessoryRule()] }
+}
+
+function emptySlideRangeLengthDraft(length = ''): SlideRangeLengthDraft {
+  return {
+    length,
+    code: '',
+    side_length: '',
+    required_depth_mm: '',
+    drawer_depth_deduction_mm: '',
+    box_width_deduction_mm: '',
+  }
+}
+
+function slideRangeNumericValue(value: string, fallback = 0) {
+  if (!value.trim()) return fallback
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback
+}
+
+function slideRangeOptionalNumericValue(value: string) {
+  if (!value.trim()) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null
+}
+
+function codeFromRangePattern(pattern: string, length: number) {
+  const trimmed = pattern.trim()
+  if (!trimmed) return ''
+  return trimmed.includes('{length}') ? trimmed.replaceAll('{length}', String(length)) : `${trimmed}-${length}`
+}
+
+function slideRangePreviewRows(draft: SlideRangeDraft) {
+  const clearance = slideRangeNumericValue(draft.side_clearance_total)
+  const depthDeduction = slideRangeNumericValue(draft.drawer_depth_deduction_mm)
+  const configuredWidthDeduction = slideRangeNumericValue(draft.box_width_deduction_mm)
+  const widthDeduction = configuredWidthDeduction > 0 ? configuredWidthDeduction : 2 * clearance
+  const requiredDepthDefault = slideRangeNumericValue(draft.required_depth_mm)
+  const rows: Array<{ code: string; length: number; model: string; requiredDepth: number; sideLength: number; widthDeduction: number }> = []
+  for (const row of draft.lengths) {
+    const length = slideRangeOptionalNumericValue(row.length)
+    if (!length || length <= 0) continue
+    const rowDepthDeduction = slideRangeOptionalNumericValue(row.drawer_depth_deduction_mm) ?? depthDeduction
+    const rowWidthDeduction = slideRangeOptionalNumericValue(row.box_width_deduction_mm) ?? widthDeduction
+    const sideLength = slideRangeOptionalNumericValue(row.side_length) ?? Math.max(0, length - rowDepthDeduction)
+    const requiredDepth = (slideRangeOptionalNumericValue(row.required_depth_mm) ?? requiredDepthDefault) || length
+    rows.push({
+      code: row.code.trim() || codeFromRangePattern(draft.code_pattern, length),
+      length,
+      model: `${draft.product_family.trim()} ${length}`.trim(),
+      requiredDepth,
+      sideLength,
+      widthDeduction: rowWidthDeduction > 0 ? rowWidthDeduction : widthDeduction,
+    })
+  }
+  return rows
+}
+
+function rangeDraftForMountType(draft: SlideRangeDraft, mountType: SlideMountType): SlideRangeDraft {
+  const currentConfig = draft.drawer_system_config ?? {}
+  if (mountType === 'metal_system') {
+    return {
+      ...draft,
+      mount_type: mountType,
+      side_clearance_total: draft.side_clearance_total || '26',
+      drawer_depth_deduction_mm: draft.drawer_depth_deduction_mm || '0',
+      box_width_deduction_mm: draft.box_width_deduction_mm === '0' ? '58' : draft.box_width_deduction_mm || '58',
+      drawer_system_config: {
+        ...currentConfig,
+        product_family: currentConfig.product_family || draft.product_family,
+        supplied_metal_sides: true,
+        cut_bottom_panel: currentConfig.cut_bottom_panel ?? true,
+        installation_width_mm: currentConfig.installation_width_mm ?? 29,
+      },
+    }
+  }
+  if (mountType === 'undermount') {
+    return {
+      ...draft,
+      mount_type: mountType,
+      side_clearance_total: '0',
+      drawer_depth_deduction_mm: draft.drawer_depth_deduction_mm === '0' ? '10' : draft.drawer_depth_deduction_mm || '10',
+      box_width_deduction_mm: draft.box_width_deduction_mm === '0' ? '42' : draft.box_width_deduction_mm || '42',
+      drawer_system_config: {},
+    }
+  }
+  if (mountType === 'side_mount') {
+    return {
+      ...draft,
+      mount_type: mountType,
+      side_clearance_total: draft.side_clearance_total === '0' ? '26' : draft.side_clearance_total || '26',
+      drawer_depth_deduction_mm: draft.drawer_depth_deduction_mm === '10' ? '0' : draft.drawer_depth_deduction_mm || '0',
+      box_width_deduction_mm: draft.box_width_deduction_mm === '42' || draft.box_width_deduction_mm === '58' ? '0' : draft.box_width_deduction_mm || '0',
+      drawer_system_config: {},
+    }
+  }
+  return {
+    ...draft,
+    mount_type: mountType,
+    drawer_system_config: {},
+  }
 }
 
 function accessoryRuleKey(rule: HardwareAccessoryRule) {
@@ -909,7 +1009,8 @@ export function LibrariesPage({
   const [importError, setImportError] = useState<string | null>(null)
 
   const [boardDraft, setBoardDraft] = useState<BoardDraft>(defaultBoardDraft)
-  const [slideDraft, setSlideDraft] = useState<SlideDraft>(defaultSlideDraft)
+  const [slideRangeDraft, setSlideRangeDraft] = useState<SlideRangeDraft>(defaultSlideRangeDraft)
+  const [inlineSlideAccessoryDraft, setInlineSlideAccessoryDraft] = useState<ExtraDraft>(defaultExtraDraft)
   const [hingeDraft, setHingeDraft] = useState<HingeDraft>(defaultHingeDraft)
   const [supplierDraft, setSupplierDraft] = useState<SupplierDraft>(defaultSupplierDraft)
   const [itemSupplierDraft, setItemSupplierDraft] = useState<ItemSupplierDraft>(defaultItemSupplierDraft)
@@ -1113,6 +1214,10 @@ export function LibrariesPage({
             row.code,
             row.length,
             row.side_length,
+            row.mount_type,
+            row.product_family,
+            row.required_depth_mm,
+            row.box_width_deduction_mm,
             row.drawer_system_kind,
             row.drawer_system_config?.product_family,
             row.drawer_system_config?.manufacturer,
@@ -1140,6 +1245,7 @@ export function LibrariesPage({
     }),
     [extras, handles, hinges, slides],
   )
+  const slideRangePreview = useMemo(() => slideRangePreviewRows(slideRangeDraft), [slideRangeDraft])
   const visibleHandles = useMemo(
     () =>
       handles.filter(
@@ -2098,20 +2204,73 @@ export function LibrariesPage({
     }, 'Board deleted.')
   }
 
-  async function createSlide(event: FormEvent<HTMLFormElement>) {
+  async function createSlideRange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const payload = buildSlidePayload(slideDraft)
+    const payload = buildSlideRangePayload(slideRangeDraft)
     if (!payload) {
-      setActionError('Slide values are invalid.')
+      setActionError('Complete the runner range details and add at least one valid length.')
       return
     }
 
     await withActionState(async () => {
-      await apiRequest('/api/v1/libraries/slides', { body: payload, method: 'POST', token: authToken })
-      setSlideDraft(defaultSlideDraft)
+      const result = await apiRequest<SlideRangeCreateResponse>('/api/v1/libraries/slides/ranges', {
+        body: payload,
+        method: 'POST',
+        token: authToken,
+      })
+      setSlideRangeDraft(defaultSlideRangeDraft)
+      setInlineSlideAccessoryDraft(defaultExtraDraft)
       setCreateHardwareResource(null)
       await refreshCatalog()
-    }, 'Slide added.')
+      setActionSuccess(`${result.created_count} drawer hardware row${result.created_count === 1 ? '' : 's'} added.`)
+    }, 'Drawer hardware range added.')
+  }
+
+  async function createInlineSlideAccessory() {
+    const categoryId = inlineSlideAccessoryDraft.category_id || extraCategories[0]?.id || ''
+    const payload = buildExtraPayload({ ...inlineSlideAccessoryDraft, category_id: categoryId })
+    if (!payload) {
+      setActionError('Accessory name and category are required.')
+      return
+    }
+
+    await withActionState(async () => {
+      const created = await apiRequest<ExtraRow>('/api/v1/libraries/extras', {
+        body: payload,
+        method: 'POST',
+        token: authToken,
+      })
+      const condition =
+        slideRangeDraft.mount_type === 'metal_system'
+          ? {
+              field: 'drawer_front_height' as const,
+              operator: 'greater_than_or_equal' as const,
+              value_number: 180,
+              value_text: '',
+            }
+          : {
+              field: 'always' as const,
+              operator: 'always' as const,
+              value_number: null,
+              value_text: '',
+            }
+      const rule: HardwareAccessoryRule = {
+        ...emptyAccessoryRule(),
+        item_ref_id: created.id,
+        quantity: 1,
+        quantity_rule: 'per_drawer',
+        required: true,
+        enabled: true,
+        uom: 'pcs',
+        condition,
+      }
+      setExtras((current) => [created, ...current.filter((item) => item.id !== created.id)])
+      setSlideRangeDraft((current) => ({
+        ...current,
+        accessory_config: mergeAccessoryConfig(current.accessory_config, [rule]),
+      }))
+      setInlineSlideAccessoryDraft({ ...defaultExtraDraft, category_id: categoryId })
+    }, 'Accessory added to this drawer hardware setup.')
   }
 
   async function updateSlide(event: FormEvent<HTMLFormElement>) {
@@ -2125,6 +2284,11 @@ export function LibrariesPage({
       side_length: String(editingSlide.side_length),
       side_clearance_total: String(editingSlide.side_clearance_total),
       side_height_uplift: String(editingSlide.side_height_uplift),
+      mount_type: editingSlide.mount_type ?? 'side_mount',
+      product_family: editingSlide.product_family ?? '',
+      required_depth_mm: String(editingSlide.required_depth_mm ?? 0),
+      drawer_depth_deduction_mm: String(editingSlide.drawer_depth_deduction_mm ?? 0),
+      box_width_deduction_mm: String(editingSlide.box_width_deduction_mm ?? 0),
       drawer_system_kind: editingSlide.drawer_system_kind ?? 'conventional',
       drawer_system_config: editingSlide.drawer_system_config ?? {},
       accessory_config: editingSlide.accessory_config ?? { accessories: [] },
@@ -2233,6 +2397,11 @@ export function LibrariesPage({
             side_length: String(row.side_length),
             side_clearance_total: String(row.side_clearance_total),
             side_height_uplift: String(row.side_height_uplift),
+            mount_type: row.mount_type ?? 'side_mount',
+            product_family: row.product_family ?? '',
+            required_depth_mm: String(row.required_depth_mm ?? 0),
+            drawer_depth_deduction_mm: String(row.drawer_depth_deduction_mm ?? 0),
+            box_width_deduction_mm: String(row.box_width_deduction_mm ?? 0),
             drawer_system_kind: row.drawer_system_kind ?? 'conventional',
             drawer_system_config: row.drawer_system_config ?? {},
             accessory_config: mergeAccessoryConfig(row.accessory_config, additions),
@@ -2469,6 +2638,27 @@ export function LibrariesPage({
     })
   }
 
+  function updateSlideRangeLength(index: number, updates: Partial<SlideRangeLengthDraft>) {
+    setSlideRangeDraft((current) => ({
+      ...current,
+      lengths: current.lengths.map((row, rowIndex) => (rowIndex === index ? { ...row, ...updates } : row)),
+    }))
+  }
+
+  function addSlideRangeLength() {
+    setSlideRangeDraft((current) => ({
+      ...current,
+      lengths: [...current.lengths, emptySlideRangeLengthDraft()],
+    }))
+  }
+
+  function removeSlideRangeLength(index: number) {
+    setSlideRangeDraft((current) => ({
+      ...current,
+      lengths: current.lengths.length > 1 ? current.lengths.filter((_, rowIndex) => rowIndex !== index) : current.lengths,
+    }))
+  }
+
   async function createHandle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const payload = buildHandlePayload(handleDraft)
@@ -2625,60 +2815,230 @@ export function LibrariesPage({
         onOpenChange={(open) => {
           if (!open) setCreateHardwareResource(null)
         }}
-        title="Add Drawer Hardware"
-        description="Create a slide or drawer system entry for the hardware library."
-        size="wide"
+        title="Add Drawer Runner Range"
+        description="Create length-specific runner rows from one product range."
+        size="xwide"
       >
-        <form className="grid gap-3 md:grid-cols-4" onSubmit={createSlide}>
-          <Label className="grid gap-1.5">
-            Brand
-            <Input value={slideDraft.brand} onChange={(event) => setSlideDraft((current) => ({ ...current, brand: event.target.value }))} />
-          </Label>
-          <Label className="grid gap-1.5">
-            Model
-            <Input value={slideDraft.model} onChange={(event) => setSlideDraft((current) => ({ ...current, model: event.target.value }))} />
-          </Label>
-          <Label className="grid gap-1.5">
-            Code
-            <Input value={slideDraft.code} onChange={(event) => setSlideDraft((current) => ({ ...current, code: event.target.value }))} />
-          </Label>
-          <Label className="grid gap-1.5">
-            Length
-            <Input value={slideDraft.length} onChange={(event) => setSlideDraft((current) => ({ ...current, length: event.target.value }))} />
-          </Label>
-          <Label className="grid gap-1.5">
-            Side length
-            <Input value={slideDraft.side_length} onChange={(event) => setSlideDraft((current) => ({ ...current, side_length: event.target.value }))} />
-          </Label>
-          <Label className="grid gap-1.5">
-            Clearance total
-            <Input value={slideDraft.side_clearance_total} onChange={(event) => setSlideDraft((current) => ({ ...current, side_clearance_total: event.target.value }))} />
-          </Label>
-          <Label className="grid gap-1.5">
-            Side uplift
-            <Input value={slideDraft.side_height_uplift} onChange={(event) => setSlideDraft((current) => ({ ...current, side_height_uplift: event.target.value }))} />
-          </Label>
-          <Label className="grid gap-1.5">
-            Drawer system
-            <Select value={slideDraft.drawer_system_kind} onChange={(event) => setSlideDraft((current) => ({ ...current, drawer_system_kind: event.target.value as DrawerSystemKind }))}>
-              <option value="conventional">Conventional slide</option>
-              <option value="metal">Metal system</option>
-            </Select>
-          </Label>
-          <DrawerSystemConfigEditor
-            config={slideDraft.drawer_system_config}
-            drawerSystemKind={slideDraft.drawer_system_kind}
-            onChange={(drawer_system_config) => setSlideDraft((current) => ({ ...current, drawer_system_config }))}
-          />
+        <form className="flex flex-col gap-5" onSubmit={createSlideRange}>
+          <div className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-sm font-medium">Runner range</p>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <Label className="grid gap-1.5">
+                Runner type
+                <Select
+                  value={slideRangeDraft.mount_type}
+                  onChange={(event) => setSlideRangeDraft((current) => rangeDraftForMountType(current, event.target.value as SlideMountType))}
+                >
+                  <option value="side_mount">Side mount</option>
+                  <option value="undermount">Undermount</option>
+                  <option value="metal_system">Metal-sided system</option>
+                  <option value="custom">Custom</option>
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Brand
+                <Input value={slideRangeDraft.brand} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, brand: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Product range
+                <Input
+                  value={slideRangeDraft.product_family}
+                  onChange={(event) => {
+                    const product_family = event.target.value
+                    setSlideRangeDraft((current) => ({
+                      ...current,
+                      product_family,
+                      drawer_system_config:
+                        current.mount_type === 'metal_system'
+                          ? { ...current.drawer_system_config, product_family }
+                          : current.drawer_system_config,
+                    }))
+                  }}
+                />
+              </Label>
+              <Label className="grid gap-1.5">
+                Code pattern
+                <Input placeholder="DYN-{length}" value={slideRangeDraft.code_pattern} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, code_pattern: event.target.value }))} />
+              </Label>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
+              <Label className="grid gap-1.5">
+                Side clearance
+                <Input value={slideRangeDraft.side_clearance_total} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, side_clearance_total: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Depth deduction
+                <Input value={slideRangeDraft.drawer_depth_deduction_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, drawer_depth_deduction_mm: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Width deduction
+                <Input value={slideRangeDraft.box_width_deduction_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, box_width_deduction_mm: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Required depth
+                <Input value={slideRangeDraft.required_depth_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, required_depth_mm: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Side uplift
+                <Input value={slideRangeDraft.side_height_uplift} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, side_height_uplift: event.target.value }))} />
+              </Label>
+            </div>
+          </div>
+
+          {slideRangeDraft.mount_type === 'metal_system' ? (
+            <div className="grid gap-3">
+              <Alert variant="warning">
+                Use accessory rules for rails when metal drawer sides need them above a drawer front or side height.
+              </Alert>
+              <DrawerSystemConfigEditor
+                config={slideRangeDraft.drawer_system_config}
+                drawerSystemKind="metal"
+                onChange={(drawer_system_config) => setSlideRangeDraft((current) => ({ ...current, drawer_system_config }))}
+              />
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+            <div className="grid content-start gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">Lengths</p>
+                <Button type="button" variant="outline" size="sm" onClick={addSlideRangeLength}>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Add Length
+                </Button>
+              </div>
+              <div className="grid gap-2">
+                <div className="hidden gap-2 px-3 text-xs font-medium uppercase text-muted-foreground lg:grid lg:grid-cols-[5rem_minmax(7rem,1fr)_5.5rem_5.5rem_5.5rem_5.5rem_2.25rem]">
+                  <span>Length</span>
+                  <span>Code</span>
+                  <span>Side</span>
+                  <span>Depth</span>
+                  <span>Deduct</span>
+                  <span>Width</span>
+                  <span />
+                </div>
+                {slideRangeDraft.lengths.map((row, index) => (
+                  <div
+                    className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-card p-3 lg:grid-cols-[5rem_minmax(7rem,1fr)_5.5rem_5.5rem_5.5rem_5.5rem_2.25rem] lg:items-center lg:gap-2 lg:p-2"
+                    key={index}
+                  >
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Length</span>
+                      <Input value={row.length} onChange={(event) => updateSlideRangeLength(index, { length: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Code</span>
+                      <Input value={row.code} onChange={(event) => updateSlideRangeLength(index, { code: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Side length</span>
+                      <Input value={row.side_length} onChange={(event) => updateSlideRangeLength(index, { side_length: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Required depth</span>
+                      <Input value={row.required_depth_mm} onChange={(event) => updateSlideRangeLength(index, { required_depth_mm: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Depth deduction</span>
+                      <Input value={row.drawer_depth_deduction_mm} onChange={(event) => updateSlideRangeLength(index, { drawer_depth_deduction_mm: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Width deduction</span>
+                      <Input value={row.box_width_deduction_mm} onChange={(event) => updateSlideRangeLength(index, { box_width_deduction_mm: event.target.value })} />
+                    </Label>
+                    <Button type="button" size="icon" variant="ghost" onClick={() => removeSlideRangeLength(index)} disabled={slideRangeDraft.lengths.length <= 1}>
+                      <XCircle className="h-4 w-4" aria-hidden="true" />
+                      <span className="sr-only">Remove length</span>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid content-start gap-3 rounded-[var(--card-radius)] border border-border p-3">
+              <p className="text-sm font-medium">Generated rows</p>
+              {slideRangePreview.length > 0 ? (
+                <div className="grid gap-2">
+                  {slideRangePreview.map((row) => (
+                    <div className="grid gap-1 rounded-[var(--control-radius)] bg-muted/50 px-3 py-2 text-sm" key={`${row.model}-${row.length}`}>
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                        <span className="font-medium">{row.model || `${slideRangeDraft.product_family || 'Runner'} ${row.length}`}</span>
+                        <span className="text-muted-foreground">{row.code || '-'}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>{formatSlideMountType(slideRangeDraft.mount_type)}</span>
+                        <span>{row.sideLength}mm side</span>
+                        <span>{row.requiredDepth}mm depth</span>
+                        <span>{row.widthDeduction}mm width</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-[var(--control-radius)] bg-muted/50 px-3 py-2 text-sm text-muted-foreground">Add at least one valid runner length.</p>
+              )}
+            </div>
+          </div>
+
           <HardwareAccessoryConfigEditor
-            config={slideDraft.accessory_config}
-            onChange={(accessory_config) => setSlideDraft((current) => ({ ...current, accessory_config }))}
+            config={slideRangeDraft.accessory_config}
+            onChange={(accessory_config) => setSlideRangeDraft((current) => ({ ...current, accessory_config }))}
             options={accessoryOptions}
           />
-          <div className="md:col-span-4 flex flex-wrap gap-2">
+
+          <details className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Create accessory item</summary>
+            <div className="mt-3 grid gap-3 md:grid-cols-4">
+              <Label className="grid gap-1.5">
+                Name
+                <Input value={inlineSlideAccessoryDraft.name} onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, name: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Category
+                <Select
+                  value={inlineSlideAccessoryDraft.category_id || extraCategories[0]?.id || ''}
+                  onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, category_id: event.target.value }))}
+                >
+                  {extraCategories.length === 0 ? <option value="">No categories</option> : null}
+                  {extraCategories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Supplier
+                <Select value={inlineSlideAccessoryDraft.supplier_id} onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, supplier_id: event.target.value }))}>
+                  <option value="">No supplier</option>
+                  {suppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Code
+                <Input value={inlineSlideAccessoryDraft.code} onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, code: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5 md:col-span-4">
+                Notes
+                <Textarea value={inlineSlideAccessoryDraft.notes} onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, notes: event.target.value }))} />
+              </Label>
+              <div className="md:col-span-4">
+                <Button disabled={isSaving || extraCategories.length === 0} type="button" variant="outline" onClick={() => void createInlineSlideAccessory()}>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Add accessory to setup
+                </Button>
+              </div>
+            </div>
+          </details>
+
+          <div className="sticky bottom-0 -mx-[var(--card-padding)] -mb-[var(--card-padding)] flex flex-wrap gap-2 border-t border-border bg-card px-[var(--card-padding)] py-3">
             <Button disabled={isSaving} type="submit">
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add Drawer Hardware
+              <Save className="h-4 w-4" aria-hidden="true" />
+              Save Runner Range
             </Button>
             <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
               Cancel

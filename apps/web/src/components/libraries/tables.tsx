@@ -11,8 +11,8 @@ import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 
-import { emptyAccessoryRule, formatBoardGrainPolicy, formatDrawerSystemKind, formatHingeLabel, formatSlideLabel } from './helpers'
-import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HardwareAccessoryConditionField, HardwareAccessoryConditionOperator, HardwareAccessoryConfig, HardwareAccessoryQuantityRule, HardwareAccessoryRule, HingeRow, PriceItemType, SlideRow, SupplierRow } from './types'
+import { emptyAccessoryRule, formatBoardGrainPolicy, formatDrawerSystemKind, formatHingeLabel, formatSlideLabel, formatSlideMountType } from './helpers'
+import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HardwareAccessoryConditionField, HardwareAccessoryConditionOperator, HardwareAccessoryConfig, HardwareAccessoryQuantityRule, HardwareAccessoryRule, HingeRow, PriceItemType, SlideMountType, SlideRow, SupplierRow } from './types'
 
 const boardGrainPolicyOptions: Array<{ label: string; value: BoardGrainPolicy }> = [
   { label: 'Grain required', value: 'required' },
@@ -57,6 +57,9 @@ const accessoryConditionFields: Array<{ label: string; value: HardwareAccessoryC
   { label: 'Always', value: 'always' },
   { label: 'Drawer front height', value: 'drawer_front_height' },
   { label: 'Drawer side height', value: 'drawer_side_height' },
+  { label: 'Metal side height', value: 'metal_side_height' },
+  { label: 'System side height', value: 'system_side_height' },
+  { label: 'Nominal length', value: 'nominal_length' },
   { label: 'Unit width', value: 'unit_width' },
   { label: 'Unit height', value: 'unit_height' },
   { label: 'Unit depth', value: 'unit_depth' },
@@ -65,6 +68,8 @@ const accessoryConditionFields: Array<{ label: string; value: HardwareAccessoryC
   { label: 'Hinge count', value: 'hinge_count' },
   { label: 'Hardware variant', value: 'hardware_variant' },
   { label: 'Load class', value: 'load_class' },
+  { label: 'Mount type', value: 'mount_type' },
+  { label: 'Product family', value: 'product_family' },
 ]
 
 const accessoryConditionOperators: Array<{ label: string; value: HardwareAccessoryConditionOperator }> = [
@@ -600,18 +605,20 @@ export function LibrarySlidesTable({
               <TableRow>
                 {onSelectionChange ? <TableHead className="w-10">Select</TableHead> : null}
                 <TableHead>Slide</TableHead>
+                <TableHead>Mount</TableHead>
+                <TableHead>Range</TableHead>
                 <TableHead>System</TableHead>
                 <TableHead>Length</TableHead>
                 <TableHead>Side length</TableHead>
-                <TableHead>Clearance</TableHead>
-                <TableHead>Uplift</TableHead>
+                <TableHead>Depth</TableHead>
+                <TableHead>Width deduction</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {slides.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={onSelectionChange ? 8 : 7}>
+                  <TableCell colSpan={onSelectionChange ? 10 : 9}>
                     <EmptyTableMessage
                       title="Add drawer hardware before quoting drawer units."
                       detail="Drawer hardware provides drawer clearances, system planning, and hardware pricing. Start with the range you fit most often."
@@ -630,11 +637,13 @@ export function LibrarySlidesTable({
                       </TableCell>
                     ) : null}
                     <TableCell>{formatSlideLabel(row)}</TableCell>
+                    <TableCell>{formatSlideMountType(row.mount_type ?? 'side_mount')}</TableCell>
+                    <TableCell>{row.product_family || '-'}</TableCell>
                     <TableCell>{formatDrawerSystemKind(row.drawer_system_kind)}</TableCell>
                     <TableCell>{row.length}</TableCell>
                     <TableCell>{row.side_length}</TableCell>
-                    <TableCell>{row.side_clearance_total}</TableCell>
-                    <TableCell>{row.side_height_uplift}</TableCell>
+                    <TableCell>{row.required_depth_mm || row.length}</TableCell>
+                    <TableCell>{row.box_width_deduction_mm || '-'}</TableCell>
                     <TableCell className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => onEdit({ ...row })}>
                         Edit
@@ -675,6 +684,19 @@ export function LibrarySlidesTable({
                 <Input value={editingSlide.code} onChange={(event) => onEditChange({ ...editingSlide, code: event.target.value })} />
               </Label>
               <Label className="grid gap-1.5">
+                Mount
+                <Select value={editingSlide.mount_type ?? 'side_mount'} onChange={(event) => onEditChange({ ...editingSlide, mount_type: event.target.value as SlideMountType })}>
+                  <option value="side_mount">Side mount</option>
+                  <option value="undermount">Undermount</option>
+                  <option value="metal_system">Metal-sided system</option>
+                  <option value="custom">Custom</option>
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Product range
+                <Input value={editingSlide.product_family ?? ''} onChange={(event) => onEditChange({ ...editingSlide, product_family: event.target.value })} />
+              </Label>
+              <Label className="grid gap-1.5">
                 Length
                 <Input value={String(editingSlide.length)} onChange={(event) => onEditChange({ ...editingSlide, length: Number(event.target.value) || 0 })} />
               </Label>
@@ -691,10 +713,23 @@ export function LibrarySlidesTable({
                 <Input value={String(editingSlide.side_height_uplift)} onChange={(event) => onEditChange({ ...editingSlide, side_height_uplift: Number(event.target.value) || 0 })} />
               </Label>
               <Label className="grid gap-1.5">
+                Required depth
+                <Input value={String(editingSlide.required_depth_mm ?? 0)} onChange={(event) => onEditChange({ ...editingSlide, required_depth_mm: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Depth deduction
+                <Input value={String(editingSlide.drawer_depth_deduction_mm ?? 0)} onChange={(event) => onEditChange({ ...editingSlide, drawer_depth_deduction_mm: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Width deduction
+                <Input value={String(editingSlide.box_width_deduction_mm ?? 0)} onChange={(event) => onEditChange({ ...editingSlide, box_width_deduction_mm: Number(event.target.value) || 0 })} />
+              </Label>
+              <Label className="grid gap-1.5">
                 Drawer system
                 <Select value={editingSlide.drawer_system_kind ?? 'conventional'} onChange={(event) => onEditChange({ ...editingSlide, drawer_system_kind: event.target.value as DrawerSystemKind })}>
                   <option value="conventional">Conventional slide</option>
                   <option value="metal">Metal system</option>
+                  <option value="custom">Custom system</option>
                 </Select>
               </Label>
               <DrawerSystemConfigEditor

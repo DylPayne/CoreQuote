@@ -394,6 +394,11 @@ Resource: `slides`
   "side_length": 500,
   "side_clearance_total": 26,
   "side_height_uplift": 0,
+  "mount_type": "side_mount",
+  "product_family": "Dynapro",
+  "required_depth_mm": 500,
+  "drawer_depth_deduction_mm": 0,
+  "box_width_deduction_mm": 52,
   "drawer_system_kind": "conventional",
   "drawer_system_config": {},
   "accessory_config": {
@@ -419,11 +424,91 @@ Resource: `slides`
 }
 ```
 
+`mount_type` is `side_mount`, `undermount`, `metal_system`, or `custom`. Use
+`product_family` for the user-facing runner range shared by the generated
+length rows. `required_depth_mm` is the minimum carcass depth required by that
+runner row. `drawer_depth_deduction_mm` is the default deduction from nominal
+runner length to drawer-box depth when the row is created from a range.
+`box_width_deduction_mm` is the total deduction from internal carcass width used
+by the cutting formula context; existing slides with `0` continue to derive the
+old `2 * side_clearance_total` deduction.
+
 `drawer_system_kind` is `conventional` by default. Set it to `metal` for a
 user-configured supplied drawer-side system such as GRASS Nova Pro Scala, Blum
-Legrabox, or another manufacturer. `drawer_system_config` is a JSON object that
-stores the manufacturer's planning data rather than hard-coding one product
-family into the cutlist engine.
+Legrabox, or another manufacturer. Set it to `custom` only for advanced runner
+setups that should not be treated as a normal timber-box slide. `drawer_system_config`
+is a JSON object that stores the manufacturer's planning data rather than
+hard-coding one product family into the cutlist engine.
+
+#### Runner Range Create
+
+```http
+POST /api/v1/libraries/slides/ranges
+```
+
+Permission: `catalog:write`.
+
+Use this endpoint for the guided drawer runner setup flow. The user creates one
+product range, enters the nominal lengths they stock, and the API creates one
+normal `slides` row per length. The generated rows remain compatible with quote
+hardware selectors, cutlist formulas, depth validation, pricing rows, and
+hardware pick lists.
+
+Request:
+
+```json
+{
+  "brand": "Blum",
+  "product_family": "Tandem",
+  "mount_type": "undermount",
+  "code_pattern": "TAN-{length}",
+  "lengths": [
+    { "length": 450 },
+    { "length": 500, "code": "TANDEM-500" }
+  ],
+  "side_clearance_total": 0,
+  "drawer_depth_deduction_mm": 10,
+  "box_width_deduction_mm": 42,
+  "required_depth_mm": 0,
+  "accessory_config": { "accessories": [] }
+}
+```
+
+Response:
+
+```json
+{
+  "created_count": 2,
+  "slides": [
+    {
+      "id": "slide-uuid",
+      "brand": "Blum",
+      "model": "Tandem 450",
+      "code": "TAN-450",
+      "length": 450,
+      "side_length": 440,
+      "side_clearance_total": 0,
+      "side_height_uplift": 0,
+      "mount_type": "undermount",
+      "product_family": "Tandem",
+      "required_depth_mm": 450,
+      "drawer_depth_deduction_mm": 10,
+      "box_width_deduction_mm": 42,
+      "drawer_system_kind": "conventional",
+      "drawer_system_config": {},
+      "accessory_config": { "accessories": [] },
+      "created_at": "2026-06-22T10:00:00Z",
+      "updated_at": "2026-06-22T10:00:00Z"
+    }
+  ]
+}
+```
+
+When `mount_type` is `metal_system`, the API stores `drawer_system_kind:
+"metal"` and adds the product family and compatible nominal length to
+`drawer_system_config` unless the client supplies more specific values. When
+`mount_type` is `custom`, the generated rows use `drawer_system_kind: "custom"`
+unless the client explicitly chooses another system kind.
 
 Metal drawer system config supports:
 
@@ -457,6 +542,11 @@ Example metal system:
   "side_length": 500,
   "side_clearance_total": 26,
   "side_height_uplift": 0,
+  "mount_type": "metal_system",
+  "product_family": "Nova Pro Scala",
+  "required_depth_mm": 500,
+  "drawer_depth_deduction_mm": 0,
+  "box_width_deduction_mm": 58,
   "drawer_system_kind": "metal",
   "drawer_system_config": {
     "product_family": "Nova Pro Scala",
@@ -520,8 +610,10 @@ Example metal system:
 Formula context includes unit dimensions (`h`, `w`, `d`, `t`, `inner_w`,
 `inner_h`), drawer dimensions (`num_drawers`, `drawer_width`, `drawer_depth`,
 `drawer_front_height`, `drawer_front_back_height`, `drawer_side_height`), slide
-fields (`slide_length`, `slide_side_length`, `slide_side_clearance_total`), the
-numeric config fields above, and entries in `variables`.
+fields (`slide_length`, `slide_side_length`, `slide_side_clearance_total`,
+`slide_mount_type`, `slide_product_family`, `slide_required_depth_mm`,
+`slide_box_width_deduction_mm`), the numeric config fields above, and entries
+in `variables`.
 
 `accessory_config.accessories` is the normal hardware bundle model for slides,
 hinges, and future hardware rows. `quantity` is the accessory count needed for
@@ -534,9 +626,13 @@ cabinet/unit.
 Required accessories are automatically added to `hardware_pick_list.items`.
 Optional accessories are returned in `hardware_pick_list.optional_items` unless
 `enabled` is true, in which case they are added to the picked and priced rows.
-Conditions support common unit fields such as `drawer_front_height`,
-`drawer_side_height`, `unit_width`, `unit_height`, `unit_depth`, `num_drawers`,
-`door_count`, `hinge_count`, `hardware_variant`, and `load_class`.
+Conditions support common unit and hardware fields such as
+`drawer_front_height`, `drawer_side_height`, `metal_side_height`,
+`system_side_height`, `nominal_length`, `unit_width`, `unit_height`,
+`unit_depth`, `num_drawers`, `door_count`, `hinge_count`, `hardware_variant`,
+`load_class`, `mount_type`, and `product_family`. This lets metal-sided drawer
+systems include rails, stabilisers, or higher-side accessory packs only when
+the drawer/front/system height or nominal length needs them.
 
 ### Hinges
 

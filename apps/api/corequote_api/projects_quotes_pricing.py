@@ -159,6 +159,11 @@ def _to_runtime_unit(
         extra_params.setdefault("slide_side_length", int(unit_slide.get("side_length", 0) or 0))
         extra_params.setdefault("slide_side_clearance_total", int(unit_slide.get("side_clearance_total", 0) or 0))
         extra_params.setdefault("slide_side_height_uplift", int(unit_slide.get("side_height_uplift", 0) or 0))
+        extra_params.setdefault("slide_mount_type", str(unit_slide.get("mount_type") or "side_mount"))
+        extra_params.setdefault("slide_product_family", str(unit_slide.get("product_family") or ""))
+        extra_params.setdefault("slide_required_depth_mm", int(unit_slide.get("required_depth_mm", 0) or 0))
+        extra_params.setdefault("slide_drawer_depth_deduction_mm", int(unit_slide.get("drawer_depth_deduction_mm", 0) or 0))
+        extra_params.setdefault("slide_box_width_deduction_mm", int(unit_slide.get("box_width_deduction_mm", 0) or 0))
         extra_params.setdefault("drawer_system_kind", str(unit_slide.get("drawer_system_kind") or "conventional"))
         extra_params.setdefault("drawer_system_config", dict(unit_slide.get("drawer_system_config") or {}))
     try:

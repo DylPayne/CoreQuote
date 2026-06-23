@@ -20,6 +20,7 @@ from corequote_api.libraries import (
     _build_setup_checklist,
     _calculate_discounted_cost_cents,
     _effective_status,
+    build_slide_range_payloads,
 )
 from corequote_api.main import app
 from corequote_api.routers import auth, libraries
@@ -210,10 +211,30 @@ class FakeLibraryStore:
         return slide(
             "slide-2",
             brand=payload["brand"],
+            mount_type=payload.get("mount_type", "side_mount"),
+            product_family=payload.get("product_family", ""),
             drawer_system_kind=payload.get("drawer_system_kind", "conventional"),
             drawer_system_config=payload.get("drawer_system_config") or {},
             accessory_config=payload.get("accessory_config") or {},
         )
+
+    def create_slide_range(self, company_id: str, payload: dict):
+        self.created_payload = ("slide_range", payload)
+        rows = [
+            slide(
+                f"slide-range-{index + 1}",
+                brand=payload["brand"],
+                model=f"{payload['product_family']} {row['length']}",
+                length=row["length"],
+                mount_type=payload.get("mount_type", "side_mount"),
+                product_family=payload["product_family"],
+                drawer_system_kind="metal" if payload.get("mount_type") == "metal_system" else "conventional",
+                drawer_system_config=payload.get("drawer_system_config") or {},
+                accessory_config=payload.get("accessory_config") or {},
+            )
+            for index, row in enumerate(payload["lengths"])
+        ]
+        return {"created_count": len(rows), "slides": rows}
 
     def get_slide(self, company_id: str, item_id: str):
         return slide(item_id)
@@ -604,6 +625,10 @@ def slide(
     item_id: str,
     *,
     brand: str = "Grass",
+    model: str = "Dynapro",
+    length: int = 500,
+    mount_type: str = "side_mount",
+    product_family: str = "",
     drawer_system_kind: str = "conventional",
     drawer_system_config: dict | None = None,
     accessory_config: dict | None = None,
@@ -611,12 +636,17 @@ def slide(
     return {
         "id": item_id,
         "brand": brand,
-        "model": "Dynapro",
+        "model": model,
         "code": "DYN-500",
-        "length": 500,
+        "length": length,
         "side_length": 500,
         "side_clearance_total": 26,
         "side_height_uplift": 0,
+        "mount_type": mount_type,
+        "product_family": product_family,
+        "required_depth_mm": length,
+        "drawer_depth_deduction_mm": 10,
+        "box_width_deduction_mm": 26,
         "drawer_system_kind": drawer_system_kind,
         "drawer_system_config": drawer_system_config or {},
         "accessory_config": accessory_config or {},
@@ -968,6 +998,42 @@ def test_import_preview_classifies_board_rows_from_csv():
     assert preview["rows"][3]["problems"][0]["code"] == "invalid_number"
 
 
+def test_import_preview_normalizes_slide_runner_metadata_from_csv():
+    content = "\n".join(
+        [
+            "Brand,Model,Code,Length,Mount Type,Product Family,Required Depth,Depth Deduction,Width Deduction,Drawer System Kind",
+            "Blum,Tandem 500,TAN-500,500,undermount,Tandem,510,10,42,conventional",
+        ]
+    )
+
+    preview = build_import_preview(
+        {"resource": "slides", "source_format": "csv", "content": content},
+        build_reference_maps(
+            {
+                "boards": [],
+                "slides": [],
+                "hinges": [],
+                "handles": [],
+                "suppliers": [],
+                "extra_categories": [],
+                "extras": [],
+                "item_suppliers": [],
+                "price_items": [],
+                "price_list_id": "",
+            }
+        ),
+    )
+
+    payload = preview["rows"][0]["payload"]
+
+    assert preview["rows"][0]["status"] == "create"
+    assert payload["mount_type"] == "undermount"
+    assert payload["product_family"] == "Tandem"
+    assert payload["required_depth_mm"] == 510
+    assert payload["drawer_depth_deduction_mm"] == 10
+    assert payload["box_width_deduction_mm"] == 42
+
+
 def test_brand_backed_catalog_writes_brand_id_not_brand_row():
     store = LibraryStore(database_url="postgresql://unused")
     payload = {
@@ -1300,6 +1366,108 @@ def test_slide_drawer_system_config_round_trips():
     assert stored_payload["drawer_system_config"]["panel_formulas"][0]["length_formula"] == "inner_w - (2 * installation_width_mm)"
     assert stored_payload["drawer_system_config"]["hardware_items"][0]["quantity_per_drawer"] == 2
     assert stored_payload["accessory_config"]["accessories"][0]["item_ref_id"] == "extra-locking-plate"
+
+
+def test_slide_range_payload_builder_generates_runner_rows():
+    payloads = build_slide_range_payloads(
+        {
+            "brand": "Grass",
+            "product_family": "Dynapro SC",
+            "mount_type": "side_mount",
+            "code_pattern": "DYN-{length}",
+            "lengths": [{"length": 450}, {"length": 500, "code": "CUSTOM-500"}],
+            "side_clearance_total": 26,
+            "drawer_depth_deduction_mm": 10,
+            "box_width_deduction_mm": 26,
+            "side_height_uplift": 0,
+            "accessory_config": {"accessories": []},
+        }
+    )
+
+    assert payloads[0]["model"] == "Dynapro SC 450"
+    assert payloads[0]["code"] == "DYN-450"
+    assert payloads[0]["side_length"] == 440
+    assert payloads[0]["required_depth_mm"] == 450
+    assert payloads[0]["mount_type"] == "side_mount"
+    assert payloads[0]["product_family"] == "Dynapro SC"
+    assert payloads[1]["code"] == "CUSTOM-500"
+
+
+def test_slide_range_payload_builder_derives_width_deduction_from_clearance():
+    payloads = build_slide_range_payloads(
+        {
+            "brand": "Grass",
+            "product_family": "Dynapro SC",
+            "mount_type": "side_mount",
+            "lengths": [{"length": 500}],
+            "side_clearance_total": 26,
+        }
+    )
+
+    assert payloads[0]["box_width_deduction_mm"] == 52
+
+
+def test_slide_range_payload_builder_marks_metal_systems_and_lengths():
+    payloads = build_slide_range_payloads(
+        {
+            "brand": "Grass",
+            "product_family": "Nova Pro Scala H186",
+            "mount_type": "metal_system",
+            "lengths": [{"length": 500}],
+            "side_clearance_total": 26,
+            "drawer_depth_deduction_mm": 0,
+            "box_width_deduction_mm": 58,
+            "drawer_system_config": {"side_height_mm": 186},
+            "accessory_config": {
+                "accessories": [
+                    {
+                        "item_type": "extra",
+                        "item_ref_id": "extra-rail",
+                        "quantity": 1,
+                        "quantity_rule": "per_drawer",
+                        "condition": {"field": "metal_side_height", "operator": "greater_than_or_equal", "value_number": 186},
+                    }
+                ]
+            },
+        }
+    )
+
+    assert payloads[0]["drawer_system_kind"] == "metal"
+    assert payloads[0]["mount_type"] == "metal_system"
+    assert payloads[0]["drawer_system_config"]["product_family"] == "Nova Pro Scala H186"
+    assert payloads[0]["drawer_system_config"]["compatible_nominal_lengths"] == [500]
+    assert payloads[0]["accessory_config"]["accessories"][0]["condition"]["field"] == "metal_side_height"
+
+
+def test_create_slide_range_endpoint_returns_generated_rows():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "brand": "Blum",
+        "product_family": "Tandem",
+        "mount_type": "undermount",
+        "lengths": [{"length": 450}, {"length": 500}],
+        "side_clearance_total": 0,
+        "drawer_depth_deduction_mm": 10,
+        "box_width_deduction_mm": 42,
+        "accessory_config": {"accessories": []},
+    }
+    try:
+        response = client.post("/api/v1/libraries/slides/ranges", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert response.json()["created_count"] == 2
+    assert response.json()["slides"][0]["mount_type"] == "undermount"
+    assert store.created_payload is not None
+    resource, stored_payload = store.created_payload
+    assert resource == "slide_range"
+    assert stored_payload["brand"] == payload["brand"]
+    assert stored_payload["product_family"] == payload["product_family"]
+    assert stored_payload["mount_type"] == "undermount"
+    assert [row["length"] for row in stored_payload["lengths"]] == [450, 500]
 
 
 def test_hinge_accessory_config_round_trips():

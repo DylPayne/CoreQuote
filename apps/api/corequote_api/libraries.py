@@ -59,17 +59,23 @@ SLIDE_CONFIG = ResourceConfig(
         "side_length",
         "side_clearance_total",
         "side_height_uplift",
+        "mount_type",
+        "product_family",
+        "required_depth_mm",
+        "drawer_depth_deduction_mm",
+        "box_width_deduction_mm",
         "drawer_system_kind",
         "drawer_system_config",
         "accessory_config",
     ),
     select_clause=(
         "id::text, brand, model, code, length, side_length, "
-        "side_clearance_total, side_height_uplift, drawer_system_kind, drawer_system_config, accessory_config, "
+        "side_clearance_total, side_height_uplift, mount_type, product_family, required_depth_mm, "
+        "drawer_depth_deduction_mm, box_width_deduction_mm, drawer_system_kind, drawer_system_config, accessory_config, "
         "created_at, updated_at"
     ),
     order_by="brand ASC, model ASC, length ASC, code ASC",
-    search_fields=("brand", "model", "code"),
+    search_fields=("brand", "model", "code", "mount_type", "product_family"),
 )
 
 HINGE_CONFIG = ResourceConfig(
@@ -225,6 +231,14 @@ class LibraryStore:
 
     def create_slide(self, company_id: str, payload: dict[str, Any]) -> dict:
         return self._create(SLIDE_CONFIG, company_id, payload)
+
+    def create_slide_range(self, company_id: str, payload: dict[str, Any]) -> dict:
+        slide_payloads = build_slide_range_payloads(payload)
+        rows: list[dict[str, Any]] = []
+        with self._connect() as conn:
+            for slide_payload in slide_payloads:
+                rows.append(self._create_with_conn(conn, SLIDE_CONFIG, company_id, slide_payload))
+        return {"created_count": len(rows), "slides": rows}
 
     def get_slide(self, company_id: str, item_id: str) -> dict:
         return self._get(SLIDE_CONFIG, company_id, item_id)
@@ -2805,6 +2819,14 @@ def _db_value(value: Any) -> Any:
     return value
 
 
+def _non_negative_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 0 else default
+
+
 def _extra_supplier_values(conn, company_id: str, payload: dict[str, Any]) -> tuple[str | None, str]:
     supplier_id = payload.get("supplier_id")
     if supplier_id in (None, ""):
@@ -2831,6 +2853,10 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         data["grain_policy"] = str(data["grain_policy"] or "required").strip().lower()
         if data["grain_policy"] not in GRAIN_POLICY_VALUES:
             raise LibraryValidationError("Grain policy must be none, optional, or required")
+    if "mount_type" in data:
+        data["mount_type"] = str(data["mount_type"] or "side_mount").strip().lower()
+        if data["mount_type"] not in {"side_mount", "undermount", "metal_system", "custom"}:
+            raise LibraryValidationError("Mount type must be side_mount, undermount, metal_system, or custom")
     if "price_component" in data:
         data["price_component"] = str(data["price_component"] or "unit").strip().lower()
     if "cost_source" in data:
@@ -2839,8 +2865,8 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         data["currency_code"] = str(data["currency_code"] or "ZAR").strip().upper()
     if "drawer_system_kind" in data:
         data["drawer_system_kind"] = str(data["drawer_system_kind"] or "conventional").strip().lower()
-        if data["drawer_system_kind"] not in {"conventional", "metal"}:
-            raise LibraryValidationError("Drawer system kind must be conventional or metal")
+        if data["drawer_system_kind"] not in {"conventional", "metal", "custom"}:
+            raise LibraryValidationError("Drawer system kind must be conventional, metal, or custom")
     if "drawer_system_config" in data:
         config = data.get("drawer_system_config") or {}
         if not isinstance(config, dict):
@@ -2858,6 +2884,84 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if data.get("source_supplier_item_cost_id") == "":
         data["source_supplier_item_cost_id"] = None
     return data
+
+
+def build_slide_range_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    data = _clean_payload(payload)
+    brand = str(data["brand"]).strip()
+    product_family = str(data["product_family"]).strip()
+    mount_type = str(data.get("mount_type") or "side_mount").strip().lower()
+    drawer_system_kind = str(data.get("drawer_system_kind") or ("metal" if mount_type == "metal_system" else "conventional")).strip().lower()
+    if mount_type == "metal_system":
+        drawer_system_kind = "metal"
+    elif mount_type == "custom" and drawer_system_kind == "conventional":
+        drawer_system_kind = "custom"
+    code_pattern = str(data.get("code_pattern") or "").strip()
+    side_clearance_total = _non_negative_int(data.get("side_clearance_total"), 0)
+    default_depth_deduction = _non_negative_int(data.get("drawer_depth_deduction_mm"), 0)
+    configured_box_width_deduction = _non_negative_int(data.get("box_width_deduction_mm"), 0)
+    default_box_width_deduction = configured_box_width_deduction if configured_box_width_deduction > 0 else 2 * side_clearance_total
+    default_required_depth = _non_negative_int(data.get("required_depth_mm"), 0)
+    side_height_uplift = _non_negative_int(data.get("side_height_uplift"), 0)
+    drawer_system_config = data.get("drawer_system_config") or {}
+    accessory_config = data.get("accessory_config") or {}
+    if not isinstance(drawer_system_config, dict):
+        raise LibraryValidationError("Drawer system config must be an object")
+    if not isinstance(accessory_config, dict):
+        raise LibraryValidationError("Accessory config must be an object")
+
+    payloads: list[dict[str, Any]] = []
+    for raw_length in data.get("lengths") or []:
+        if not isinstance(raw_length, dict):
+            raise LibraryValidationError("Each range length must be an object")
+        length = _non_negative_int(raw_length.get("length"), 0)
+        if length <= 0:
+            raise LibraryValidationError("Runner lengths must be positive")
+        depth_deduction = _non_negative_int(raw_length.get("drawer_depth_deduction_mm"), default_depth_deduction)
+        side_length = _non_negative_int(raw_length.get("side_length"), max(0, length - depth_deduction))
+        configured_row_width_deduction = _non_negative_int(raw_length.get("box_width_deduction_mm"), 0)
+        box_width_deduction = configured_row_width_deduction if configured_row_width_deduction > 0 else default_box_width_deduction
+        required_depth = _non_negative_int(raw_length.get("required_depth_mm"), default_required_depth or length)
+        code = str(raw_length.get("code") or "").strip() or _range_code(code_pattern, length)
+        payloads.append(
+            {
+                "brand": brand,
+                "model": f"{product_family} {length}",
+                "code": code,
+                "length": length,
+                "side_length": side_length,
+                "side_clearance_total": side_clearance_total,
+                "side_height_uplift": side_height_uplift,
+                "mount_type": mount_type,
+                "product_family": product_family,
+                "required_depth_mm": required_depth,
+                "drawer_depth_deduction_mm": depth_deduction,
+                "box_width_deduction_mm": box_width_deduction,
+                "drawer_system_kind": drawer_system_kind,
+                "drawer_system_config": _range_drawer_system_config(drawer_system_config, mount_type, product_family, length),
+                "accessory_config": accessory_config,
+            }
+        )
+    return payloads
+
+
+def _range_code(pattern: str, length: int) -> str:
+    if not pattern:
+        return ""
+    if "{length}" in pattern:
+        return pattern.replace("{length}", str(length))
+    return f"{pattern}-{length}"
+
+
+def _range_drawer_system_config(config: dict[str, Any], mount_type: str, product_family: str, length: int) -> dict[str, Any]:
+    if mount_type != "metal_system":
+        return dict(config)
+    next_config = dict(config)
+    next_config.setdefault("product_family", product_family)
+    compatible_lengths = next_config.get("compatible_nominal_lengths")
+    if not isinstance(compatible_lengths, list) or not compatible_lengths:
+        next_config["compatible_nominal_lengths"] = [length]
+    return next_config
 
 
 def _import_existing(resource: str, identity: str, references: dict[str, Any]) -> dict[str, Any] | None:

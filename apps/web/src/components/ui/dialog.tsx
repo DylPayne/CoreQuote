@@ -9,7 +9,7 @@ type DialogProps = {
   description?: string
   onOpenChange: (open: boolean) => void
   open: boolean
-  size?: 'default' | 'wide'
+  size?: 'default' | 'wide' | 'xwide'
   title: string
 }
 
@@ -46,7 +46,7 @@ function Dialog({ children, description, onOpenChange, open, size = 'default', t
         aria-modal="true"
         className={cn(
           'max-h-[min(88vh,900px)] w-full overflow-hidden rounded-[var(--card-radius)] border border-border bg-card text-card-foreground shadow-xl',
-          size === 'wide' ? 'max-w-5xl' : 'max-w-2xl',
+          size === 'xwide' ? 'max-w-6xl' : size === 'wide' ? 'max-w-5xl' : 'max-w-2xl',
         )}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"

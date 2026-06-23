@@ -87,7 +87,8 @@ export type BoardRow = {
   grain_policy: BoardGrainPolicy
 }
 
-export type DrawerSystemKind = 'conventional' | 'metal'
+export type DrawerSystemKind = 'conventional' | 'metal' | 'custom'
+export type SlideMountType = 'side_mount' | 'undermount' | 'metal_system' | 'custom'
 
 export type DrawerSystemConfig = {
   product_family?: string
@@ -109,6 +110,14 @@ export type SlideRow = {
   model: string
   code: string
   length: number
+  side_length: number
+  side_clearance_total: number
+  side_height_uplift: number
+  mount_type: SlideMountType
+  product_family: string
+  required_depth_mm: number
+  drawer_depth_deduction_mm: number
+  box_width_deduction_mm: number
   drawer_system_kind: DrawerSystemKind
   drawer_system_config: DrawerSystemConfig
   accessory_config: HardwareAccessoryConfig

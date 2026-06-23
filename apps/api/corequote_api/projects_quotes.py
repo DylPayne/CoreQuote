@@ -2188,7 +2188,9 @@ class WorkspaceStore:
             for row in conn.execute(
                 """
                 SELECT id::text, brand, model, code, length, side_length, side_clearance_total,
-                       side_height_uplift, drawer_system_kind, drawer_system_config, accessory_config
+                       side_height_uplift, mount_type, product_family, required_depth_mm,
+                       drawer_depth_deduction_mm, box_width_deduction_mm,
+                       drawer_system_kind, drawer_system_config, accessory_config
                 FROM slides
                 WHERE company_id = %s
                 ORDER BY brand ASC, model ASC, code ASC
@@ -2369,8 +2371,9 @@ class WorkspaceStore:
             slide = self._get_slide_for_validation(conn, company_id, slide_id)
             slide_length = int(slide.get("length", 0) or 0)
             unit_depth = int(data.get("depth", 0) or 0)
-            if str(slide.get("drawer_system_kind") or "conventional").strip().lower() != "metal" and slide_length > 0 and unit_depth < slide_length:
-                raise WorkspaceValidationError(_slide_depth_validation_message(slide_length))
+            required_depth = max(slide_length, int(slide.get("required_depth_mm", 0) or 0))
+            if str(slide.get("drawer_system_kind") or "conventional").strip().lower() != "metal" and required_depth > 0 and unit_depth < required_depth:
+                raise WorkspaceValidationError(_slide_depth_validation_message(required_depth))
             validation_unit = {
                 **data,
                 "thickness": self._unit_carcass_thickness_for_validation(conn, company_id, quote, data),
@@ -2392,7 +2395,9 @@ class WorkspaceStore:
     def _get_slide_for_validation(self, conn, company_id: str, slide_id: str) -> dict[str, Any]:
         row = conn.execute(
             """
-            SELECT id::text, brand, model, code, length, drawer_system_kind, drawer_system_config, accessory_config
+            SELECT id::text, brand, model, code, length, mount_type, product_family, required_depth_mm,
+                   drawer_depth_deduction_mm, box_width_deduction_mm,
+                   drawer_system_kind, drawer_system_config, accessory_config
             FROM slides
             WHERE company_id = %s
               AND id = %s

@@ -1,4 +1,4 @@
-import type { BoardDraft, ExtraCategoryDraft, ExtraDraft, HandleDraft, HingeDraft, ItemSupplierDraft, LibraryTab, PriceListDraft, SlideDraft, SupplierDraft } from './types'
+import type { BoardDraft, ExtraCategoryDraft, ExtraDraft, HandleDraft, HingeDraft, ItemSupplierDraft, LibraryTab, PriceListDraft, SlideDraft, SlideRangeDraft, SupplierDraft } from './types'
 
 export const libraryTabs: Array<{ label: string; value: LibraryTab }> = [
   { label: 'Setup & Imports', value: 'setup-imports' },
@@ -30,7 +30,32 @@ export const defaultSlideDraft: SlideDraft = {
   side_length: '500',
   side_clearance_total: '26',
   side_height_uplift: '0',
+  mount_type: 'side_mount',
+  product_family: '',
+  required_depth_mm: '0',
+  drawer_depth_deduction_mm: '0',
+  box_width_deduction_mm: '0',
   drawer_system_kind: 'conventional',
+  drawer_system_config: {},
+  accessory_config: { accessories: [] },
+}
+
+export const defaultSlideRangeDraft: SlideRangeDraft = {
+  brand: '',
+  product_family: '',
+  mount_type: 'side_mount',
+  code_pattern: '',
+  lengths: [
+    { length: '350', code: '', side_length: '', required_depth_mm: '', drawer_depth_deduction_mm: '', box_width_deduction_mm: '' },
+    { length: '400', code: '', side_length: '', required_depth_mm: '', drawer_depth_deduction_mm: '', box_width_deduction_mm: '' },
+    { length: '450', code: '', side_length: '', required_depth_mm: '', drawer_depth_deduction_mm: '', box_width_deduction_mm: '' },
+    { length: '500', code: '', side_length: '', required_depth_mm: '', drawer_depth_deduction_mm: '', box_width_deduction_mm: '' },
+  ],
+  side_clearance_total: '26',
+  side_height_uplift: '0',
+  drawer_depth_deduction_mm: '0',
+  box_width_deduction_mm: '0',
+  required_depth_mm: '0',
   drawer_system_config: {},
   accessory_config: { accessories: [] },
 }

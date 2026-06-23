@@ -3,6 +3,7 @@ from pathlib import Path
 
 MIGRATION_0016 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0016_quote_status_revisions.sql"
 MIGRATION_0026 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0026_quote_hardware_catalog_snapshot.sql"
+MIGRATION_0027 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0027_slide_runner_profile_metadata.sql"
 
 
 def test_quote_status_revision_migration_adds_visible_quote_metadata():
@@ -34,4 +35,17 @@ def test_quote_hardware_catalog_snapshot_migration_adds_internal_freeze_payload(
     assert "quotes_hardware_catalog_snapshot_object_chk" in sql
     assert "jsonb_typeof(hardware_catalog_snapshot) = 'object'" in sql
     assert "old quotes" not in sql.lower()
+    assert "sqlite" not in sql.lower()
+
+
+def test_slide_runner_profile_migration_adds_mount_and_range_metadata():
+    sql = MIGRATION_0027.read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS mount_type TEXT NOT NULL DEFAULT 'side_mount'" in sql
+    assert "CHECK (mount_type IN ('side_mount', 'undermount', 'metal_system', 'custom'))" in sql
+    assert "ADD COLUMN IF NOT EXISTS product_family TEXT NOT NULL DEFAULT ''" in sql
+    assert "ADD COLUMN IF NOT EXISTS required_depth_mm INTEGER NOT NULL DEFAULT 0" in sql
+    assert "ADD COLUMN IF NOT EXISTS drawer_depth_deduction_mm INTEGER NOT NULL DEFAULT 0" in sql
+    assert "ADD COLUMN IF NOT EXISTS box_width_deduction_mm INTEGER NOT NULL DEFAULT 0" in sql
+    assert "CHECK (drawer_system_kind IN ('conventional', 'metal', 'custom'))" in sql
     assert "sqlite" not in sql.lower()
