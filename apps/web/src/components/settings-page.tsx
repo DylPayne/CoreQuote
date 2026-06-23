@@ -1,19 +1,15 @@
-import { Building2, CircleDollarSign, HardHat, Moon, Palette, Save, ShieldCheck, Sun, UserRound } from 'lucide-react'
+import { Building2, CircleDollarSign, Save, ShieldCheck, UserRound } from 'lucide-react'
 import { useEffect, useMemo, useState, type ComponentType, type FormEvent } from 'react'
 
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { ChoiceCard, ChoiceCardContent } from '@/components/ui/choice-card'
-import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { apiRequest } from '@/lib/api'
 import { currencyLabel, normalizeCurrencyCode, optionsForCurrency } from '@/lib/currency'
-import { colourThemes, uiStyles } from '@/lib/theme'
 import type { AuthUser } from '@/types/auth'
-import type { ColourTheme, ThemeMode, UiStyle, UiStyleSpec } from '@/types/theme'
 
 type CompanyResponse = {
   id: string
@@ -26,25 +22,11 @@ type CompanyResponse = {
 
 export function SettingsPage({
   authToken,
-  colourTheme,
   onUserChange,
-  selectedStyle,
-  setColourTheme,
-  setThemeMode,
-  setUiStyle,
-  themeMode,
-  uiStyle,
   user,
 }: {
   authToken: string
-  colourTheme: ColourTheme
   onUserChange: (user: AuthUser) => void
-  selectedStyle: UiStyleSpec
-  setColourTheme: (theme: ColourTheme) => void
-  setThemeMode: (mode: ThemeMode) => void
-  setUiStyle: (style: UiStyle) => void
-  themeMode: ThemeMode
-  uiStyle: UiStyle
   user: AuthUser
 }) {
   const savedCurrencyCode = normalizeCurrencyCode(user.company_currency_code)
@@ -158,137 +140,6 @@ export function SettingsPage({
           {currencyMessage ? <Alert className="text-xs">{currencyMessage}</Alert> : null}
         </CardContent>
       </Card>
-
-      <AppearancePage
-        colourTheme={colourTheme}
-        selectedStyle={selectedStyle}
-        setColourTheme={setColourTheme}
-        setThemeMode={setThemeMode}
-        setUiStyle={setUiStyle}
-        themeMode={themeMode}
-        uiStyle={uiStyle}
-      />
-    </>
-  )
-}
-
-function AppearancePage({
-  colourTheme,
-  selectedStyle,
-  setColourTheme,
-  setThemeMode,
-  setUiStyle,
-  themeMode,
-  uiStyle,
-}: {
-  colourTheme: ColourTheme
-  selectedStyle: UiStyleSpec
-  setColourTheme: (theme: ColourTheme) => void
-  setThemeMode: (mode: ThemeMode) => void
-  setUiStyle: (style: UiStyle) => void
-  themeMode: ThemeMode
-  uiStyle: UiStyle
-}) {
-  return (
-    <>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>Appearance</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Adjust how the workspace looks on this device.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2">
-              <Palette className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <span className="h-3 w-3 shrink-0 border border-border bg-primary" aria-hidden="true" />
-              <Select
-                aria-label="Select colour theme"
-                className="w-36"
-                onChange={(event) => setColourTheme(event.target.value as ColourTheme)}
-                value={colourTheme}
-              >
-                {colourThemes.map((theme) => (
-                  <option key={theme.value} value={theme.value}>
-                    {theme.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <ModeSwitch setThemeMode={setThemeMode} themeMode={themeMode} />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-3">
-            <PreviewBlock label="Primary" className="bg-primary text-primary-foreground" />
-            <PreviewBlock label="Muted" className="bg-muted text-muted-foreground" />
-            <PreviewBlock label="Card" className="border border-border bg-card text-card-foreground" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Style</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Choose the spacing, corners, and shadows that make repeated quoting work comfortable.
-            </p>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {uiStyles.map((style) => (
-              <ChoiceCard
-                aria-pressed={uiStyle === style.value}
-                key={style.value}
-                onClick={() => setUiStyle(style.value)}
-              >
-                <ChoiceCardContent>
-                  <div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-base font-semibold">{style.label}</span>
-                      <Badge variant={uiStyle === style.value ? 'default' : 'outline'}>{style.radius}</Badge>
-                    </div>
-                    <p className="mt-2 text-sm text-muted-foreground">{style.description}</p>
-                  </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    <span className="h-8 rounded-[var(--control-radius)] bg-primary" />
-                    <span className="h-8 rounded-[var(--control-radius)] bg-muted" />
-                    <span className="h-8 rounded-[var(--control-radius)] border border-border bg-card" />
-                  </div>
-                </ChoiceCardContent>
-              </ChoiceCard>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Current selection</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3">
-              <SummaryLine label="Style" value={selectedStyle.label} />
-              <SummaryLine label="Mode" value={themeMode === 'dark' ? 'Dark' : 'Light'} />
-              <SummaryLine
-                label="Colour"
-                value={colourThemes.find((theme) => theme.value === colourTheme)?.label ?? colourTheme}
-              />
-            </div>
-            <div className="rounded-[var(--card-radius)] border border-border bg-muted p-[var(--card-padding)]">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-[var(--control-radius)] bg-primary text-primary-foreground">
-                  <HardHat className="h-5 w-5" aria-hidden="true" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">Global preview</p>
-                  <p className="text-sm text-muted-foreground">Controls, cards, and tables use this look together.</p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
     </>
   )
 }
@@ -317,41 +168,6 @@ function StatusCard({
         </div>
       </CardContent>
     </Card>
-  )
-}
-
-function ModeSwitch({
-  setThemeMode,
-  themeMode,
-}: {
-  setThemeMode: (mode: ThemeMode) => void
-  themeMode: ThemeMode
-}) {
-  return (
-    <ControlGroup
-      aria-label="Select light or dark mode"
-      className="min-w-[calc(var(--control-height)*2)]"
-      role="group"
-    >
-      <ControlGroupItem aria-pressed={themeMode === 'light'} onClick={() => setThemeMode('light')}>
-        <Sun className="h-4 w-4" aria-hidden="true" />
-        <span className="sr-only">Light mode</span>
-      </ControlGroupItem>
-      <ControlGroupItem aria-pressed={themeMode === 'dark'} onClick={() => setThemeMode('dark')}>
-        <Moon className="h-4 w-4" aria-hidden="true" />
-        <span className="sr-only">Dark mode</span>
-      </ControlGroupItem>
-    </ControlGroup>
-  )
-}
-
-function PreviewBlock({ className, label }: { className: string; label: string }) {
-  return (
-    <div
-      className={`flex min-h-24 items-end rounded-[var(--card-radius)] p-[var(--card-padding)] text-sm font-medium ${className}`}
-    >
-      {label}
-    </div>
   )
 }
 
