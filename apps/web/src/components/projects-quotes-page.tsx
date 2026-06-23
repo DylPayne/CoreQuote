@@ -20,6 +20,7 @@ import {
   Plus,
   Trash2,
   XCircle,
+  type LucideIcon,
 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 
@@ -28,6 +29,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ControlGroup, ControlGroupItem } from '@/components/ui/control-group'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
@@ -119,6 +121,110 @@ function formatMissingPriceCount(count: number) {
 
 function formatPickListCount(count: number) {
   return `${count} ${count === 1 ? 'line' : 'lines'}`
+}
+
+type QuoteWorkflowStep = {
+  description: string
+  icon: LucideIcon
+  label: string
+  step: string
+  target: QuoteWorkspaceTab
+}
+
+type QuoteBuildTab = {
+  description: string
+  label: string
+  target: QuoteWorkspaceTab
+}
+
+const quoteBuildTargets: QuoteWorkspaceTab[] = ['units', 'panels', 'cutting-lists', 'extras']
+
+const quoteWorkflowSteps: QuoteWorkflowStep[] = [
+  {
+    description: 'Add units, panels, extras, and the work needed to build the job.',
+    icon: ClipboardList,
+    label: 'Build quote',
+    step: '1',
+    target: 'units',
+  },
+  {
+    description: 'See what is complete and what still needs attention.',
+    icon: CheckCircle2,
+    label: 'Check quote',
+    step: '2',
+    target: 'readiness',
+  },
+  {
+    description: 'Review the selling total, missing prices, and quote price setup.',
+    icon: CircleDollarSign,
+    label: 'Review price',
+    step: '3',
+    target: 'pricing',
+  },
+  {
+    description: 'Prepare customer and workshop documents.',
+    icon: FileText,
+    label: 'Customer and workshop outputs',
+    step: '4',
+    target: 'outputs',
+  },
+  {
+    description: 'Hand the job to production when it is ready to make.',
+    icon: Hammer,
+    label: 'Production handoff',
+    step: '5',
+    target: 'production',
+  },
+]
+
+const quoteBuildTabs: QuoteBuildTab[] = [
+  {
+    description: 'Cabinet and built-in units for the quote.',
+    label: 'Units',
+    target: 'units',
+  },
+  {
+    description: 'Visible panels, fillers, and quote-level board work.',
+    label: 'Panels and fillers',
+    target: 'panels',
+  },
+  {
+    description: 'Cutting rows generated from the quote.',
+    label: 'Cutting list',
+    target: 'cutting-lists',
+  },
+  {
+    description: 'Delivery, installation, accessories, and other add-ons.',
+    label: 'Extras',
+    target: 'extras',
+  },
+]
+
+function isBuildQuoteTab(tab: QuoteWorkspaceTab) {
+  return quoteBuildTargets.includes(tab)
+}
+
+function isQuoteWorkflowStepActive(target: QuoteWorkspaceTab, activeTab: QuoteWorkspaceTab) {
+  if (target === 'units') return isBuildQuoteTab(activeTab)
+  return activeTab === target
+}
+
+function quoteWorkspaceTitle(activeTab: QuoteWorkspaceTab) {
+  if (isBuildQuoteTab(activeTab)) return 'Build quote'
+  if (activeTab === 'readiness') return 'Check quote'
+  if (activeTab === 'pricing') return 'Review price'
+  if (activeTab === 'outputs') return 'Customer and workshop outputs'
+  if (activeTab === 'production') return 'Production handoff'
+  return 'Build quote'
+}
+
+function quoteWorkspaceDescription(activeTab: QuoteWorkspaceTab) {
+  if (isBuildQuoteTab(activeTab)) return 'Add the units, panels, cutting list details, and extras that make up this quote.'
+  if (activeTab === 'readiness') return 'Check whether this quote is complete enough to trust and see the next action to take.'
+  if (activeTab === 'pricing') return 'Review this quote price setup, missing prices, and priced line breakdown.'
+  if (activeTab === 'outputs') return 'Review client and workshop outputs before generating documents.'
+  if (activeTab === 'production') return 'Review grouped workshop rows with stable part traceability.'
+  return 'Choose the next quoting task.'
 }
 
 type BulkUnitGridRow = UnitDraft & {
@@ -2070,6 +2176,47 @@ export function ProjectsQuotesPage({
     }
   }
 
+  function openQuoteWorkspaceTab(target: QuoteWorkspaceTab) {
+    if (target === 'pricing') {
+      openQuotePricingTab()
+      return
+    }
+    if (target === 'outputs') {
+      openQuoteOutputsTab()
+      return
+    }
+    if (target === 'production') {
+      openQuoteProductionTab()
+      return
+    }
+    if (target === 'panels') {
+      openQuotePanelsTab()
+      return
+    }
+    if (target === 'cutting-lists') {
+      openQuoteCuttingListTab()
+      return
+    }
+    if (target === 'extras') {
+      setActiveProjectTab('quotes')
+      setActiveQuoteTab('extras')
+      if (selectedQuoteId) {
+        void loadQuoteExtras(selectedQuoteId)
+      }
+      return
+    }
+    if (target === 'readiness') {
+      setActiveProjectTab('quotes')
+      setActiveQuoteTab('readiness')
+      if (selectedQuoteId) {
+        void loadQuoteReadiness(selectedQuoteId)
+      }
+      return
+    }
+    setActiveProjectTab('quotes')
+    setActiveQuoteTab('units')
+  }
+
   function handleReadinessAction(check: QuoteReadinessCheck) {
     if (check.action_target === 'project') {
       if (selectedProject) openEditProjectModal(selectedProject)
@@ -2962,21 +3109,26 @@ export function ProjectsQuotesPage({
       {currentView === 'projects' ? (
         <Card>
           <CardHeader className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle>Projects</CardTitle>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle>Projects and quotes</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Open a recent job, search by customer or address, or create a new project for the work you are quoting.
+                </p>
+              </div>
               <Button onClick={openCreateProjectModal} size="sm" type="button">
                 <Plus className="h-4 w-4" aria-hidden="true" />
-                New
+                New project
               </Button>
             </div>
-            <div className="flex gap-2">
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
               <Input
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search projects"
+                placeholder="Search projects, customers, or addresses"
                 value={search}
               />
               <Button onClick={() => void loadProjects(search)} type="button" variant="outline">
-                Find
+                Search
               </Button>
             </div>
           </CardHeader>
@@ -2989,53 +3141,49 @@ export function ProjectsQuotesPage({
             ) : projects.length > 0 ? (
               projects.map((project) => (
                 <div
-                  className="rounded-[var(--card-radius)] border border-border bg-card p-3 transition hover:border-primary/50"
+                  className="rounded-[var(--card-radius)] border border-border bg-card p-3 transition hover:border-primary/40"
                   key={project.id}
-                  onClick={() => openProjectWorkspace(project.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      openProjectWorkspace(project.id)
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">{project.name}</p>
                       <p className="truncate text-xs text-muted-foreground">{project.client || 'No client'}</p>
                     </div>
-                    <Badge variant="outline">{project.quote_count} quotes</Badge>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Badge variant="outline">{project.quote_count} {project.quote_count === 1 ? 'quote' : 'quotes'}</Badge>
+                      <Button onClick={() => openProjectWorkspace(project.id)} size="sm" type="button">
+                        Open project
+                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </div>
                   </div>
                   <p className="mt-2 truncate text-xs text-muted-foreground">{project.address || 'No address'}</p>
-                  <div className="mt-3 flex items-center justify-end gap-2">
-                    <Button
-                      aria-label="Edit project"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        openEditProjectModal(project)
-                      }}
-                      size="icon"
-                      title="Edit project"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Pencil className="h-4 w-4" aria-hidden="true" />
-                    </Button>
-                    <Button
-                      aria-label="Delete project"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        void handleDeleteProject(project.id)
-                      }}
-                      size="icon"
-                      title="Delete project"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    </Button>
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-2">
+                    <p className="text-xs text-muted-foreground">Project actions</p>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        aria-label="Edit project"
+                        className="text-muted-foreground"
+                        onClick={() => openEditProjectModal(project)}
+                        size="icon"
+                        title="Edit project"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                      <Button
+                        aria-label="Delete project"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => void handleDeleteProject(project.id)}
+                        size="icon"
+                        title="Delete project"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))
@@ -3054,7 +3202,7 @@ export function ProjectsQuotesPage({
                 <div className="flex flex-wrap items-start gap-3">
                   <Button onClick={() => setCurrentView('projects')} type="button" variant="outline">
                     <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                    Projects
+                    Back to projects
                   </Button>
                   <div>
                     <CardTitle className="truncate">{selectedProject?.name ?? 'Project'}</CardTitle>
@@ -3071,28 +3219,29 @@ export function ProjectsQuotesPage({
                 </Button>
               </div>
               <div className="border-t border-border pt-3">
-                <div className="flex flex-wrap items-center gap-1">
-                  <button
-                    aria-pressed={activeProjectTab === 'quotes'}
-                    className={`border-b-2 px-2 py-2 text-xs font-semibold transition-colors ${activeProjectTab === 'quotes' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    onClick={() => {
-                      setActiveProjectTab('quotes')
-                      if (activeQuoteTab === 'pricing') {
-                        setActiveQuoteTab('readiness')
-                      }
-                    }}
-                    type="button"
-                  >
-                    Quotes
-                  </button>
-                  <button
-                    aria-pressed={activeProjectTab === 'pricing'}
-                    className={`border-b-2 px-2 py-2 text-xs font-semibold transition-colors ${activeProjectTab === 'pricing' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                    onClick={openProjectPricingTab}
-                    type="button"
-                  >
-                    Pricing
-                  </button>
+                <div className="grid gap-2">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground">Project workflow</p>
+                  <ControlGroup className="h-auto flex-wrap justify-start" role="tablist" aria-label="Project workflow">
+                    <ControlGroupItem
+                      aria-pressed={activeProjectTab === 'quotes'}
+                      className="h-8 px-3 text-xs"
+                      onClick={() => {
+                        setActiveProjectTab('quotes')
+                        if (activeQuoteTab === 'pricing') {
+                          setActiveQuoteTab('readiness')
+                        }
+                      }}
+                    >
+                      Quote workspace
+                    </ControlGroupItem>
+                    <ControlGroupItem
+                      aria-pressed={activeProjectTab === 'pricing'}
+                      className="h-8 px-3 text-xs"
+                      onClick={openProjectPricingTab}
+                    >
+                      Project pricing
+                    </ControlGroupItem>
+                  </ControlGroup>
                 </div>
               </div>
             </CardHeader>
@@ -3103,14 +3252,14 @@ export function ProjectsQuotesPage({
               {activeProjectTab === 'pricing' ? (
                 <>
                   <CardHeader>
-                    <CardTitle>Pricing</CardTitle>
+                    <CardTitle>Project pricing</CardTitle>
                   </CardHeader>
                   <CardContent className="grid gap-4">
                     <div className="grid gap-1">
                       {[
-                        ['overview', 'Overview'],
-                        ['settings', 'Settings'],
-                        ['quotes', 'Quotes'],
+                        ['overview', 'Project totals'],
+                        ['settings', 'Pricing setup'],
+                        ['quotes', 'Compare quotes'],
                       ].map(([tab, label]) => (
                         <Button
                           className="justify-start"
@@ -3128,7 +3277,8 @@ export function ProjectsQuotesPage({
               ) : (
                 <>
                   <CardHeader>
-                    <CardTitle>Quotes</CardTitle>
+                    <CardTitle>Project quotes</CardTitle>
+                    <p className="text-sm text-muted-foreground">Choose the quote you want to build, check, price, or send to output.</p>
                   </CardHeader>
                   <CardContent className="grid gap-2">
                     {isLoadingQuotes ? (
@@ -3139,23 +3289,11 @@ export function ProjectsQuotesPage({
                     ) : quotes.length > 0 ? (
                       quotes.map((quote) => {
                         const previousRevision = previousQuoteRevisionLabel(quote)
+                        const isSelectedQuote = quote.id === selectedQuoteId
                         return (
                           <div
-                            className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${quote.id === selectedQuoteId ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/50'}`}
+                            className={`w-full rounded-[var(--card-radius)] border p-3 text-left transition ${isSelectedQuote ? 'border-primary bg-primary/5' : 'border-border bg-card hover:border-primary/40'}`}
                             key={quote.id}
-                            onClick={() => {
-                              setSelectedQuoteId(quote.id)
-                              setActiveQuoteTab('readiness')
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault()
-                                setSelectedQuoteId(quote.id)
-                                setActiveQuoteTab('readiness')
-                              }
-                            }}
-                            role="button"
-                            tabIndex={0}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
@@ -3170,66 +3308,73 @@ export function ProjectsQuotesPage({
                                 ) : null}
                                 <p className="mt-1 truncate text-xs text-muted-foreground">{quote.notes || 'No notes'}</p>
                               </div>
+                              {isSelectedQuote ? <Badge variant="outline">Open</Badge> : null}
                             </div>
-                            <div className="mt-2 flex items-center justify-end gap-1">
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
                               <Button
-                                aria-label="Create revision"
-                                disabled={isCreatingQuoteRevision}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void handleCreateQuoteRevision(quote)
+                                onClick={() => {
+                                  setSelectedQuoteId(quote.id)
+                                  setActiveQuoteTab('readiness')
                                 }}
-                                size="icon"
-                                title="Create revision"
+                                size="sm"
                                 type="button"
-                                variant="ghost"
+                                variant={isSelectedQuote ? 'secondary' : 'outline'}
                               >
-                                <GitBranch className="h-4 w-4" aria-hidden="true" />
+                                {isSelectedQuote ? 'Current quote' : 'Open quote'}
+                                <ArrowRight className="h-4 w-4" aria-hidden="true" />
                               </Button>
-                              <Button
-                                aria-label="Duplicate quote"
-                                disabled={duplicatingQuoteId === quote.id}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void handleDuplicateQuote(quote)
-                                }}
-                                size="icon"
-                                title="Duplicate quote"
-                                type="button"
-                                variant="ghost"
-                              >
-                                {duplicatingQuoteId === quote.id ? (
-                                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
-                                ) : (
-                                  <Copy className="h-4 w-4" aria-hidden="true" />
-                                )}
-                              </Button>
-                              <Button
-                                aria-label="Edit quote"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  openEditQuoteModal(quote)
-                                }}
-                                size="icon"
-                                title="Edit quote"
-                                type="button"
-                                variant="ghost"
-                              >
-                                <Pencil className="h-4 w-4" aria-hidden="true" />
-                              </Button>
-                              <Button
-                                aria-label="Delete quote"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void handleDeleteQuote(quote.id)
-                                }}
-                                size="icon"
-                                title="Delete quote"
-                                type="button"
-                                variant="ghost"
-                              >
-                                <Trash2 className="h-4 w-4" aria-hidden="true" />
-                              </Button>
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  aria-label="Create revision"
+                                  className="text-muted-foreground"
+                                  disabled={isCreatingQuoteRevision}
+                                  onClick={() => void handleCreateQuoteRevision(quote)}
+                                  size="icon"
+                                  title="Create revision"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  <GitBranch className="h-4 w-4" aria-hidden="true" />
+                                </Button>
+                                <Button
+                                  aria-label="Duplicate quote"
+                                  className="text-muted-foreground"
+                                  disabled={duplicatingQuoteId === quote.id}
+                                  onClick={() => void handleDuplicateQuote(quote)}
+                                  size="icon"
+                                  title="Duplicate quote"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  {duplicatingQuoteId === quote.id ? (
+                                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" aria-hidden="true" />
+                                  )}
+                                </Button>
+                                <Button
+                                  aria-label="Edit quote"
+                                  className="text-muted-foreground"
+                                  onClick={() => openEditQuoteModal(quote)}
+                                  size="icon"
+                                  title="Edit quote"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                                </Button>
+                                <Button
+                                  aria-label="Delete quote"
+                                  className="text-muted-foreground hover:text-destructive"
+                                  onClick={() => void handleDeleteQuote(quote.id)}
+                                  size="icon"
+                                  title="Delete quote"
+                                  type="button"
+                                  variant="ghost"
+                                >
+                                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         )
@@ -3251,35 +3396,27 @@ export function ProjectsQuotesPage({
                     <CardTitle>
                       {activeProjectTab === 'pricing'
                         ? activePricingTab === 'overview'
-                          ? 'Pricing overview'
+                          ? 'Project totals'
                           : activePricingTab === 'settings'
-                            ? 'Pricing settings'
+                            ? 'Pricing setup'
                             : activePricingTab === 'quotes'
-                              ? 'Quote comparison'
-                              : 'Pricing overview'
+                              ? 'Compare quotes'
+                              : 'Project totals'
                         : selectedQuote
-                          ? selectedQuote.name
+                          ? quoteWorkspaceTitle(activeQuoteTab)
                           : 'Select a quote'}
                     </CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {activeProjectTab === 'pricing'
                         ? activePricingTab === 'overview'
-                          ? 'Project totals and pricing status.'
+                          ? 'Review project totals and pricing status across every quote.'
                           : activePricingTab === 'settings'
-                            ? 'Project defaults and selected quote overrides.'
+                            ? 'Set the project defaults and selected quote overrides used for pricing.'
                             : activePricingTab === 'quotes'
-                              ? 'Compare priced quotes in this project.'
-                              : 'Project totals and pricing status.'
+                              ? 'Compare priced quotes in this project before deciding what to send.'
+                              : 'Review project totals and pricing status across every quote.'
                         : selectedQuote
-                          ? activeQuoteTab === 'pricing'
-                            ? 'Review this quote pricing override and priced line breakdown.'
-                            : activeQuoteTab === 'outputs'
-                              ? 'Review client and workshop outputs before generating.'
-                              : activeQuoteTab === 'production'
-                                ? 'Grouped workshop rows with stable part traceability.'
-                                : activeQuoteTab === 'readiness'
-                                  ? 'Check whether this quote is complete enough to trust.'
-                                  : 'Build this quote using units, panels, cutting lists, and extras.'
+                          ? quoteWorkspaceDescription(activeQuoteTab)
                           : 'Choose a quote from the left pane to begin.'}
                     </p>
                   </div>
@@ -3332,88 +3469,57 @@ export function ProjectsQuotesPage({
                 </div>
                 {activeProjectTab === 'quotes' && selectedQuote ? (
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{selectedQuote.name}</span>
                     <Badge variant={quoteStatusBadgeVariant(selectedQuote.status)}>{quoteStatusLabels[selectedQuote.status]}</Badge>
                     <Badge variant="outline">{quoteRevisionLabel(selectedQuote)}</Badge>
                     {previousQuoteRevisionLabel(selectedQuote) ? <span>{previousQuoteRevisionLabel(selectedQuote)}</span> : null}
                   </div>
                 ) : null}
                 {activeProjectTab === 'quotes' ? (
-                  <div className="border-b border-border">
-                    <div className="flex flex-wrap items-center gap-1">
-                      <button
-                        aria-pressed={activeQuoteTab === 'readiness'}
-                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'readiness' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={() => {
-                          setActiveQuoteTab('readiness')
-                          if (selectedQuoteId) {
-                            void loadQuoteReadiness(selectedQuoteId)
-                          }
-                        }}
-                        type="button"
-                      >
-                        Readiness
-                      </button>
-                      <button
-                        aria-pressed={activeQuoteTab === 'outputs'}
-                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'outputs' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={openQuoteOutputsTab}
-                        type="button"
-                      >
-                        Review outputs
-                      </button>
-                      <button
-                        aria-pressed={activeQuoteTab === 'production'}
-                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'production' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={openQuoteProductionTab}
-                        type="button"
-                      >
-                        Production
-                      </button>
-                      <button
-                        aria-pressed={activeQuoteTab === 'units'}
-                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'units' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={() => setActiveQuoteTab('units')}
-                        type="button"
-                      >
-                        Units
-                      </button>
-                      <button
-                        aria-pressed={activeQuoteTab === 'panels'}
-                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'panels' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={openQuotePanelsTab}
-                        type="button"
-                      >
-                        Panels
-                      </button>
-                      <button
-                        aria-pressed={activeQuoteTab === 'cutting-lists'}
-                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'cutting-lists' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={openQuoteCuttingListTab}
-                        type="button"
-                      >
-                        Cutting Lists
-                      </button>
-                      <button
-                        aria-pressed={activeQuoteTab === 'extras'}
-                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'extras' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={() => {
-                          setActiveQuoteTab('extras')
-                          if (selectedQuoteId) {
-                            void loadQuoteExtras(selectedQuoteId)
-                          }
-                        }}
-                        type="button"
-                      >
-                        Extras
-                      </button>
-                      <button
-                        aria-pressed={activeQuoteTab === 'pricing'}
-                        className={`border-b-2 px-2 py-1 text-xs font-semibold transition-colors ${activeQuoteTab === 'pricing' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-                        onClick={openQuotePricingTab}
-                        type="button"
-                      >
-                        Pricing
-                      </button>
+                  <div className="grid gap-3 border-b border-border pb-3">
+                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5" role="tablist" aria-label="Quote workflow">
+                      {quoteWorkflowSteps.map((step) => {
+                        const Icon = step.icon
+                        const isActive = isQuoteWorkflowStepActive(step.target, activeQuoteTab)
+                        return (
+                          <Button
+                            aria-pressed={isActive}
+                            className="h-auto min-h-24 flex-col items-start justify-start gap-1 whitespace-normal p-3 text-left"
+                            disabled={!selectedQuote}
+                            key={step.target}
+                            onClick={() => openQuoteWorkspaceTab(step.target)}
+                            title={step.description}
+                            type="button"
+                            variant={isActive ? 'secondary' : 'outline'}
+                          >
+                            <span className="flex w-full items-center justify-between gap-2">
+                              <span className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+                                <Icon className="h-4 w-4" aria-hidden="true" />
+                                {`Step ${step.step}`}
+                              </span>
+                            </span>
+                            <span className="text-sm font-semibold text-foreground">{step.label}</span>
+                            <span className="text-xs font-normal leading-4 text-muted-foreground">{step.description}</span>
+                          </Button>
+                        )
+                      })}
+                    </div>
+                    <div className="grid gap-2">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">Build quote details</p>
+                      <ControlGroup className="h-auto flex-wrap justify-start" role="tablist" aria-label="Build quote details">
+                        {quoteBuildTabs.map((tab) => (
+                          <ControlGroupItem
+                            aria-pressed={activeQuoteTab === tab.target}
+                            className="h-8 px-3 text-xs"
+                            disabled={!selectedQuote}
+                            key={tab.target}
+                            onClick={() => openQuoteWorkspaceTab(tab.target)}
+                            title={tab.description}
+                          >
+                            {tab.label}
+                          </ControlGroupItem>
+                        ))}
+                      </ControlGroup>
                     </div>
                   </div>
                 ) : null}
