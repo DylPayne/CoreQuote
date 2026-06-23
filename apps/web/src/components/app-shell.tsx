@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   LogOut,
   Settings,
+  type LucideIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
@@ -16,6 +17,87 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { AppPage } from '@/types/app'
 import type { AuthUser } from '@/types/auth'
+
+type NavItem = {
+  description: string
+  icon: LucideIcon
+  label: string
+  page: AppPage
+}
+
+type NavGroup = {
+  description: string
+  items: NavItem[]
+  label: string
+}
+
+const navigationGroups: NavGroup[] = [
+  {
+    description: 'Open projects, build quotes, check prices, and create outputs.',
+    items: [
+      {
+        description: 'Projects, quotes, units, checks, pricing, outputs, and production handoff.',
+        icon: ClipboardList,
+        label: 'Projects and quotes',
+        page: 'projects',
+      },
+    ],
+    label: 'Daily work',
+  },
+  {
+    description: 'Set up the materials, hardware, suppliers, and prices used in quotes.',
+    items: [
+      {
+        description: 'Boards, hardware, suppliers, extras, pricing setup, and imports.',
+        icon: Building2,
+        label: 'Setup libraries',
+        page: 'libraries',
+      },
+    ],
+    label: 'Setup',
+  },
+  {
+    description: 'Power-user tools for custom cutting rules.',
+    items: [
+      {
+        description: 'Advanced setup for how cabinet units become cutting rows.',
+        icon: Calculator,
+        label: 'Cutlist rules',
+        page: 'cutlist',
+      },
+      {
+        description: 'Test cutting-rule changes before using them on a quote.',
+        icon: CopyPlus,
+        label: 'Rule tester',
+        page: 'cutlist-tester',
+      },
+    ],
+    label: 'Advanced',
+  },
+]
+
+const pageDetails: Record<AppPage, { description: string; title: string }> = {
+  'cutlist': {
+    description: 'Advanced setup for custom cutting rules. Most quotes do not need this page.',
+    title: 'Advanced cutlist rules',
+  },
+  'cutlist-tester': {
+    description: 'Test advanced cutting-rule changes before using them on real quotes.',
+    title: 'Advanced rule tester',
+  },
+  'libraries': {
+    description: 'Set up boards, hardware, suppliers, prices, imports, and quote defaults.',
+    title: 'Setup libraries',
+  },
+  'projects': {
+    description: 'Find jobs, build quotes, check readiness, review pricing, and create outputs.',
+    title: 'Projects and quotes',
+  },
+  'settings': {
+    description: 'Workspace details and appearance controls.',
+    title: 'Settings',
+  },
+}
 
 export function AppShell({
   children,
@@ -33,36 +115,7 @@ export function AppShell({
   user: AuthUser
 }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-  const navItems = [
-    { label: 'Projects', icon: ClipboardList, page: 'projects' as const },
-    { label: 'Libraries', icon: Building2, page: 'libraries' as const },
-    { label: 'Cutlist Rules', icon: Calculator, page: 'cutlist' as const },
-    { label: 'Rule Tester', icon: CopyPlus, page: 'cutlist-tester' as const },
-  ]
-  const pageTitle =
-    currentPage === 'settings'
-      ? 'Settings'
-      : currentPage === 'projects'
-        ? 'Projects'
-      : currentPage === 'libraries'
-        ? 'Libraries'
-      : currentPage === 'cutlist'
-        ? 'Advanced Cutlist Rules'
-        : currentPage === 'cutlist-tester'
-          ? 'Advanced Rule Tester'
-          : 'Projects'
-  const pageDescription =
-    currentPage === 'settings'
-      ? 'Workspace details and appearance controls'
-      : currentPage === 'projects'
-        ? 'Projects, quotes, and unit layouts'
-      : currentPage === 'libraries'
-        ? 'Manage catalog libraries and pricing'
-      : currentPage === 'cutlist'
-        ? 'Power-user setup for how units become cutting rows'
-        : currentPage === 'cutlist-tester'
-          ? 'Test cutting-rule changes before using them on quotes'
-          : user.company_name
+  const pageDetail = pageDetails[currentPage] ?? pageDetails.projects
 
   return (
     <div className="min-h-screen">
@@ -100,21 +153,44 @@ export function AppShell({
           ) : null}
         </div>
 
-        <nav className="flex-1 space-y-1 px-2 py-3">
-          {navItems.map((item) => (
-            <Button
-              aria-label={isSidebarCollapsed ? item.label : undefined}
-              aria-pressed={item.page === currentPage}
-              className={isSidebarCollapsed ? 'h-10 justify-center px-0' : 'h-9 px-3'}
-              key={item.page}
-              onClick={() => setCurrentPage(item.page)}
-              title={isSidebarCollapsed ? item.label : undefined}
-              type="button"
-              variant={item.page === currentPage ? 'navActive' : 'nav'}
-            >
-              <item.icon className="h-4 w-4" aria-hidden="true" />
-              {isSidebarCollapsed ? <span className="sr-only">{item.label}</span> : item.label}
-            </Button>
+        <nav className="flex-1 space-y-4 px-2 py-3" aria-label="Main navigation">
+          {navigationGroups.map((group) => (
+            <section className="space-y-1" key={group.label} aria-labelledby={`desktop-nav-${group.label.toLowerCase().replaceAll(' ', '-')}`}>
+              {!isSidebarCollapsed ? (
+                <div className="px-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-normal text-muted-foreground" id={`desktop-nav-${group.label.toLowerCase().replaceAll(' ', '-')}`}>
+                    {group.label}
+                  </h2>
+                  <p className="mt-0.5 text-xs leading-4 text-muted-foreground">{group.description}</p>
+                </div>
+              ) : (
+                <h2 className="sr-only" id={`desktop-nav-${group.label.toLowerCase().replaceAll(' ', '-')}`}>{group.label}</h2>
+              )}
+              <div className="space-y-1">
+                {group.items.map((item) => (
+                  <Button
+                    aria-label={isSidebarCollapsed ? `${group.label}: ${item.label}` : undefined}
+                    aria-pressed={item.page === currentPage}
+                    className={isSidebarCollapsed ? 'h-10 justify-center px-0' : 'h-auto items-start px-3 py-2 text-left'}
+                    key={item.page}
+                    onClick={() => setCurrentPage(item.page)}
+                    title={isSidebarCollapsed ? `${group.label}: ${item.label}` : item.description}
+                    type="button"
+                    variant={item.page === currentPage ? 'navActive' : 'nav'}
+                  >
+                    <item.icon className="mt-0.5 h-4 w-4" aria-hidden="true" />
+                    {isSidebarCollapsed ? (
+                      <span className="sr-only">{item.label}</span>
+                    ) : (
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-foreground">{item.label}</span>
+                        <span className="mt-0.5 block whitespace-normal text-xs font-normal leading-4 text-muted-foreground">{item.description}</span>
+                      </span>
+                    )}
+                  </Button>
+                ))}
+              </div>
+            </section>
           ))}
         </nav>
 
@@ -153,8 +229,8 @@ export function AppShell({
       <div className={`overflow-x-hidden transition-[padding] duration-200 ${isSidebarCollapsed ? 'lg:pl-16' : 'lg:pl-64'}`}>
         <header className="sticky top-0 z-10 flex min-h-14 items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-2 backdrop-blur md:px-6">
           <div>
-            <h1 className="text-lg font-semibold">{pageTitle}</h1>
-            <p className="hidden text-sm text-muted-foreground sm:block">{pageDescription}</p>
+            <h1 className="text-lg font-semibold">{pageDetail.title}</h1>
+            <p className="hidden text-sm text-muted-foreground sm:block">{pageDetail.description}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -179,20 +255,33 @@ export function AppShell({
           </div>
         </header>
 
-        <nav className="grid grid-cols-4 gap-2 border-b border-border bg-background px-4 py-2 lg:hidden">
-          {navItems.map((item) => (
-            <Button
-              aria-pressed={item.page === currentPage}
-              className="h-9 justify-center gap-1 px-1 text-xs"
-              key={item.page}
-              onClick={() => setCurrentPage(item.page)}
-              size="sm"
-              type="button"
-              variant={item.page === currentPage ? 'navActive' : 'nav'}
-            >
-              <item.icon className="h-4 w-4" aria-hidden="true" />
-              <span className="truncate">{item.label}</span>
-            </Button>
+        <nav className="grid gap-2 border-b border-border bg-background px-4 py-2 lg:hidden" aria-label="Main navigation">
+          {navigationGroups.map((group) => (
+            <section className="grid gap-1" key={group.label} aria-labelledby={`mobile-nav-${group.label.toLowerCase().replaceAll(' ', '-')}`}>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold uppercase tracking-normal text-muted-foreground" id={`mobile-nav-${group.label.toLowerCase().replaceAll(' ', '-')}`}>
+                  {group.label}
+                </h2>
+                {group.label === 'Advanced' ? <Badge variant="outline">Power users</Badge> : null}
+              </div>
+              <div className={`grid gap-2 ${group.items.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                {group.items.map((item) => (
+                  <Button
+                    aria-pressed={item.page === currentPage}
+                    className="h-10 justify-start gap-2 px-2 text-xs"
+                    key={item.page}
+                    onClick={() => setCurrentPage(item.page)}
+                    size="sm"
+                    title={item.description}
+                    type="button"
+                    variant={item.page === currentPage ? 'navActive' : 'nav'}
+                  >
+                    <item.icon className="h-4 w-4" aria-hidden="true" />
+                    <span className="truncate">{item.label}</span>
+                  </Button>
+                ))}
+              </div>
+            </section>
           ))}
         </nav>
 
