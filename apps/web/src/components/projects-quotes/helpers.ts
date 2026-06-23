@@ -71,11 +71,12 @@ export function unitPayloadFromDraft(draft: UnitDraft) {
     slide_id: isDrawer ? slideId : null,
     hinge_id: isHinged ? hingeId : null,
     extra_params: isDrawer
-      ? drawerExtraParamsFromDraft(draft, numDrawers)
+      ? { ...drawerExtraParamsFromDraft(draft, numDrawers), ...drawerChannelExtraParamsFromDraft(draft, numDrawers) }
       : {
           num_doors: parsePositiveInteger(draft.num_doors, 2),
           num_shelves: parseNonNegativeInteger(draft.num_shelves, 1),
           ...(isHinged && hingeId ? { hinge_id: hingeId } : {}),
+          ...(isHinged ? doorProfileExtraParamsFromDraft(draft, unitType) : {}),
         },
   }
 }
@@ -105,6 +106,37 @@ function drawerExtraParamsFromDraft(draft: UnitDraft, numDrawers: number) {
   return extraParams
 }
 
+function drawerChannelExtraParamsFromDraft(draft: UnitDraft, numDrawers: number) {
+  const extraParams: Record<string, unknown> = {}
+  const topJ = optionalId(draft.top_j_channel_handle_id)
+  if (topJ && [1, 2, 3].includes(numDrawers)) {
+    extraParams.top_j_channel_handle_id = topJ
+  }
+  const middleC = optionalId(draft.middle_c_channel_handle_id)
+  if (middleC && numDrawers === 2) {
+    extraParams.middle_c_channel_handle_id = middleC
+  }
+  const lowerC = optionalId(draft.between_lower_c_channel_handle_id)
+  if (lowerC && numDrawers === 3) {
+    extraParams.between_lower_c_channel_handle_id = lowerC
+  }
+  return extraParams
+}
+
+function doorProfileExtraParamsFromDraft(draft: UnitDraft, unitType: string) {
+  const extraParams: Record<string, unknown> = {}
+  if (isBaseDoorUnitType(unitType)) {
+    const topJ = optionalId(draft.base_door_top_j_channel_handle_id)
+    if (topJ) extraParams.base_door_top_j_channel_handle_id = topJ
+  }
+  if (isTallUnitType(unitType)) {
+    const verticalChannel = optionalId(draft.tall_vertical_channel_handle_id)
+    if (verticalChannel) extraParams.tall_vertical_channel_handle_id = verticalChannel
+  }
+  extraParams.full_length_handle_orientation = draft.full_length_handle_orientation === 'width' ? 'width' : 'length'
+  return extraParams
+}
+
 export function isDrawerUnitType(unitType: string): boolean {
   return unitType.toLowerCase().includes('draw')
 }
@@ -112,6 +144,15 @@ export function isDrawerUnitType(unitType: string): boolean {
 export function isHingedUnitType(unitType: string): boolean {
   const value = unitType.toLowerCase()
   return value.includes('door') || value.includes('hinge') || value.startsWith('tall')
+}
+
+export function isBaseDoorUnitType(unitType: string): boolean {
+  const value = unitType.toLowerCase()
+  return value.includes('base') && value.includes('door')
+}
+
+export function isTallUnitType(unitType: string): boolean {
+  return unitType.toLowerCase().startsWith('tall')
 }
 
 function drawerSplitMode(value: DrawerSplitMode | string): DrawerSplitMode {
@@ -301,8 +342,14 @@ export function formatExtraParams(extra: Record<string, unknown>): string {
   const entries = Object.entries(extra)
   if (entries.length === 0) return '-'
   return entries
-    .map(([key, value]) => `${key}:${String(value)}`)
+    .map(([key, value]) => `${key}:${formatExtraValue(value)}`)
     .join(', ')
+}
+
+function formatExtraValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
 }
 
 export function optionalId(value: string): string | null {

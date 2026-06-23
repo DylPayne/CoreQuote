@@ -4,6 +4,8 @@ import math
 from collections.abc import Mapping
 from typing import Any, Literal
 
+from corequote_core.channel_handles import channel_front_validation_messages
+
 
 CutlistWarningSection = Literal["carcass", "panel", "hardware", "extra_panel"]
 
@@ -53,6 +55,7 @@ def validate_cutlist_preview(
 
     warnings.extend(_slide_depth_warnings(quote=quote or {}, units=units or [], slide_lookup=slide_lookup or {}))
     warnings.extend(_drawer_system_warnings(quote=quote or {}, units=units or [], slide_lookup=slide_lookup or {}))
+    warnings.extend(_channel_handle_warnings(units=units or []))
     return warnings
 
 
@@ -269,6 +272,24 @@ def _drawer_system_warnings(
                     "unit_number": _int_value(unit.get("unit_number")),
                     "section": "hardware",
                     "row_desc": label,
+                    "reason": message,
+                }
+            )
+    return warnings
+
+
+def _channel_handle_warnings(*, units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    for unit in units:
+        unit_type_key = str(unit.get("unit_type_key") or unit.get("unit_type") or "")
+        for message in channel_front_validation_messages(unit, unit_type_key=unit_type_key):
+            warnings.append(
+                {
+                    "severity": "warning",
+                    "source": "unit",
+                    "unit_number": _int_value(unit.get("unit_number")),
+                    "section": "hardware",
+                    "row_desc": "Channel handle profile",
                     "reason": message,
                 }
             )

@@ -1,4 +1,4 @@
-import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemFormulaRow, DrawerSystemKind, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideMountType, SlideRangeDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemFormulaRow, DrawerSystemKind, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HandleType, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideMountType, SlideRangeDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
 export { formatCurrencyFromCents } from '@/lib/currency'
 
 export function formatBoardLabel(row: BoardTypeRow) {
@@ -34,7 +34,15 @@ export function formatHingeLabel(row: HingeRow) {
 }
 
 export function formatHandleLabel(row: HandleRow) {
-  return row.supplier ? `${row.name} (${row.supplier})` : row.name
+  const typeSuffix = row.handle_type && row.handle_type !== 'standard' ? ` · ${formatHandleType(row.handle_type)}` : ''
+  return `${row.supplier_name ? `${row.name} (${row.supplier_name})` : row.name}${typeSuffix}`
+}
+
+export function formatHandleType(value: HandleType) {
+  if (value === 'full_length') return 'Full length'
+  if (value === 'c_channel') return 'C channel'
+  if (value === 'j_channel') return 'J channel'
+  return 'Standard'
 }
 
 export function formatExtraLabel(row: ExtraRow) {
@@ -423,10 +431,16 @@ export function buildHandlePayload(draft: HandleDraft | HandleRow) {
   if (!name) {
     return null
   }
+  const handleType = draft.handle_type === 'full_length' || draft.handle_type === 'c_channel' || draft.handle_type === 'j_channel'
+    ? draft.handle_type
+    : 'standard'
+  const rawReduction = typeof draft.front_reduction_mm === 'number' ? draft.front_reduction_mm : Number(draft.front_reduction_mm)
+  const frontReductionMm = Number.isFinite(rawReduction) && rawReduction > 0 ? Math.floor(rawReduction) : 0
   return {
     name,
-    supplier: draft.supplier.trim(),
-    code: draft.code.trim(),
+    supplier_id: draft.supplier_id || null,
+    handle_type: handleType,
+    front_reduction_mm: handleType === 'standard' ? 0 : frontReductionMm,
   }
 }
 

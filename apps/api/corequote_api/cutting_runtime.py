@@ -11,6 +11,12 @@ import psycopg
 from psycopg.rows import dict_row
 
 from corequote_api.cutlist_validation import preview_with_validation
+from corequote_core.channel_handles import (
+    adjust_door_front_dimensions,
+    adjust_drawer_front_heights,
+    channel_profile_rows_for_unit,
+    full_length_profile_rows_for_unit,
+)
 from corequote_core.cutlist import build_cutlist
 
 
@@ -381,6 +387,7 @@ class CutlistRuntimeService:
                     unit_type_key=unit_type_key,
                     carcass_rows=carcass_rows,
                     panel_rows=panel_rows,
+                    hardware_rows=hardware_rows,
                     runtime_rows=runtime_rows,
                     unit_sources=unit_sources,
                 )
@@ -400,6 +407,7 @@ class CutlistRuntimeService:
                     unit_type_key=unit_type_key,
                     carcass_rows=carcass_rows,
                     panel_rows=panel_rows,
+                    hardware_rows=hardware_rows,
                     runtime_rows=runtime_rows,
                     unit_sources=unit_sources,
                     note="No active ruleset found; used legacy strategy output.",
@@ -413,6 +421,7 @@ class CutlistRuntimeService:
                     unit_type_key=unit_type_key,
                     carcass_rows=carcass_rows,
                     panel_rows=panel_rows,
+                    hardware_rows=hardware_rows,
                     runtime_rows=runtime_rows,
                     unit_sources=unit_sources,
                     note="Split drawer fronts use legacy strategy output.",
@@ -432,12 +441,14 @@ class CutlistRuntimeService:
                     rows=ruleset.get("rows", []),
                     context=context,
                 )
+                generated_rows = _apply_channel_to_generated_panel_rows(generated_rows, unit=unit, unit_type_key=unit_type_key)
             except CuttingRuntimeError as exc:
                 self._append_legacy_unit_rows(
                     unit=unit,
                     unit_type_key=unit_type_key,
                     carcass_rows=carcass_rows,
                     panel_rows=panel_rows,
+                    hardware_rows=hardware_rows,
                     runtime_rows=runtime_rows,
                     unit_sources=unit_sources,
                     note=f"Ruleset runtime evaluation failed: {exc}",
@@ -464,6 +475,13 @@ class CutlistRuntimeService:
                 elif row["section"] == "extra_panel":
                     extra_rows.append(compact)
 
+            self._append_channel_profile_rows(
+                unit=unit,
+                unit_type_key=unit_type_key,
+                hardware_rows=hardware_rows,
+                runtime_rows=runtime_rows,
+            )
+
             unit_sources.append(
                 {
                     "unit_number": unit_number,
@@ -486,7 +504,7 @@ class CutlistRuntimeService:
             "runtime_mode": runtime_mode,
             "unit_sources": unit_sources,
         }
-        return preview_with_validation(preview)
+        return preview_with_validation(preview, units=units)
 
     def _append_metal_drawer_system_rows(
         self,
@@ -552,6 +570,13 @@ class CutlistRuntimeService:
                 extra_rows=extra_rows,
                 runtime_rows=runtime_rows,
             )
+
+        self._append_channel_profile_rows(
+            unit=unit,
+            unit_type_key=unit_type_key,
+            hardware_rows=hardware_rows,
+            runtime_rows=runtime_rows,
+        )
 
         config = _drawer_system_config(unit)
         try:
@@ -623,6 +648,7 @@ class CutlistRuntimeService:
         unit_type_key: str,
         carcass_rows: list[dict],
         panel_rows: list[dict],
+        hardware_rows: list[dict],
         runtime_rows: list[dict],
         unit_sources: list[dict],
         note: str | None = None,
@@ -677,6 +703,13 @@ class CutlistRuntimeService:
                 }
             )
 
+        self._append_channel_profile_rows(
+            unit=unit,
+            unit_type_key=unit_type_key,
+            hardware_rows=hardware_rows,
+            runtime_rows=runtime_rows,
+        )
+
         unit_sources.append(
             {
                 "unit_number": unit_number,
@@ -687,6 +720,55 @@ class CutlistRuntimeService:
                 "note": note,
             }
         )
+
+    def _append_channel_profile_rows(
+        self,
+        *,
+        unit: dict,
+        unit_type_key: str,
+        hardware_rows: list[dict],
+        runtime_rows: list[dict],
+    ) -> None:
+        extra_params = unit.get("extra_params", {}) or {}
+        if not isinstance(extra_params, Mapping):
+            return
+        num_fronts = _channel_num_fronts(unit=unit, unit_type_key=unit_type_key)
+        is_pantry = str(unit.get("unit_type") or unit.get("unit_type_key") or "") == "Tall Pantry"
+        compact_rows = [
+            *channel_profile_rows_for_unit(
+                unit_number=int(unit["unit_number"]),
+                unit_type_key=unit_type_key,
+                height=int(unit["height"]),
+                width=int(unit["width"]),
+                num_fronts=num_fronts,
+                profile_params=extra_params,
+                is_pantry=is_pantry,
+            ),
+            *full_length_profile_rows_for_unit(
+                unit_number=int(unit["unit_number"]),
+                unit_type_key=unit_type_key,
+                unit_height=int(unit["height"]),
+                unit_width=int(unit["width"]),
+                num_doors=num_fronts,
+                gap_mm=3,
+                profile_params=extra_params,
+                is_pantry=is_pantry,
+            ),
+        ]
+        for compact in compact_rows:
+            hardware_rows.append(compact)
+            runtime_rows.append(
+                {
+                    **compact,
+                    "section": "hardware",
+                    "edge_long_1": False,
+                    "edge_long_2": False,
+                    "edge_short_1": False,
+                    "edge_short_2": False,
+                    "grain_direction": "none",
+                    "can_rotate": True,
+                }
+            )
 
     def _append_runtime_row(
         self,
@@ -766,6 +848,8 @@ class CutlistRuntimeService:
         num_drawers = int(context["num_drawers"])
         panel_gap_mm = int(context["panel_gap_mm"])
         drawer_front_height = int((height / num_drawers) - panel_gap_mm) if num_drawers > 0 else 0
+        if num_drawers > 0:
+            drawer_front_height = adjust_drawer_front_heights([drawer_front_height] * num_drawers, extra_params)[0]
         drawer_front_back_height = max(0, drawer_front_height - 100)
         side_height_uplift = int(_number_or_default(extra_params.get("slide_side_height_uplift"), 0))
         drawer_side_height = max(0, drawer_front_back_height + side_height_uplift)
@@ -781,6 +865,17 @@ class CutlistRuntimeService:
         context["slide_box_width_deduction_mm"] = drawer_width_deduction
         context["inner_w"] = max(0, width - (2 * thickness))
         context["inner_h"] = max(0, height - (2 * thickness))
+        door_front_height, door_front_width = adjust_door_front_dimensions(
+            unit_height=height,
+            unit_width=width,
+            num_doors=int(context["num_doors"]),
+            gap_mm=panel_gap_mm,
+            profile_params=extra_params,
+            unit_type_key=unit_type_key,
+            is_pantry=str(unit.get("unit_type") or unit.get("unit_type_key") or "") == "Tall Pantry",
+        )
+        context["door_front_height"] = door_front_height
+        context["door_front_width"] = door_front_width
         return context
 
     def _evaluate_ruleset_rows(
@@ -975,6 +1070,58 @@ def _has_split_drawer_faces(unit: Mapping[str, Any], unit_type_key: str) -> bool
     if not isinstance(extra_params, Mapping):
         return False
     return isinstance(extra_params.get("drawer_face_heights"), list) or isinstance(extra_params.get("drawer_face_ratios"), list)
+
+
+def _apply_channel_to_generated_panel_rows(rows: list[dict], *, unit: Mapping[str, Any], unit_type_key: str) -> list[dict]:
+    extra_params = unit.get("extra_params", {}) or {}
+    if not isinstance(extra_params, Mapping):
+        return rows
+
+    canonical = canonical_unit_type_key(unit_type_key)
+    height = int(_number_or_default(unit.get("height"), 0))
+    width = int(_number_or_default(unit.get("width"), 0))
+    if canonical == "Base Draw":
+        num_drawers = int(_number_or_default(extra_params.get("num_drawers"), _default_num_drawers(canonical)))
+        adjusted = adjust_drawer_front_heights([int((height / num_drawers) - 3)] * num_drawers, extra_params) if num_drawers > 0 else [0]
+        drawer_front_height = adjusted[0] if adjusted else 0
+        return [
+            {**row, "length": drawer_front_height}
+            if row.get("section") == "panel" and "drawer front" in str(row.get("desc") or "").lower()
+            else row
+            for row in rows
+        ]
+
+    if canonical in {"Base Door", "Wall Door", "Tall Door"}:
+        num_doors = int(_number_or_default(extra_params.get("num_doors"), _default_num_doors(canonical)))
+        is_pantry = str(unit.get("unit_type") or unit.get("unit_type_key") or "") == "Tall Pantry"
+        door_height, door_width = adjust_door_front_dimensions(
+            unit_height=height,
+            unit_width=width,
+            num_doors=num_doors,
+            gap_mm=3,
+            profile_params=extra_params,
+            unit_type_key=unit_type_key,
+            is_pantry=is_pantry,
+        )
+        return [
+            {**row, "length": door_height, "width": door_width}
+            if row.get("section") == "panel" and "door" in str(row.get("desc") or "").lower()
+            else row
+            for row in rows
+        ]
+    return rows
+
+
+def _channel_num_fronts(*, unit: Mapping[str, Any], unit_type_key: str) -> int:
+    extra_params = unit.get("extra_params", {}) or {}
+    if not isinstance(extra_params, Mapping):
+        extra_params = {}
+    canonical = canonical_unit_type_key(unit_type_key)
+    if canonical == "Base Draw":
+        return int(_number_or_default(extra_params.get("num_drawers"), _default_num_drawers(canonical)))
+    if canonical in {"Base Door", "Wall Door", "Tall Door"}:
+        return int(_number_or_default(extra_params.get("num_doors"), _default_num_doors(canonical)))
+    return 1
 
 
 def _number_or_default(value: Any, fallback: int | float) -> int | float:

@@ -135,3 +135,40 @@ def test_preview_cutlist_resolves_thickness_from_request_board_type():
 
     assert runtime_service.calls[0]["units"][0]["thickness"] == 18
     assert "board_type_id" not in runtime_service.calls[0]["units"][0]
+
+
+def test_preview_cutlist_attaches_selected_profile_handle_lookup():
+    runtime_service = FakeRuntimeService()
+    unit = CutlistUnitRequest.model_validate(
+        {
+            "unit_number": 1,
+            "unit_type": "Base Door",
+            "height": 780,
+            "width": 900,
+            "depth": 580,
+            "board_type_id": "board-18",
+            "extra_params": {
+                "num_doors": 2,
+                "base_door_top_j_channel_handle_id": "handle-j",
+            },
+        }
+    )
+
+    preview_cutlist(
+        [unit],
+        company_id="company-1",
+        runtime_service=runtime_service,
+        use_db_rulesets=False,
+        board_thickness_lookup=lambda _company_id, _board_ids: {"board-18": 18},
+        handle_lookup=lambda _company_id, _handle_ids: {
+            "handle-j": {
+                "id": "handle-j",
+                "name": "J Rail",
+                "handle_type": "j_channel",
+                "front_reduction_mm": 24,
+            }
+        },
+    )
+
+    extra_params = runtime_service.calls[0]["units"][0]["extra_params"]
+    assert extra_params["_profile_handle_lookup"]["handle-j"]["handle_type"] == "j_channel"

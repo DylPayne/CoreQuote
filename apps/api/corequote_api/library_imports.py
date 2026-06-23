@@ -63,8 +63,8 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("brand", "Brand", ("brand", "board brand", "supplier brand", "product brand"), True),
             ImportField("material", "Material", ("material", "board material", "description", "board", "colour"), True),
             ImportField("thickness", "Thickness", ("thickness", "thickness mm", "thickness_mm", "thick"), True),
-            ImportField("length_mm", "Length", ("length", "length mm", "length_mm", "sheet length"), True),
-            ImportField("width_mm", "Width", ("width", "width mm", "width_mm", "sheet width"), True),
+            ImportField("length_mm", "Length (mm)", ("length", "length mm", "length_mm", "sheet length"), True),
+            ImportField("width_mm", "Width (mm)", ("width", "width mm", "width_mm", "sheet width"), True),
             ImportField("costing_mode", "Costing mode", ("costing mode", "costing_mode", "pricing mode")),
             ImportField("grain_policy", "Grain policy", ("grain policy", "grain_policy", "grain", "grain required")),
         ),
@@ -76,8 +76,8 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("brand", "Brand", ("brand", "slide brand", "supplier brand"), True),
             ImportField("model", "Model", ("model", "description", "slide model", "name"), True),
             ImportField("code", "Code", ("code", "sku", "item code", "supplier sku")),
-            ImportField("length", "Length", ("length", "nominal length", "length mm"), True),
-            ImportField("side_length", "Side length", ("side length", "side_length", "runner length")),
+            ImportField("length", "Length (mm)", ("length", "nominal length", "length mm"), True),
+            ImportField("side_length", "Side length (mm)", ("side length", "side_length", "runner length")),
             ImportField("side_clearance_total", "Side clearance", ("side clearance", "side_clearance_total", "clearance")),
             ImportField("side_height_uplift", "Side uplift", ("side uplift", "side_height_uplift", "uplift")),
             ImportField("mount_type", "Mount type", ("mount type", "mount_type", "runner type", "slide type")),
@@ -114,8 +114,10 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
         label="Handles",
         fields=(
             ImportField("name", "Name", ("name", "handle", "description", "model"), True),
-            ImportField("supplier", "Supplier", ("supplier", "supplier name", "vendor")),
-            ImportField("code", "Code", ("code", "sku", "item code", "supplier sku")),
+            ImportField("supplier_id", "Supplier ID", ("supplier id", "supplier_id")),
+            ImportField("supplier_name", "Supplier", ("supplier", "supplier name", "vendor")),
+            ImportField("handle_type", "Handle type", ("handle type", "type", "profile type", "handle_type")),
+            ImportField("front_reduction_mm", "Front reduction (mm)", ("front reduction", "front reduction mm", "front_reduction_mm", "reduction", "allowance", "channel allowance")),
         ),
     ),
     "suppliers": ImportSpec(
@@ -437,7 +439,7 @@ def _normalize_payload(resource: ImportResource, raw: dict[str, Any], references
     if resource == "hinges":
         return _normalize_hinge(raw, problems), problems
     if resource == "handles":
-        return _normalize_handle(raw, problems), problems
+        return _normalize_handle(raw, references, problems), problems
     if resource == "suppliers":
         return _normalize_supplier(raw, problems), problems
     if resource == "extra_categories":
@@ -456,8 +458,8 @@ def _normalize_board(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dic
         "brand": _required_text(raw, "brand", "Brand", problems),
         "material": _required_text(raw, "material", "Material", problems),
         "thickness": _positive_int(raw.get("thickness"), "thickness", "Thickness", problems),
-        "length_mm": _positive_int(raw.get("length_mm"), "length_mm", "Length", problems),
-        "width_mm": _positive_int(raw.get("width_mm"), "width_mm", "Width", problems),
+        "length_mm": _positive_int(raw.get("length_mm"), "length_mm", "Length (mm)", problems),
+        "width_mm": _positive_int(raw.get("width_mm"), "width_mm", "Width (mm)", problems),
         "costing_mode": _text(raw.get("costing_mode")) or "sheet",
         "grain_policy": _normalize_grain_policy(raw.get("grain_policy")),
     }
@@ -469,13 +471,13 @@ def _normalize_board(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dic
 
 
 def _normalize_slide(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dict[str, Any]:
-    length = _non_negative_int(raw.get("length"), "length", "Length", problems)
+    length = _non_negative_int(raw.get("length"), "length", "Length (mm)", problems)
     return {
         "brand": _required_text(raw, "brand", "Brand", problems),
         "model": _required_text(raw, "model", "Model", problems),
         "code": _text(raw.get("code")),
         "length": length,
-        "side_length": _non_negative_int(raw.get("side_length"), "side_length", "Side length", problems, default=length),
+        "side_length": _non_negative_int(raw.get("side_length"), "side_length", "Side length (mm)", problems, default=length),
         "side_clearance_total": _non_negative_int(raw.get("side_clearance_total"), "side_clearance_total", "Side clearance", problems),
         "side_height_uplift": _non_negative_int(raw.get("side_height_uplift"), "side_height_uplift", "Side uplift", problems),
         "mount_type": _normalize_slide_mount_type(raw.get("mount_type"), problems),
@@ -504,11 +506,13 @@ def _normalize_hinge(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dic
     }
 
 
-def _normalize_handle(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dict[str, Any]:
+def _normalize_handle(raw: dict[str, Any], references: dict[str, Any], problems: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "name": _required_text(raw, "name", "Name", problems),
-        "supplier": _text(raw.get("supplier")),
-        "code": _text(raw.get("code")),
+        "supplier_id": _resolve_optional_supplier(raw, references, problems),
+        "supplier_name": _text(raw.get("supplier_name")),
+        "handle_type": _normalize_handle_type(raw.get("handle_type"), problems),
+        "front_reduction_mm": _non_negative_int(raw.get("front_reduction_mm"), "front_reduction_mm", "Front reduction (mm)", problems),
     }
 
 
@@ -704,7 +708,9 @@ def _natural_item_key(item_type: str, raw: dict[str, Any], references: dict[str,
     if item_type == "hinge":
         return _identity("hinges", {"brand": raw.get("brand"), "model": raw.get("model"), "code": raw.get("code")})
     if item_type == "handle":
-        return _identity("handles", {"name": raw.get("model"), "supplier": raw.get("supplier_name"), "code": raw.get("code")})
+        supplier = references["suppliers_by_name"].get(_key(raw.get("supplier_name")))
+        supplier_id = raw.get("supplier_id") or (supplier["id"] if supplier else "")
+        return _identity("handles", {"name": raw.get("model"), "supplier_id": supplier_id})
     if item_type == "extra":
         category_id = ""
         category_name = _text(raw.get("category_name"))
@@ -753,7 +759,7 @@ def _payload_matches(resource: ImportResource, payload: dict[str, Any], existing
             "accessory_config",
         ),
         "hinges": ("brand", "model", "code", "opening_angle_deg", "accessory_config"),
-        "handles": ("name", "supplier", "code"),
+        "handles": ("name", "supplier_id", "handle_type", "front_reduction_mm"),
         "suppliers": ("name", "code", "contact_name", "email", "phone", "notes", "default_discount_bps"),
         "extra_categories": ("name",),
         "extras": ("name", "category_id", "supplier_id", "code", "notes"),
@@ -780,7 +786,7 @@ def _identity(resource: ImportResource, payload: dict[str, Any]) -> str:
     if resource == "hinges":
         return f"hinge:{_key(payload.get('brand'))}:{_key(payload.get('model'))}:{_key(payload.get('code'))}"
     if resource == "handles":
-        return f"handle:{_key(payload.get('name'))}:{_key(payload.get('supplier'))}:{_key(payload.get('code'))}"
+        return f"handle:{_key(payload.get('name'))}:{payload.get('supplier_id') or ''}"
     if resource == "suppliers":
         return f"supplier:{_key(payload.get('name'))}"
     if resource == "extra_categories":
@@ -898,6 +904,32 @@ def _normalize_drawer_system_kind(value: Any, problems: list[dict[str, Any]]) ->
         problems.append(_problem("drawer_system_kind", "invalid_drawer_system_kind", "Drawer system kind must be conventional, metal, or custom.", "Use metal for supplied drawer-side systems."))
         return "conventional"
     return text
+
+
+def _normalize_handle_type(value: Any, problems: list[dict[str, Any]]) -> str:
+    text = _text(value).lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "": "standard",
+        "std": "standard",
+        "normal": "standard",
+        "standard": "standard",
+        "full": "full_length",
+        "full_length": "full_length",
+        "full_length_profile": "full_length",
+        "profile": "full_length",
+        "profile_handle": "full_length",
+        "c": "c_channel",
+        "c_channel": "c_channel",
+        "c_profile": "c_channel",
+        "j": "j_channel",
+        "j_channel": "j_channel",
+        "j_profile": "j_channel",
+    }
+    normalized = aliases.get(text)
+    if normalized is None:
+        problems.append(_problem("handle_type", "invalid_handle_type", "Handle type must be standard, full_length, c_channel, or j_channel.", "Use standard for normal handles, full_length for profile pulls, or c_channel/j_channel for channels."))
+        return "standard"
+    return normalized
 
 
 def _normalize_slide_mount_type(value: Any, problems: list[dict[str, Any]]) -> str:

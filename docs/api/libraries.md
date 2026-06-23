@@ -114,7 +114,7 @@ Request:
   "source_format": "csv",
   "filename": "boards.csv",
   "sheet_name": null,
-  "content": "Brand,Material,Thickness,Length,Width,Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sheet,required\n",
+  "content": "Brand,Material,Thickness,Length (mm),Width (mm),Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sheet,required\n",
   "column_mapping": {
     "thickness": "Thickness"
   },
@@ -128,7 +128,11 @@ preview against; when omitted, the API uses the company's active price list.
 For `supplier_item_costs` and `price_list_items`, natural-key catalog matching
 can use `Brand`, `Material` or `Name`, `Code`, `Category`, and `Supplier`
 columns. Include `Supplier` for handle and extra rows when the catalog item uses
-supplier as part of its identity.
+a supplier relationship as part of its identity.
+
+Handle imports also accept optional `Handle Type` and `Front Reduction (mm)`
+columns. When omitted, imported handles default to `standard` with
+`front_reduction_mm: 0`.
 
 Response:
 
@@ -137,7 +141,7 @@ Response:
   "resource": "boards",
   "source_format": "csv",
   "sheet_name": null,
-  "columns": ["Brand", "Material", "Thickness", "Length", "Width", "Costing Mode"],
+  "columns": ["Brand", "Material", "Thickness", "Length (mm)", "Width (mm)", "Costing Mode"],
   "mapped_fields": [
     {
       "field": "brand",
@@ -213,7 +217,7 @@ Request:
   "filename": "boards.csv",
   "sheet_name": null,
   "source_ref": "Supplier price list June",
-  "content": "Brand,Material,Thickness,Length,Width,Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sqm,optional\n",
+  "content": "Brand,Material,Thickness,Length (mm),Width (mm),Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sqm,optional\n",
   "column_mapping": {},
   "price_list_id": null
 }
@@ -309,7 +313,9 @@ Payload:
   "resource": "handles",
   "item_ids": ["handle-uuid-1", "handle-uuid-2"],
   "updates": {
-    "supplier": "Hafele"
+    "supplier_id": "supplier-uuid",
+    "handle_type": "full_length",
+    "front_reduction_mm": 30
   },
   "confirm": false
 }
@@ -323,7 +329,7 @@ Supported fields:
 - `boards`: `costing_mode`, `grain_policy`
 - `slides`: `brand`, `code`
 - `hinges`: `brand`, `code`
-- `handles`: `supplier`, `code`
+- `handles`: `supplier_id`, `handle_type`, `front_reduction_mm`
 - `extras`: `category_id`, `supplier_id`, `code`, `notes`
 - `suppliers`: `contact_name`, `email`, `phone`, `notes`, `default_discount_bps`
 
@@ -344,7 +350,7 @@ Response:
       "label": "Slim Bar (Hafele)",
       "status": "preview",
       "message": "Will update 1 field.",
-      "changed_fields": ["supplier"]
+      "changed_fields": ["supplier_id"]
     }
   ]
 }
@@ -730,10 +736,28 @@ Resource: `handles`
 ```json
 {
   "name": "Slim Bar 160",
-  "supplier": "Hafele",
-  "code": "HB-160"
+  "supplier_id": "supplier-uuid",
+  "supplier_name": "Hafele",
+  "handle_type": "standard",
+  "front_reduction_mm": 0
 }
 ```
+
+`handle_type` accepts:
+
+- `standard`: normal knob or pull handle.
+- `full_length`: profile handle selected as a door handle and cut to the derived door-front height or width.
+- `c_channel`: C-channel profile selected by compatible drawer, base-door, and tall-unit channel controls.
+- `j_channel`: J-channel profile selected by compatible drawer, base-door, and tall-unit channel controls.
+
+`supplier_id` is an optional relationship to a supplier row in this company.
+Supplier-specific SKUs/codes belong to the supplier item source, not the handle
+row. `supplier_name` is display-only in responses.
+
+`front_reduction_mm` is the library-owned amount, in millimetres, that the
+profile consumes from the front. Standard handles default to
+`front_reduction_mm: 0`. Payloads and imports that omit `handle_type` and
+`front_reduction_mm` are accepted and stored as standard handles.
 
 ### Extra Categories
 

@@ -41,6 +41,7 @@ LibraryImportProblemSeverity = Literal["error", "warning"]
 LibraryEffectiveStatus = Literal["current", "future", "retired"]
 LibraryCatalogBulkResource = Literal["boards", "slides", "hinges", "handles", "extras", "suppliers"]
 LibraryBulkRowStatus = Literal["preview", "updated", "failed"]
+HandleType = Literal["standard", "full_length", "c_channel", "j_channel"]
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
@@ -1641,14 +1642,23 @@ class HandleRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
-    supplier: str = Field(default="", max_length=120)
-    code: str = Field(default="", max_length=120)
+    supplier_id: str | None = Field(default=None, description="Optional supplier UUID in the current company.")
+    handle_type: HandleType = "standard"
+    front_reduction_mm: int = Field(default=0, ge=0, description="Front reduction in millimetres.")
+
+    @field_validator("supplier_id", mode="before")
+    @classmethod
+    def normalize_supplier_id(cls, value: Any) -> Any:
+        if value == "":
+            return None
+        return value
 
 
 class HandleResponse(HandleRequest):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    supplier_name: str = ""
     created_at: datetime
     updated_at: datetime
 

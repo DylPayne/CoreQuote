@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from corequote_core.models import Board, Slide
 from corequote_core.units.base import CabinetUnit
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 
 # ── Base Units ─────────────────────────────────────────────────────────────────
@@ -43,6 +43,7 @@ class DrawerUnit(CabinetUnit):
         num_drawers: int = 3,
         drawer_face_ratios: Sequence[float] | None = None,
         drawer_face_heights: Sequence[int] | None = None,
+        profile_handles: Mapping[str, Any] | None = None,
         thickness: int = 16,
     ) -> None:
         super().__init__(h, w, d, thickness)
@@ -50,6 +51,7 @@ class DrawerUnit(CabinetUnit):
         self.slide = slide
         self.drawer_face_ratios = list(drawer_face_ratios) if drawer_face_ratios is not None else None
         self.drawer_face_heights = [int(v) for v in drawer_face_heights] if drawer_face_heights is not None else None
+        self.profile_handles = dict(profile_handles or {})
 
     @property
     def unit_type_key(self) -> str:
@@ -91,11 +93,13 @@ class DoorUnit(CabinetUnit):
         d: int,
         num_doors: int = 2,
         num_shelves: int = 1,
+        profile_handles: Mapping[str, Any] | None = None,
         thickness: int = 16,
     ) -> None:
         super().__init__(h, w, d, thickness)
         self.num_doors = num_doors
         self.num_shelves = num_shelves
+        self.profile_handles = dict(profile_handles or {})
 
     @property
     def unit_type_key(self) -> str:
@@ -123,11 +127,13 @@ class WallUnit(CabinetUnit):
         d: int,
         num_doors: int = 2,
         num_shelves: int = 1,
+        profile_handles: Mapping[str, Any] | None = None,
         thickness: int = 16,
     ) -> None:
         super().__init__(h, w, d, thickness)
         self.num_doors = num_doors
         self.num_shelves = num_shelves
+        self.profile_handles = dict(profile_handles or {})
 
     @property
     def unit_type_key(self) -> str:
@@ -154,12 +160,14 @@ class TallUnit(CabinetUnit):
         num_doors: int = 2,
         num_shelves: int = 4,
         is_pantry: bool = False,
+        profile_handles: Mapping[str, Any] | None = None,
         thickness: int = 16,
     ) -> None:
         super().__init__(h, w, d, thickness)
         self.num_doors = num_doors
         self.num_shelves = num_shelves
         self.is_pantry = is_pantry
+        self.profile_handles = dict(profile_handles or {})
 
     @property
     def unit_type_key(self) -> str:

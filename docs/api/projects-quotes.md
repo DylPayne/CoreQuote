@@ -178,8 +178,9 @@ internal hardware catalog snapshot for the selected slides, hinges, handles,
 extras, and configured accessory bundles used by that quote. Non-draft quote
 outputs use that frozen hardware snapshot so later library edits do not change
 the historical hardware pick list, pricing lines, or hardware-driven drawer
-cutting behavior. Moving a quote back to `draft` clears the snapshot and makes
-the quote use the live libraries again.
+and profile cutting behavior. Channel and full-length profile handle IDs stored
+on units are captured as normal handle catalog rows. Moving a quote back to
+`draft` clears the snapshot and makes the quote use the live libraries again.
 
 Duplicating a quote:
 
@@ -261,6 +262,18 @@ Request payload (`POST` / `PATCH`):
 `thickness` is not accepted in unit create/update requests. The API resolves it from the unit `carcass_board_type_id`, falling back to the quote `default_carcass_board_type_id` when the unit does not override the carcass board. An effective carcass board is required.
 
 `slide_id` and `hinge_id` are unit-level hardware selectors. Drawer units store `slide_id` as an `extra_params` override, and door/hinged units store `hinge_id` as an `extra_params` override. Empty values fall back to the quote default. Drawer units are rejected when the effective slide required depth is greater than the unit carcass depth; for example, a selected 500 mm slide or a runner with `required_depth_mm: 510` requires a carcass depth of at least that value internally.
+
+Channel and full-length profile selections also live in `extra_params`, but only
+as handle IDs and placement/orientation values. The Handles library item owns
+`supplier_id`, display-only `supplier_name`, `handle_type`, and
+`front_reduction_mm`.
+
+- `top_j_channel_handle_id`: Base 1/2/3 Draw top J-channel.
+- `middle_c_channel_handle_id`: Base 2 Draw middle C-channel.
+- `between_lower_c_channel_handle_id`: Base 3 Draw between-lower-drawers C-channel.
+- `base_door_top_j_channel_handle_id`: Base Door top J-channel.
+- `tall_vertical_channel_handle_id`: Tall-unit vertical C/J-channel.
+- `full_length_handle_orientation`: `length` for a vertical full-length door profile, or `width` for a horizontal full-length door profile.
 
 Response shape:
 
@@ -445,6 +458,11 @@ Permission: `quotes:read`
 This endpoint builds a live cutting list from the persisted quote units. It uses the same runtime engine as `POST /api/v1/cutlists/preview`, including ruleset runtime when `CUTLIST_USE_DB_RULESETS` is enabled.
 
 The `extras` collection also includes quote-level custom panel rows (for example side panels/fillers, kickers, pelmets, and manual panel rows) generated from the saved quote panel configuration.
+
+When a unit selects a C/J channel or a full-length profile handle, the selected
+handle library row appears in `hardware`. For profile rows, `width` is the cut
+length stored in the workshop `W` column, while `length` carries the selected
+handle's `front_reduction_mm` for traceability.
 
 Response shape:
 
@@ -1579,9 +1597,10 @@ Each quote also includes `hardware_pick_list` for workshop or purchasing review.
 It groups slide, hinge, handle, and selected quote-extra quantities by catalog
 item, preserves stable `item_ref_id` values for future supplier ordering, and
 lists affected unit labels where available. Slide and hinge `supplier` values
-come from their catalog brand; handle and extra `supplier` values come from the
-supplier field. The pick list intentionally excludes price, sell, profit, and
-margin fields. Required and enabled accessory bundle rows are included in
+come from their catalog brand; handle `supplier` values come from the selected
+handle's supplier relationship, and extra `supplier` values come from the
+selected extra's supplier relationship. The pick list intentionally excludes
+price, sell, profit, and margin fields. Required and enabled accessory bundle rows are included in
 `hardware_pick_list.items`; optional accessories that are not enabled are visible
 in `hardware_pick_list.optional_items` and are not included in pick quantities or
 pricing totals. Missing slide, hinge, handle, or stale catalog choices appear in

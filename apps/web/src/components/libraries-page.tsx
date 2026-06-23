@@ -49,7 +49,7 @@ import type { HardwareAccessoryOptions } from '@/components/libraries/tables'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideMountType, SlideRangeCreateResponse, SlideRangeDraft, SlideRangeLengthDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HandleType, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideMountType, SlideRangeCreateResponse, SlideRangeDraft, SlideRangeLengthDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -59,6 +59,13 @@ const generationTypeOptions: Array<{ label: string; value: PriceItemType }> = [
   { label: 'Handles', value: 'handle' },
   { label: 'Extras', value: 'extra' },
   { label: 'Boards', value: 'board' },
+]
+
+const handleTypeOptions: Array<{ label: string; value: HandleType }> = [
+  { label: 'Standard', value: 'standard' },
+  { label: 'Full length', value: 'full_length' },
+  { label: 'C channel', value: 'c_channel' },
+  { label: 'J channel', value: 'j_channel' },
 ]
 
 const importResourceOptions: Array<{ label: string; value: LibraryImportResource }> = [
@@ -90,12 +97,13 @@ type PriceStatusFilterValue = 'all' | LibraryEffectiveStatus
 type PriceTypeFilterValue = 'all' | PriceItemType
 type PriceSourceFilterValue = 'all' | PriceListItemRow['cost_source']
 type BulkAccessoryResource = Extract<LibraryCatalogBulkResource, 'slides' | 'hinges'>
+type CreateCatalogResource = LibraryCatalogBulkResource | 'extra-categories'
 type CatalogBulkMode = 'fields' | 'accessories'
 
 type CatalogBulkField = {
   label: string
   value: string
-  input: 'text' | 'select' | 'percent'
+  input: 'text' | 'select' | 'percent' | 'number'
   options?: Array<{ label: string; value: string }>
 }
 
@@ -155,8 +163,9 @@ const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> 
     { input: 'text', label: 'Code', value: 'code' },
   ],
   handles: [
-    { input: 'text', label: 'Supplier', value: 'supplier' },
-    { input: 'text', label: 'Code', value: 'code' },
+    { input: 'select', label: 'Supplier', value: 'supplier_id' },
+    { input: 'select', label: 'Handle type', options: handleTypeOptions, value: 'handle_type' },
+    { input: 'number', label: 'Front reduction (mm)', value: 'front_reduction_mm' },
   ],
   extras: [
     { input: 'select', label: 'Category', value: 'category_id' },
@@ -174,15 +183,15 @@ const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> 
 }
 
 const importExampleByResource: Record<LibraryImportResource, string> = {
-  boards: 'Brand,Material,Thickness,Length,Width,Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sheet,required',
-  slides: 'Brand,Model,Code,Length,Drawer System Kind,Drawer System Config\nGrass,Dynapro,DYN-500,500,conventional,{}',
+  boards: 'Brand,Material,Thickness,Length (mm),Width (mm),Costing Mode,Grain Policy\nPG Bison,MelaWood,16,2750,1830,sheet,required',
+  slides: 'Brand,Model,Code,Length (mm),Drawer System Kind,Drawer System Config\nGrass,Dynapro,DYN-500,500,conventional,{}',
   hinges: 'Brand,Model,Code,Opening Angle\nBlum,Clip Top,BL-110,110',
-  handles: 'Name,Supplier,Code\nSlim Bar,Hafele,HB-160',
+  handles: 'Name,Supplier,Handle Type,Front Reduction (mm)\nSlim Bar,Hafele,standard,0',
   suppliers: 'Name,Code,Contact,Email,Default Discount\nGrass ZA,GRASS-ZA,Sales,sales@example.com,30%',
   extra_categories: 'Name\nAppliances',
   extras: 'Name,Category,Supplier,Code\nStove,Appliances,Defy,DFY-600',
   supplier_item_costs: 'Item Type,Brand,Model,Code,Supplier,Order Unit,Unit Cost\nslide,Grass,Dynapro,DYN-500,Grass ZA,pairs,479.49',
-  price_list_items: 'Item Type,Name,Supplier,Code,Price Component,Unit,Price\nhandle,Slim Bar,Hafele,HB-160,unit,pcs,89.00',
+  price_list_items: 'Item Type,Name,Supplier,Price Component,Unit,Price\nhandle,Slim Bar,Hafele,unit,pcs,89.00',
 }
 
 function searchTextMatches(search: string, parts: Array<string | number | null | undefined>) {
@@ -781,7 +790,7 @@ function CatalogBulkPanel({
                   ))}
                 </Select>
               ) : (
-                <Input value={value} onChange={(event) => onValueChange(event.target.value)} />
+                <Input min={0} type={field?.input === 'number' ? 'number' : 'text'} value={value} onChange={(event) => onValueChange(event.target.value)} />
               )}
             </Label>
             <Button disabled={isSaving || selectedCount === 0 || valueDisabled} onClick={onPreview} type="button" variant="outline">
@@ -1080,7 +1089,7 @@ export function LibrariesPage({
   const [priceBulkPreview, setPriceBulkPreview] = useState<LibraryBulkUpdateResult | null>(null)
   const [bulkError, setBulkError] = useState<string | null>(null)
   const [isBulkSaving, setIsBulkSaving] = useState(false)
-  const [createHardwareResource, setCreateHardwareResource] = useState<BulkAccessoryResource | null>(null)
+  const [createHardwareResource, setCreateHardwareResource] = useState<CreateCatalogResource | null>(null)
   const [catalogBulkModes, setCatalogBulkModes] = useState<Record<BulkAccessoryResource, CatalogBulkMode>>({
     hinges: 'fields',
     slides: 'fields',
@@ -1250,7 +1259,7 @@ export function LibrariesPage({
     () =>
       handles.filter(
         (row) =>
-          searchTextMatches(catalogSearch, [row.name, row.supplier, row.code]) &&
+          searchTextMatches(catalogSearch, [row.name, row.supplier_name, row.handle_type]) &&
           matchesRecent(row.updated_at, catalogRecentDays),
       ),
     [catalogRecentDays, catalogSearch, handles],
@@ -1715,6 +1724,11 @@ export function LibrariesPage({
     if (activeCatalogBulkField.value === 'supplier_id') {
       return { supplier_id: catalogBulkValue || null }
     }
+    if (activeCatalogBulkField.value === 'front_reduction_mm') {
+      const parsed = Number(catalogBulkValue)
+      if (!Number.isFinite(parsed) || parsed < 0) return null
+      return { front_reduction_mm: Math.floor(parsed) }
+    }
     if (!catalogBulkValue.trim()) return null
     return { [activeCatalogBulkField.value]: catalogBulkValue.trim() }
   }
@@ -2162,6 +2176,7 @@ export function LibrariesPage({
     await withActionState(async () => {
       await apiRequest('/api/v1/libraries/boards', { body: payload, method: 'POST', token: authToken })
       setBoardDraft(defaultBoardDraft)
+      setCreateHardwareResource(null)
       await refreshCatalog()
     }, 'Board added.')
   }
@@ -2441,6 +2456,7 @@ export function LibrariesPage({
     await withActionState(async () => {
       await apiRequest('/api/v1/libraries/suppliers', { body: payload, method: 'POST', token: authToken })
       setSupplierDraft(defaultSupplierDraft)
+      setCreateHardwareResource(null)
       await refreshCatalog()
     }, 'Supplier added.')
   }
@@ -2670,6 +2686,7 @@ export function LibrariesPage({
     await withActionState(async () => {
       await apiRequest('/api/v1/libraries/handles', { body: payload, method: 'POST', token: authToken })
       setHandleDraft(defaultHandleDraft)
+      setCreateHardwareResource(null)
       await refreshCatalog()
     }, 'Handle added.')
   }
@@ -2719,6 +2736,7 @@ export function LibrariesPage({
         token: authToken,
       })
       setExtraCategoryDraft(defaultExtraCategoryDraft)
+      setCreateHardwareResource(null)
       await refreshCatalog()
     }, 'Category added.')
   }
@@ -2764,6 +2782,7 @@ export function LibrariesPage({
     await withActionState(async () => {
       await apiRequest('/api/v1/libraries/extras', { body: payload, method: 'POST', token: authToken })
       setExtraDraft((current) => ({ ...defaultExtraDraft, category_id: current.category_id }))
+      setCreateHardwareResource(null)
       await refreshCatalog()
     }, 'Extra added.')
   }
@@ -2904,12 +2923,12 @@ export function LibrariesPage({
                 <p className="text-sm font-medium">Lengths</p>
                 <Button type="button" variant="outline" size="sm" onClick={addSlideRangeLength}>
                   <Plus className="h-4 w-4" aria-hidden="true" />
-                  Add Length
+                  Add Length (mm)
                 </Button>
               </div>
               <div className="grid gap-2">
                 <div className="hidden gap-2 px-3 text-xs font-medium uppercase text-muted-foreground lg:grid lg:grid-cols-[5rem_minmax(7rem,1fr)_5.5rem_5.5rem_5.5rem_5.5rem_2.25rem]">
-                  <span>Length</span>
+                  <span>Length (mm)</span>
                   <span>Code</span>
                   <span>Side</span>
                   <span>Depth</span>
@@ -2923,7 +2942,7 @@ export function LibrariesPage({
                     key={index}
                   >
                     <Label className="grid gap-1.5 lg:block">
-                      <span className="lg:sr-only">Length</span>
+                      <span className="lg:sr-only">Length (mm)</span>
                       <Input value={row.length} onChange={(event) => updateSlideRangeLength(index, { length: event.target.value })} />
                     </Label>
                     <Label className="grid gap-1.5 lg:block">
@@ -3087,6 +3106,273 @@ export function LibrariesPage({
             </Button>
           </div>
         </form>
+      </Dialog>
+      <Dialog
+        open={createHardwareResource === 'boards'}
+        onOpenChange={(open) => {
+          if (!open) setCreateHardwareResource(null)
+        }}
+        title="Add Board"
+        description="Create a board material for carcasses, doors, panels, and quote defaults."
+        size="wide"
+      >
+        <form className="grid gap-3 md:grid-cols-3" onSubmit={createBoard}>
+          <Label className="grid gap-1.5">
+            Brand
+            <Input value={boardDraft.brand} onChange={(event) => setBoardDraft((current) => ({ ...current, brand: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Material
+            <Input value={boardDraft.material} onChange={(event) => setBoardDraft((current) => ({ ...current, material: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Costing mode
+            <Select value={boardDraft.costing_mode} onChange={(event) => setBoardDraft((current) => ({ ...current, costing_mode: event.target.value as 'sheet' | 'sqm' }))}>
+              <option value="sheet">sheet</option>
+              <option value="sqm">sqm</option>
+            </Select>
+          </Label>
+          <Label className="grid gap-1.5">
+            Grain
+            <Select value={boardDraft.grain_policy} onChange={(event) => setBoardDraft((current) => ({ ...current, grain_policy: event.target.value as BoardGrainPolicy }))}>
+              {boardGrainPolicyOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Label>
+          <Label className="grid gap-1.5">
+            Thickness (mm)
+            <Input value={boardDraft.thickness} onChange={(event) => setBoardDraft((current) => ({ ...current, thickness: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Length (mm)
+            <Input value={boardDraft.length_mm} onChange={(event) => setBoardDraft((current) => ({ ...current, length_mm: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Width (mm)
+            <Input value={boardDraft.width_mm} onChange={(event) => setBoardDraft((current) => ({ ...current, width_mm: event.target.value }))} />
+          </Label>
+          <div className="md:col-span-3 flex flex-wrap gap-2">
+            <Button disabled={isSaving} type="submit">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Board
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+      <Dialog
+        open={createHardwareResource === 'suppliers'}
+        onOpenChange={(open) => {
+          if (!open) setCreateHardwareResource(null)
+        }}
+        title="Add Supplier"
+        description="Create a supplier for contact details, default discounts, and cost sources."
+        size="wide"
+      >
+        <form className="grid gap-3 md:grid-cols-2" onSubmit={createSupplier}>
+          <Label className="grid gap-1.5">
+            Name
+            <Input value={supplierDraft.name} onChange={(event) => setSupplierDraft((current) => ({ ...current, name: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Code
+            <Input value={supplierDraft.code} onChange={(event) => setSupplierDraft((current) => ({ ...current, code: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Contact
+            <Input value={supplierDraft.contact_name} onChange={(event) => setSupplierDraft((current) => ({ ...current, contact_name: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Email
+            <Input value={supplierDraft.email} onChange={(event) => setSupplierDraft((current) => ({ ...current, email: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Phone
+            <Input value={supplierDraft.phone} onChange={(event) => setSupplierDraft((current) => ({ ...current, phone: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Default discount (%)
+            <Input value={supplierDraft.default_discount_percent} onChange={(event) => setSupplierDraft((current) => ({ ...current, default_discount_percent: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5 md:col-span-2">
+            Notes
+            <Textarea value={supplierDraft.notes} onChange={(event) => setSupplierDraft((current) => ({ ...current, notes: event.target.value }))} />
+          </Label>
+          <div className="md:col-span-2 flex flex-wrap gap-2">
+            <Button disabled={isSaving} type="submit">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Supplier
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+      <Dialog
+        open={createHardwareResource === 'handles'}
+        onOpenChange={(open) => {
+          if (!open) setCreateHardwareResource(null)
+        }}
+        title="Add Handle"
+        description="Create a standard handle, full-length profile, or C/J channel profile."
+        size="wide"
+      >
+        <form className="grid gap-3 md:grid-cols-4" onSubmit={createHandle}>
+          <Label className="grid gap-1.5">
+            Name
+            <Input value={handleDraft.name} onChange={(event) => setHandleDraft((current) => ({ ...current, name: event.target.value }))} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Type
+            <Select
+              value={handleDraft.handle_type}
+              onChange={(event) =>
+                setHandleDraft((current) => ({
+                  ...current,
+                  handle_type: event.target.value as HandleType,
+                  front_reduction_mm: event.target.value === 'standard' ? '0' : current.front_reduction_mm,
+                }))
+              }
+            >
+              {handleTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Label>
+          {handleDraft.handle_type !== 'standard' ? (
+            <Label className="grid gap-1.5">
+              Front reduction (mm)
+              <Input
+                min={0}
+                onChange={(event) => setHandleDraft((current) => ({ ...current, front_reduction_mm: event.target.value }))}
+                type="number"
+                value={handleDraft.front_reduction_mm}
+              />
+            </Label>
+          ) : null}
+          <Label className="grid gap-1.5">
+            Supplier
+            <Select value={handleDraft.supplier_id} onChange={(event) => setHandleDraft((current) => ({ ...current, supplier_id: event.target.value }))}>
+              <option value="">No supplier</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name}
+                </option>
+              ))}
+            </Select>
+          </Label>
+          <div className="md:col-span-4 flex flex-wrap gap-2">
+            <Button disabled={isSaving} type="submit">
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Handle
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+      <Dialog
+        open={createHardwareResource === 'extra-categories'}
+        onOpenChange={(open) => {
+          if (!open) setCreateHardwareResource(null)
+        }}
+        title="Add Extra Category"
+        description="Create a category for extras such as delivery, installation, or accessories."
+      >
+        <form className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end" onSubmit={createExtraCategory}>
+          <Label className="grid gap-1.5">
+            Category name
+            <Input
+              value={extraCategoryDraft.name}
+              onChange={(event) => setExtraCategoryDraft({ name: event.target.value })}
+            />
+          </Label>
+          <Button disabled={isSaving} type="submit">
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add Category
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
+            Cancel
+          </Button>
+        </form>
+      </Dialog>
+      <Dialog
+        open={createHardwareResource === 'extras'}
+        onOpenChange={(open) => {
+          if (!open) setCreateHardwareResource(null)
+        }}
+        title="Add Extra"
+        description="Create an extra line item for quote add-ons and non-board costs."
+        size="wide"
+      >
+        {extraCategories.length === 0 ? (
+          <div className="grid gap-3">
+            <Alert variant="destructive">Create at least one extra category before adding extras.</Alert>
+            <div>
+              <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form className="grid gap-3 md:grid-cols-2" onSubmit={createExtra}>
+            <Label className="grid gap-1.5">
+              Name
+              <Input value={extraDraft.name} onChange={(event) => setExtraDraft((current) => ({ ...current, name: event.target.value }))} />
+            </Label>
+            <Label className="grid gap-1.5">
+              Category
+              <Select
+                value={extraDraft.category_id}
+                onChange={(event) => setExtraDraft((current) => ({ ...current, category_id: event.target.value }))}
+              >
+                <option value="">Select a category</option>
+                {extraCategories.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
+              Supplier
+              <Select value={extraDraft.supplier_id} onChange={(event) => setExtraDraft((current) => ({ ...current, supplier_id: event.target.value }))}>
+                <option value="">No supplier</option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
+              Code
+              <Input value={extraDraft.code} onChange={(event) => setExtraDraft((current) => ({ ...current, code: event.target.value }))} />
+            </Label>
+            <Label className="grid gap-1.5 md:col-span-2">
+              Notes
+              <Textarea value={extraDraft.notes} onChange={(event) => setExtraDraft((current) => ({ ...current, notes: event.target.value }))} />
+            </Label>
+            <div className="md:col-span-2 flex flex-wrap gap-2">
+              <Button disabled={isSaving} type="submit">
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Add Extra
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setCreateHardwareResource(null)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
       </Dialog>
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -3923,58 +4209,12 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'boards' ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Add Board</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 md:grid-cols-3" onSubmit={createBoard}>
-                <Label className="grid gap-1.5">
-                  Brand
-                  <Input value={boardDraft.brand} onChange={(event) => setBoardDraft((current) => ({ ...current, brand: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Material
-                  <Input value={boardDraft.material} onChange={(event) => setBoardDraft((current) => ({ ...current, material: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Costing mode
-                  <Select value={boardDraft.costing_mode} onChange={(event) => setBoardDraft((current) => ({ ...current, costing_mode: event.target.value as 'sheet' | 'sqm' }))}>
-                    <option value="sheet">sheet</option>
-                    <option value="sqm">sqm</option>
-                  </Select>
-                </Label>
-                <Label className="grid gap-1.5">
-                  Grain
-                  <Select value={boardDraft.grain_policy} onChange={(event) => setBoardDraft((current) => ({ ...current, grain_policy: event.target.value as BoardGrainPolicy }))}>
-                    {boardGrainPolicyOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Label>
-                <Label className="grid gap-1.5">
-                  Thickness (mm)
-                  <Input value={boardDraft.thickness} onChange={(event) => setBoardDraft((current) => ({ ...current, thickness: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Length (mm)
-                  <Input value={boardDraft.length_mm} onChange={(event) => setBoardDraft((current) => ({ ...current, length_mm: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Width (mm)
-                  <Input value={boardDraft.width_mm} onChange={(event) => setBoardDraft((current) => ({ ...current, width_mm: event.target.value }))} />
-                </Label>
-                <div className="md:col-span-3">
-                  <Button disabled={isSaving} type="submit">
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                    Add Board
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('boards')}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Board
+            </Button>
+          </div>
 
           {renderCatalogMaintenance('boards', boards.length, visibleBoards.map((row) => row.id))}
 
@@ -4046,51 +4286,14 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'suppliers' ? (
         <>
-          <section className="grid gap-4 xl:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Add Supplier</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form className="grid gap-3 md:grid-cols-2" onSubmit={createSupplier}>
-                  <Label className="grid gap-1.5">
-                    Name
-                    <Input value={supplierDraft.name} onChange={(event) => setSupplierDraft((current) => ({ ...current, name: event.target.value }))} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Code
-                    <Input value={supplierDraft.code} onChange={(event) => setSupplierDraft((current) => ({ ...current, code: event.target.value }))} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Contact
-                    <Input value={supplierDraft.contact_name} onChange={(event) => setSupplierDraft((current) => ({ ...current, contact_name: event.target.value }))} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Email
-                    <Input value={supplierDraft.email} onChange={(event) => setSupplierDraft((current) => ({ ...current, email: event.target.value }))} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Phone
-                    <Input value={supplierDraft.phone} onChange={(event) => setSupplierDraft((current) => ({ ...current, phone: event.target.value }))} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Default discount (%)
-                    <Input value={supplierDraft.default_discount_percent} onChange={(event) => setSupplierDraft((current) => ({ ...current, default_discount_percent: event.target.value }))} />
-                  </Label>
-                  <Label className="grid gap-1.5 md:col-span-2">
-                    Notes
-                    <Textarea value={supplierDraft.notes} onChange={(event) => setSupplierDraft((current) => ({ ...current, notes: event.target.value }))} />
-                  </Label>
-                  <div className="md:col-span-2">
-                    <Button disabled={isSaving} type="submit">
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                      Add Supplier
-                    </Button>
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('suppliers')}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Supplier
+            </Button>
+          </div>
 
+          <section className="grid gap-4 xl:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Supplier Discount</CardTitle>
@@ -4415,33 +4618,12 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'handles' ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Add Handle</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 md:grid-cols-4" onSubmit={createHandle}>
-                <Label className="grid gap-1.5">
-                  Name
-                  <Input value={handleDraft.name} onChange={(event) => setHandleDraft((current) => ({ ...current, name: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Supplier
-                  <Input value={handleDraft.supplier} onChange={(event) => setHandleDraft((current) => ({ ...current, supplier: event.target.value }))} />
-                </Label>
-                <Label className="grid gap-1.5">
-                  Code
-                  <Input value={handleDraft.code} onChange={(event) => setHandleDraft((current) => ({ ...current, code: event.target.value }))} />
-                </Label>
-                <div className="md:col-span-4">
-                  <Button disabled={isSaving} type="submit">
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                    Add Handle
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('handles')}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Handle
+            </Button>
+          </div>
 
           {renderCatalogMaintenance('handles', handles.length, visibleHandles.map((row) => row.id))}
 
@@ -4455,32 +4637,19 @@ export function LibrariesPage({
             onSelectionChange={(itemId, checked) => handleCatalogSelection('handles', itemId, checked)}
             onUpdate={updateHandle}
             selectedIds={selectedCatalogIds.handles}
+            suppliers={suppliers}
           />
         </>
       ) : null}
 
       {!isLoading && activeTab === 'extra-categories' ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Add Extra Category</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end" onSubmit={createExtraCategory}>
-                <Label className="grid gap-1.5">
-                  Category name
-                  <Input
-                    value={extraCategoryDraft.name}
-                    onChange={(event) => setExtraCategoryDraft({ name: event.target.value })}
-                  />
-                </Label>
-                <Button disabled={isSaving} type="submit">
-                  <Plus className="h-4 w-4" aria-hidden="true" />
-                  Add Category
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('extra-categories')}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Extra Category
+            </Button>
+          </div>
 
           <div className="grid gap-3">
             <MaintenanceToolbar
@@ -4506,62 +4675,12 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'extras' ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Add Extra</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {extraCategories.length === 0 ? (
-                <Alert variant="destructive">Create at least one extra category before adding extras.</Alert>
-              ) : (
-                <form className="grid gap-3 md:grid-cols-2" onSubmit={createExtra}>
-                  <Label className="grid gap-1.5">
-                    Name
-                    <Input value={extraDraft.name} onChange={(event) => setExtraDraft((current) => ({ ...current, name: event.target.value }))} />
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Category
-                    <Select
-                      value={extraDraft.category_id}
-                      onChange={(event) => setExtraDraft((current) => ({ ...current, category_id: event.target.value }))}
-                    >
-                      <option value="">Select a category</option>
-                      {extraCategories.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Supplier
-                    <Select value={extraDraft.supplier_id} onChange={(event) => setExtraDraft((current) => ({ ...current, supplier_id: event.target.value }))}>
-                      <option value="">No supplier</option>
-                      {suppliers.map((supplier) => (
-                        <option key={supplier.id} value={supplier.id}>
-                          {supplier.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </Label>
-                  <Label className="grid gap-1.5">
-                    Code
-                    <Input value={extraDraft.code} onChange={(event) => setExtraDraft((current) => ({ ...current, code: event.target.value }))} />
-                  </Label>
-                  <Label className="grid gap-1.5 md:col-span-2">
-                    Notes
-                    <Textarea value={extraDraft.notes} onChange={(event) => setExtraDraft((current) => ({ ...current, notes: event.target.value }))} />
-                  </Label>
-                  <div className="md:col-span-2">
-                    <Button disabled={isSaving} type="submit">
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                      Add Extra
-                    </Button>
-                  </div>
-                </form>
-              )}
-            </CardContent>
-          </Card>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('extras')}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Extra
+            </Button>
+          </div>
 
           {renderCatalogMaintenance('extras', extras.length, visibleExtras.map((row) => row.id))}
 

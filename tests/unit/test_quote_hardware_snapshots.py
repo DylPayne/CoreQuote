@@ -192,6 +192,49 @@ def test_status_draft_clears_hardware_catalog_snapshot():
     assert result["hardware_catalog_snapshot"] is None
 
 
+def test_hardware_snapshot_refs_include_channel_and_full_length_handle_ids():
+    refs = projects_quotes._quote_hardware_snapshot_refs(
+        quote={
+            "default_slide_id": "slide-1",
+            "default_hinge_id": "hinge-1",
+            "default_base_handle_id": "handle-base",
+            "default_wall_handle_id": "handle-wall",
+            "default_tall_handle_id": "handle-tall",
+            "default_drawer_handle_id": "handle-drawer",
+        },
+        units=[
+            {
+                "unit_type_key": "Base Draw",
+                "extra_params": {
+                    "num_drawers": 2,
+                    "top_j_channel_handle_id": "handle-j",
+                    "middle_c_channel_handle_id": "handle-c",
+                },
+            },
+            {
+                "unit_type_key": "Base Door",
+                "extra_params": {
+                    "base_door_top_j_channel_handle_id": "handle-door-j",
+                    "handle_id": "handle-full-length",
+                },
+            },
+        ],
+        quote_extras=[],
+        lookups={"slides": {}, "hinges": {}, "handles": {}, "extras": {}},
+    )
+
+    assert {
+        "handle-base",
+        "handle-wall",
+        "handle-tall",
+        "handle-drawer",
+        "handle-j",
+        "handle-c",
+        "handle-door-j",
+        "handle-full-length",
+    }.issubset(refs["handles"])
+
+
 def test_frozen_quote_hardware_snapshot_keeps_old_accessory_bundle():
     store = WorkspaceStore(database_url="postgresql://unused")
     snapshot = {

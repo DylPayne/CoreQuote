@@ -135,8 +135,10 @@ export type HingeRow = {
 export type HandleRow = {
   id: string
   name: string
-  supplier: string
-  code: string
+  supplier_id: string | null
+  supplier_name: string
+  handle_type: 'standard' | 'full_length' | 'c_channel' | 'j_channel'
+  front_reduction_mm: number
 }
 
 export type ExtraRow = {
@@ -780,4 +782,10 @@ export type UnitDraft = {
   drawer_face_ratios: string[]
   num_doors: string
   num_shelves: string
+  top_j_channel_handle_id: string
+  middle_c_channel_handle_id: string
+  between_lower_c_channel_handle_id: string
+  base_door_top_j_channel_handle_id: string
+  tall_vertical_channel_handle_id: string
+  full_length_handle_orientation: 'length' | 'width'
 }

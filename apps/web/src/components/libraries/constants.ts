@@ -95,8 +95,9 @@ export const defaultItemSupplierDraft: ItemSupplierDraft = {
 
 export const defaultHandleDraft: HandleDraft = {
   name: '',
-  supplier: '',
-  code: '',
+  supplier_id: '',
+  handle_type: 'standard',
+  front_reduction_mm: '0',
 }
 
 export const defaultExtraCategoryDraft: ExtraCategoryDraft = {

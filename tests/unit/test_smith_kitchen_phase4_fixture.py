@@ -192,11 +192,11 @@ def _stable_id(resource: str, payload: dict[str, Any]) -> str:
         return {"H110": "hinge-110-soft-close"}[payload["code"]]
     if resource == "handles":
         return {
-            "B128": "handle-base-pull",
-            "W128": "handle-wall-pull",
-            "T256": "handle-tall-pull",
-            "D192": "handle-drawer-pull",
-        }[payload["code"]]
+            "Base pull": "handle-base-pull",
+            "Wall pull": "handle-wall-pull",
+            "Tall pull": "handle-tall-pull",
+            "Drawer pull": "handle-drawer-pull",
+        }[payload["name"]]
     if resource == "suppliers":
         return {
             "CoreBoard Supply": "supplier-coreboard",

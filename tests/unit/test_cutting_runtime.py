@@ -446,6 +446,68 @@ def test_runtime_service_falls_back_to_legacy_when_ruleset_missing():
     assert {"unit_number": 1, "desc": "Door", "length": 777, "width": 447, "qty": 2} in result["panels"]
 
 
+def test_runtime_legacy_output_includes_base_door_top_j_channel():
+    service = CutlistRuntimeService(store=FakeRuntimeStore())
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[
+            {
+                "unit_number": 7,
+                "unit_type": "Base Door",
+                "height": 780,
+                "width": 900,
+                "depth": 560,
+                "thickness": 16,
+                "extra_params": {
+                    "num_doors": 2,
+                    "num_shelves": 1,
+                    "base_door_top_j_channel_handle_id": "handle-j",
+                    "_profile_handle_lookup": {
+                        "handle-j": {"id": "handle-j", "name": "J Rail", "handle_type": "j_channel", "front_reduction_mm": 24}
+                    },
+                },
+            }
+        ],
+        use_db_rulesets=False,
+    )
+
+    assert {"unit_number": 7, "desc": "Door", "length": 753, "width": 447, "qty": 2} in result["panels"]
+    assert {"unit_number": 7, "desc": "J Rail top channel", "length": 24, "width": 900, "qty": 1, "item_ref_id": "handle-j"} in result["hardware"]
+    assert result["validation_warnings"] == []
+
+
+def test_runtime_legacy_output_includes_full_length_profile_orientation():
+    service = CutlistRuntimeService(store=FakeRuntimeStore())
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[
+            {
+                "unit_number": 8,
+                "unit_type": "Base Door",
+                "height": 780,
+                "width": 900,
+                "depth": 560,
+                "thickness": 16,
+                "extra_params": {
+                    "num_doors": 2,
+                    "handle_id": "handle-profile",
+                    "full_length_handle_orientation": "width",
+                    "_profile_handle_lookup": {
+                        "handle-profile": {"id": "handle-profile", "name": "Edge Pull", "handle_type": "full_length", "front_reduction_mm": 30}
+                    },
+                },
+            }
+        ],
+        use_db_rulesets=False,
+    )
+
+    assert {"unit_number": 8, "desc": "Door", "length": 747, "width": 447, "qty": 2} in result["panels"]
+    assert {"unit_number": 8, "desc": "Edge Pull", "length": 30, "width": 447, "qty": 2, "item_ref_id": "handle-profile"} in result["hardware"]
+    assert result["validation_warnings"] == []
+
+
 def test_runtime_ruleset_path_matches_legacy_for_base_door_fixture():
     store = FakeRuntimeStore(
         unit_configs={
