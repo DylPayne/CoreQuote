@@ -106,4 +106,10 @@ export const defaultUnitDraft: UnitDraft = {
   drawer_face_ratios: ['1', '1', '1'],
   num_doors: '2',
   num_shelves: '1',
+  top_j_channel_handle_id: '',
+  middle_c_channel_handle_id: '',
+  between_lower_c_channel_handle_id: '',
+  base_door_top_j_channel_handle_id: '',
+  tall_vertical_channel_handle_id: '',
+  full_length_handle_orientation: 'length',
 }

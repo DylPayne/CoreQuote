@@ -41,6 +41,11 @@ from collections import Counter
 import math
 from typing import TYPE_CHECKING
 
+from corequote_core.channel_handles import (
+    adjust_door_front_dimensions,
+    adjust_drawer_front_heights,
+    profile_params_from_unit,
+)
 from corequote_core.models import Board
 
 if TYPE_CHECKING:
@@ -76,7 +81,7 @@ def _drawer_face_heights(unit: "CabinetUnit", num_drawers: int, gap_mm: int = 3)
     for i in range(remainder):
         floors[frac_order[i % num_drawers]] += 1
 
-    return floors
+    return adjust_drawer_front_heights(floors, profile_params_from_unit(unit))
 
 
 # ── Abstract base strategy ─────────────────────────────────────────────────────
@@ -336,8 +341,14 @@ class DoorUnitStrategy(CuttingStrategy):
         num_doors = unit.num_doors   # type: ignore[attr-defined]
         gap_mm    = 3
 
-        panel_width  = (unit.w / num_doors) - gap_mm
-        panel_height = unit.h - gap_mm
+        panel_height, panel_width = adjust_door_front_dimensions(
+            unit_height=unit.h,
+            unit_width=unit.w,
+            num_doors=num_doors,
+            gap_mm=gap_mm,
+            profile_params=profile_params_from_unit(unit),
+            unit_type_key=unit.unit_type_key,
+        )
 
         return [
             Board(
@@ -383,8 +394,14 @@ class WallUnitStrategy(CuttingStrategy):
         num_doors = unit.num_doors   # type: ignore[attr-defined]
         gap_mm    = 3
 
-        panel_width  = (unit.w / num_doors) - gap_mm
-        panel_height = unit.h - gap_mm
+        panel_height, panel_width = adjust_door_front_dimensions(
+            unit_height=unit.h,
+            unit_width=unit.w,
+            num_doors=num_doors,
+            gap_mm=gap_mm,
+            profile_params=profile_params_from_unit(unit),
+            unit_type_key=unit.unit_type_key,
+        )
 
         return [
             Board(
@@ -455,10 +472,17 @@ class TallUnitStrategy(CuttingStrategy):
         is_pantry = unit.is_pantry   # type: ignore[attr-defined]
         gap_mm    = 3
 
+        panel_height, panel_width = adjust_door_front_dimensions(
+            unit_height=unit.h,
+            unit_width=unit.w,
+            num_doors=num_doors,
+            gap_mm=gap_mm,
+            profile_params=profile_params_from_unit(unit),
+            unit_type_key=unit.unit_type_key,
+            is_pantry=is_pantry,
+        )
         if is_pantry:
             # Two rows of doors (upper + lower), each row has num_doors doors.
-            panel_height = (unit.h / 2) - gap_mm
-            panel_width  = (unit.w / num_doors) - gap_mm
             return [
                 Board(
                     name   = "Door",
@@ -468,8 +492,6 @@ class TallUnitStrategy(CuttingStrategy):
                 )
             ]
         else:
-            panel_height = unit.h - gap_mm
-            panel_width  = (unit.w / num_doors) - gap_mm
             return [
                 Board(
                     name   = "Door",

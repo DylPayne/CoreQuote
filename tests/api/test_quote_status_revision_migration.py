@@ -4,6 +4,8 @@ from pathlib import Path
 MIGRATION_0016 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0016_quote_status_revisions.sql"
 MIGRATION_0026 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0026_quote_hardware_catalog_snapshot.sql"
 MIGRATION_0027 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0027_slide_runner_profile_metadata.sql"
+MIGRATION_0028 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0028_typed_handles.sql"
+MIGRATION_0029 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0029_handle_supplier_links.sql"
 
 
 def test_quote_status_revision_migration_adds_visible_quote_metadata():
@@ -48,4 +50,27 @@ def test_slide_runner_profile_migration_adds_mount_and_range_metadata():
     assert "ADD COLUMN IF NOT EXISTS drawer_depth_deduction_mm INTEGER NOT NULL DEFAULT 0" in sql
     assert "ADD COLUMN IF NOT EXISTS box_width_deduction_mm INTEGER NOT NULL DEFAULT 0" in sql
     assert "CHECK (drawer_system_kind IN ('conventional', 'metal', 'custom'))" in sql
+    assert "sqlite" not in sql.lower()
+
+
+def test_typed_handles_migration_adds_profile_fields():
+    sql = MIGRATION_0028.read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS handle_type TEXT NOT NULL DEFAULT 'standard'" in sql
+    assert "ADD COLUMN IF NOT EXISTS front_reduction_mm INTEGER NOT NULL DEFAULT 0" in sql
+    assert "CHECK (handle_type IN ('standard', 'full_length', 'c_channel', 'j_channel'))" in sql
+    assert "CHECK (front_reduction_mm >= 0)" in sql
+    assert "handles_company_type_idx" in sql
+    assert "sqlite" not in sql.lower()
+
+
+def test_handle_supplier_links_migration_removes_handle_owned_supplier_and_code():
+    sql = MIGRATION_0029.read_text()
+
+    assert "ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES suppliers(id) ON DELETE SET NULL" in sql
+    assert "lower(trim(h.supplier)) = lower(trim(s.name))" in sql
+    assert "DROP COLUMN IF EXISTS supplier" in sql
+    assert "DROP COLUMN IF EXISTS code" in sql
+    assert "handles_company_name_supplier_idx" in sql
+    assert "Supplier SKUs live in item_suppliers" in sql
     assert "sqlite" not in sql.lower()

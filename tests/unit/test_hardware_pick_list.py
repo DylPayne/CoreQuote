@@ -108,6 +108,139 @@ def test_hardware_pick_list_warns_for_missing_component_choices():
     assert result["warnings"][0]["message"] == "Choose a drawer slide for Unit 1 drawers."
 
 
+def test_hardware_pick_list_adds_tall_channel_profile_lengths_from_handle_library():
+    result = build_hardware_pick_list(
+        quote={"id": "quote-1", "name": "Kitchen Quote", "default_hinge_id": "hinge-1"},
+        units=[
+            unit(
+                1,
+                "Tall Standard",
+                height=2400,
+                width=900,
+                extra_params={
+                    "num_doors": 2,
+                    "handle_qty": 0,
+                    "tall_vertical_channel_handle_id": "handle-j",
+                },
+            )
+        ],
+        quote_extras=[],
+        slide_lookup={},
+        hinge_lookup={"hinge-1": {"id": "hinge-1", "brand": "Blum", "model": "Clip top", "code": "H110"}},
+        handle_lookup={
+            "handle-j": {
+                "id": "handle-j",
+                "name": "J Channel Profile",
+                "supplier": "Core",
+                "code": "J40",
+                "handle_type": "j_channel",
+                "front_reduction_mm": 40,
+            }
+        },
+        extra_lookup={},
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert result["warnings"] == []
+    assert items["handle::handle-j"]["item_name"] == "J Channel Profile"
+    assert items["handle::handle-j"]["quantity"] == 1
+    assert items["handle::handle-j"]["uom"] == "lengths"
+    assert items["handle::handle-j"]["supplier"] == "Core"
+    assert items["handle::handle-j"]["code"] == "J40"
+
+
+def test_hardware_pick_list_suppresses_default_handle_when_drawer_channels_are_selected():
+    result = build_hardware_pick_list(
+        quote={
+            "id": "quote-1",
+            "name": "Kitchen Quote",
+            "default_slide_id": "slide-1",
+            "default_drawer_handle_id": "handle-default",
+        },
+        units=[
+            unit(
+                1,
+                "Base Draw",
+                width=900,
+                extra_params={
+                    "num_drawers": 2,
+                    "handle_qty": 2,
+                    "top_j_channel_handle_id": "handle-j",
+                    "middle_c_channel_handle_id": "handle-c",
+                },
+            )
+        ],
+        quote_extras=[],
+        slide_lookup={"slide-1": {"id": "slide-1", "brand": "Grass", "model": "Dynapro", "code": "DYN-500"}},
+        hinge_lookup={},
+        handle_lookup={
+            "handle-default": {"id": "handle-default", "name": "Default pull", "supplier": "Core", "code": "PD"},
+            "handle-j": {"id": "handle-j", "name": "J Rail", "supplier": "Core", "code": "J24", "handle_type": "j_channel", "front_reduction_mm": 24},
+            "handle-c": {"id": "handle-c", "name": "C Rail", "supplier": "Core", "code": "C30", "handle_type": "c_channel", "front_reduction_mm": 30},
+        },
+        extra_lookup={},
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert result["warnings"] == []
+    assert "handle::handle-default" not in items
+    assert items["handle::handle-j"]["quantity"] == 1
+    assert items["handle::handle-c"]["quantity"] == 1
+
+
+def test_hardware_pick_list_warns_for_missing_channel_handle_id():
+    result = build_hardware_pick_list(
+        quote={"id": "quote-1", "name": "Kitchen Quote", "default_slide_id": "slide-1", "default_drawer_handle_id": "handle-default"},
+        units=[unit(1, "Base Draw", extra_params={"num_drawers": 1, "top_j_channel_handle_id": "missing-handle"})],
+        quote_extras=[],
+        slide_lookup={"slide-1": {"id": "slide-1", "brand": "Grass", "model": "Dynapro", "code": "DYN-500"}},
+        hinge_lookup={},
+        handle_lookup={"handle-default": {"id": "handle-default", "name": "Default pull", "supplier": "Core", "code": "PD"}},
+        extra_lookup={},
+    )
+
+    assert result["warnings"] == [
+        {
+            "severity": "warning",
+            "code": "missing_catalog_item",
+            "item_type": "handle",
+            "unit_number": 1,
+            "item_ref_id": "missing-handle",
+            "message": "Handle missing-handle is not available for Unit 1 drawers.",
+        }
+    ]
+    assert "handle::handle-default" not in {item["item_key"] for item in result["items"]}
+
+
+def test_hardware_pick_list_counts_full_length_handles_as_lengths():
+    result = build_hardware_pick_list(
+        quote={"id": "quote-1", "name": "Kitchen Quote", "default_hinge_id": "hinge-1", "default_base_handle_id": "handle-profile"},
+        units=[unit(1, "Base Door", extra_params={"num_doors": 2})],
+        quote_extras=[],
+        slide_lookup={},
+        hinge_lookup={"hinge-1": {"id": "hinge-1", "brand": "Blum", "model": "Clip top", "code": "H110"}},
+        handle_lookup={
+            "handle-profile": {
+                "id": "handle-profile",
+                "name": "Edge Pull",
+                "supplier": "Core",
+                "code": "EP30",
+                "handle_type": "full_length",
+                "front_reduction_mm": 30,
+            }
+        },
+        extra_lookup={},
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert result["warnings"] == []
+    assert items["handle::handle-profile"]["quantity"] == 2
+    assert items["handle::handle-profile"]["uom"] == "lengths"
+
+
 def test_hardware_pick_list_prefers_unit_hardware_overrides():
     result = build_hardware_pick_list(
         quote={
@@ -561,10 +694,12 @@ def test_hardware_pick_list_applies_metal_side_height_accessory_condition():
     assert items["extra::extra-rail"]["quantity"] == 2
 
 
-def unit(unit_number: int, unit_type_key: str, *, height: int = 780, extra_params: dict | None = None) -> dict:
+def unit(unit_number: int, unit_type_key: str, *, height: int = 780, width: int = 600, depth: int = 560, extra_params: dict | None = None) -> dict:
     return {
         "unit_number": unit_number,
         "unit_type_key": unit_type_key,
         "height": height,
+        "width": width,
+        "depth": depth,
         "extra_params": extra_params or {},
     }

@@ -38,7 +38,7 @@ import type { LibraryTab } from '@/components/libraries/types'
 import { customUnitTypeValue, defaultProjectDraft, defaultProductionMetadata, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
-import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, isDrawerUnitType, isHingedUnitType, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
+import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, isBaseDoorUnitType, isDrawerUnitType, isHingedUnitType, isTallUnitType, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
 import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, DrawerSplitMode, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProductionGrainDirection, ProductionMetadata, ProductionRotationGuidance, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
@@ -247,6 +247,25 @@ function drawerArrayFromExtra(extra: Record<string, unknown>, key: string) {
 function idFromExtra(extra: Record<string, unknown>, key: string) {
   const value = extra[key]
   return typeof value === 'string' ? value : ''
+}
+
+function profileHandleDraftFromExtra(extra: Record<string, unknown>): Pick<
+  UnitDraft,
+  | 'top_j_channel_handle_id'
+  | 'middle_c_channel_handle_id'
+  | 'between_lower_c_channel_handle_id'
+  | 'base_door_top_j_channel_handle_id'
+  | 'tall_vertical_channel_handle_id'
+  | 'full_length_handle_orientation'
+> {
+  return {
+    top_j_channel_handle_id: idFromExtra(extra, 'top_j_channel_handle_id'),
+    middle_c_channel_handle_id: idFromExtra(extra, 'middle_c_channel_handle_id'),
+    between_lower_c_channel_handle_id: idFromExtra(extra, 'between_lower_c_channel_handle_id'),
+    base_door_top_j_channel_handle_id: idFromExtra(extra, 'base_door_top_j_channel_handle_id'),
+    tall_vertical_channel_handle_id: idFromExtra(extra, 'tall_vertical_channel_handle_id'),
+    full_length_handle_orientation: extra.full_length_handle_orientation === 'width' ? 'width' : 'length',
+  }
 }
 
 function drawerSplitDraftFromExtra(extra: Record<string, unknown>, height: string, numDrawers: string) {
@@ -1554,10 +1573,43 @@ export function ProjectsQuotesPage({
     },
     [hinges],
   )
+  const handleLabel = useCallback(
+    (handleId: string | null) => {
+      if (!handleId) return 'None'
+      const handle = handles.find((row) => row.id === handleId)
+      if (!handle) return 'Unknown handle'
+      const typeLabel = handle.handle_type === 'full_length'
+        ? 'Full length'
+        : handle.handle_type === 'c_channel'
+          ? 'C channel'
+          : handle.handle_type === 'j_channel'
+            ? 'J channel'
+            : ''
+      const typeSuffix = typeLabel ? ` · ${typeLabel}` : ''
+      const reductionSuffix = handle.handle_type !== 'standard' ? ` · ${handle.front_reduction_mm} mm reduction` : ''
+      return `${handle.name}${handle.supplier_name ? ` · ${handle.supplier_name}` : ''}${typeSuffix}${reductionSuffix}`
+    },
+    [handles],
+  )
 
   const unitDraftType = resolvedUnitType(unitDraft)
   const isDrawerUnitDraft = isDrawerUnitType(unitDraftType)
   const isHingedUnitDraft = isHingedUnitType(unitDraftType)
+  const isBaseDoorUnitDraft = isBaseDoorUnitType(unitDraftType)
+  const isTallUnitDraft = isTallUnitType(unitDraftType)
+  const unitDraftDrawerCount = positiveIntegerFromValue(unitDraft.num_drawers, 3)
+  const standardHandles = handles.filter((handle) => handle.handle_type === 'standard')
+  const doorHandles = handles.filter((handle) => handle.handle_type === 'standard' || handle.handle_type === 'full_length')
+  const jChannelHandles = handles.filter((handle) => handle.handle_type === 'j_channel')
+  const cChannelHandles = handles.filter((handle) => handle.handle_type === 'c_channel')
+  const tallChannelHandles = handles.filter((handle) => handle.handle_type === 'c_channel' || handle.handle_type === 'j_channel')
+  const defaultDoorHandleId = isTallUnitDraft
+    ? selectedQuote?.default_tall_handle_id
+    : unitDraftType.toLowerCase().includes('wall')
+      ? selectedQuote?.default_wall_handle_id
+      : selectedQuote?.default_base_handle_id
+  const effectiveDoorHandle = doorHandles.find((handle) => handle.id === defaultDoorHandleId)
+  const showFullLengthOrientation = isHingedUnitDraft && effectiveDoorHandle?.handle_type === 'full_length'
   const drawerAvailableHeight = drawerAvailableFaceHeight(unitDraft.height, unitDraft.num_drawers)
   const drawerHeightValues = drawerManualHeights(unitDraft)
   const drawerHeightTotal = drawerHeightValues.reduce((total, value) => total + positiveIntegerFromValue(value, 0), 0)
@@ -2251,6 +2303,7 @@ export function ProjectsQuotesPage({
       ...drawerSplitDraftFromExtra(unit.extra_params, String(unit.height), numDrawers),
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
       num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
+      ...profileHandleDraftFromExtra(unit.extra_params),
     })
     setIsUnitModalOpen(true)
   }
@@ -2295,6 +2348,7 @@ export function ProjectsQuotesPage({
       ...drawerSplitDraftFromExtra(unit.extra_params, String(unit.height), numDrawers),
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
       num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
+      ...profileHandleDraftFromExtra(unit.extra_params),
     }
   }
 
@@ -4332,25 +4386,25 @@ export function ProjectsQuotesPage({
             <div className="grid gap-3 md:grid-cols-2">
               <LibrarySelect
                 label="Base handle"
-                options={handles.map((handle) => ({ value: handle.id, label: `${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}` }))}
+                options={doorHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
                 onChange={(value) => setQuoteDraft((current) => ({ ...current, default_base_handle_id: value }))}
                 value={quoteDraft.default_base_handle_id}
               />
               <LibrarySelect
                 label="Wall handle"
-                options={handles.map((handle) => ({ value: handle.id, label: `${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}` }))}
+                options={doorHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
                 onChange={(value) => setQuoteDraft((current) => ({ ...current, default_wall_handle_id: value }))}
                 value={quoteDraft.default_wall_handle_id}
               />
               <LibrarySelect
                 label="Tall handle"
-                options={handles.map((handle) => ({ value: handle.id, label: `${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}` }))}
+                options={doorHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
                 onChange={(value) => setQuoteDraft((current) => ({ ...current, default_tall_handle_id: value }))}
                 value={quoteDraft.default_tall_handle_id}
               />
               <LibrarySelect
                 label="Drawer handle"
-                options={handles.map((handle) => ({ value: handle.id, label: `${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}` }))}
+                options={standardHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
                 onChange={(value) => setQuoteDraft((current) => ({ ...current, default_drawer_handle_id: value }))}
                 value={quoteDraft.default_drawer_handle_id}
               />
@@ -4611,6 +4665,64 @@ export function ProjectsQuotesPage({
               </div>
             )}
 
+            {isDrawerUnitDraft && [1, 2, 3].includes(unitDraftDrawerCount) ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <LibrarySelect
+                  label="Top J channel"
+                  options={jChannelHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
+                  onChange={(value) => updateUnitDraft({ top_j_channel_handle_id: value })}
+                  value={unitDraft.top_j_channel_handle_id}
+                />
+                {unitDraftDrawerCount === 2 ? (
+                  <LibrarySelect
+                    label="Middle C channel"
+                    options={cChannelHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
+                    onChange={(value) => updateUnitDraft({ middle_c_channel_handle_id: value })}
+                    value={unitDraft.middle_c_channel_handle_id}
+                  />
+                ) : null}
+                {unitDraftDrawerCount === 3 ? (
+                  <LibrarySelect
+                    label="Between lower drawers C channel"
+                    options={cChannelHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
+                    onChange={(value) => updateUnitDraft({ between_lower_c_channel_handle_id: value })}
+                    value={unitDraft.between_lower_c_channel_handle_id}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+
+            {isBaseDoorUnitDraft ? (
+              <LibrarySelect
+                label="Top J channel"
+                options={jChannelHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
+                onChange={(value) => updateUnitDraft({ base_door_top_j_channel_handle_id: value })}
+                value={unitDraft.base_door_top_j_channel_handle_id}
+              />
+            ) : null}
+
+            {isTallUnitDraft ? (
+              <LibrarySelect
+                label="Vertical channel"
+                options={tallChannelHandles.map((handle) => ({ value: handle.id, label: handleLabel(handle.id) }))}
+                onChange={(value) => updateUnitDraft({ tall_vertical_channel_handle_id: value })}
+                value={unitDraft.tall_vertical_channel_handle_id}
+              />
+            ) : null}
+
+            {showFullLengthOrientation ? (
+              <Label className="grid gap-1.5">
+                Full-length handle attachment
+                <Select
+                  onChange={(event) => updateUnitDraft({ full_length_handle_orientation: event.target.value === 'width' ? 'width' : 'length' })}
+                  value={unitDraft.full_length_handle_orientation}
+                >
+                  <option value="length">Attach to length</option>
+                  <option value="width">Attach to width</option>
+                </Select>
+              </Label>
+            ) : null}
+
             <div className="flex justify-end gap-2">
               <Button onClick={() => setIsUnitModalOpen(false)} type="button" variant="outline">
                 Cancel
@@ -4863,9 +4975,9 @@ export function ProjectsQuotesPage({
                   value={bulkApplyDraft.handle_id}
                 >
                   <option value="">Use quote default</option>
-                  {handles.map((handle) => (
+                  {standardHandles.map((handle) => (
                     <option key={handle.id} value={handle.id}>
-                      {`${handle.name}${handle.supplier ? ` · ${handle.supplier}` : ''}`}
+                      {handleLabel(handle.id)}
                     </option>
                   ))}
                 </Select>

@@ -88,10 +88,14 @@ HINGE_CONFIG = ResourceConfig(
 
 HANDLE_CONFIG = ResourceConfig(
     table="handles",
-    fields=("name", "supplier", "code"),
-    select_clause="id::text, name, supplier, code, created_at, updated_at",
-    order_by="name ASC, supplier ASC, code ASC",
-    search_fields=("name", "supplier", "code"),
+    fields=("name", "supplier_id", "handle_type", "front_reduction_mm"),
+    select_clause=(
+        "id::text, name, supplier_id::text, "
+        "COALESCE((SELECT s.name FROM suppliers s WHERE s.company_id = handles.company_id AND s.id = handles.supplier_id), '') AS supplier_name, "
+        "handle_type, front_reduction_mm, created_at, updated_at"
+    ),
+    order_by="handle_type ASC, name ASC, supplier_id ASC",
+    search_fields=("name", "handle_type"),
 )
 
 EXTRA_CATEGORY_CONFIG = ResourceConfig(
@@ -153,7 +157,7 @@ CATALOG_BULK_ALLOWED_FIELDS: dict[str, set[str]] = {
     "boards": {"costing_mode", "grain_policy"},
     "slides": {"brand", "code"},
     "hinges": {"brand", "code"},
-    "handles": {"supplier", "code"},
+    "handles": {"supplier_id", "handle_type", "front_reduction_mm"},
     "extras": {"category_id", "supplier_id", "code", "notes"},
     "suppliers": {"contact_name", "email", "phone", "notes", "default_discount_bps"},
 }
@@ -389,13 +393,19 @@ class LibraryStore:
         return self._list(HANDLE_CONFIG, company_id, search=search, recent_days=recent_days)
 
     def create_handle(self, company_id: str, payload: dict[str, Any]) -> dict:
-        return self._create(HANDLE_CONFIG, company_id, payload)
+        data = _clean_payload(payload)
+        if data.get("supplier_id"):
+            self._ensure_supplier(company_id, data["supplier_id"])
+        return self._create(HANDLE_CONFIG, company_id, data)
 
     def get_handle(self, company_id: str, item_id: str) -> dict:
         return self._get(HANDLE_CONFIG, company_id, item_id)
 
     def update_handle(self, company_id: str, item_id: str, payload: dict[str, Any]) -> dict:
-        return self._update(HANDLE_CONFIG, company_id, item_id, payload)
+        data = _clean_payload(payload)
+        if data.get("supplier_id"):
+            self._ensure_supplier(company_id, data["supplier_id"])
+        return self._update(HANDLE_CONFIG, company_id, item_id, data)
 
     def delete_handle(self, company_id: str, item_id: str) -> None:
         self._delete(HANDLE_CONFIG, company_id, item_id)
@@ -520,6 +530,8 @@ class LibraryStore:
             raise LibraryValidationError("Choose at least one row to update")
         if resource == "extras" and "category_id" in changed_fields:
             self._ensure_extra_category(company_id, str(updates["category_id"]))
+        if resource == "handles" and updates.get("supplier_id"):
+            self._ensure_supplier(company_id, str(updates["supplier_id"]))
 
         rows: list[dict[str, Any]] = []
         with self._connect() as conn:
@@ -1567,6 +1579,8 @@ class LibraryStore:
 
         if resource in IMPORT_CATALOG_CONFIGS:
             config = IMPORT_CATALOG_CONFIGS[resource]
+            if resource == "handles" and (row["payload"].get("supplier_id")):
+                self._ensure_supplier(company_id, str(row["payload"]["supplier_id"]))
             if row["status"] == "create":
                 target = self._create_with_conn(conn, config, company_id, row["payload"])
                 return _import_apply_row(row, "created", "Created library row.", target_id=target["id"])
@@ -2512,7 +2526,7 @@ def _catalog_bulk_label(resource: str, row: dict[str, Any]) -> str:
     if resource == "hinges":
         return f"{row['brand']} {row['model']} {row['opening_angle_deg']}deg"
     if resource == "handles":
-        return f"{row['name']} ({row.get('supplier') or 'No supplier'})"
+        return f"{row['name']} ({row.get('supplier_name') or 'No supplier'})"
     if resource == "extras":
         return f"{row['name']} ({row.get('category_name') or 'Extra'})"
     if resource == "suppliers":

@@ -138,6 +138,33 @@ def test_runtime_unit_includes_configured_drawer_system_from_slide_lookup():
     }
 
 
+def test_runtime_unit_attaches_default_full_length_handle_lookup():
+    result = _to_runtime_unit(
+        {
+            "unit_number": 2,
+            "unit_type_key": "Base Door",
+            "height": 780,
+            "width": 900,
+            "depth": 560,
+            "carcass_board_type_id": "board-1",
+            "extra_params": {"num_doors": 2, "full_length_handle_orientation": "width"},
+        },
+        quote={"default_carcass_board_type_id": "board-1", "default_base_handle_id": "handle-profile"},
+        board_lookup={"board-1": {"thickness": 16}},
+        handle_lookup={
+            "handle-profile": {
+                "id": "handle-profile",
+                "name": "Edge Pull",
+                "handle_type": "full_length",
+                "front_reduction_mm": 30,
+            }
+        },
+    )
+
+    assert result["extra_params"]["handle_id"] == "handle-profile"
+    assert result["extra_params"]["_profile_handle_lookup"]["handle-profile"]["handle_type"] == "full_length"
+
+
 def test_quote_pricing_includes_required_slide_accessory_prices():
     result = _price_quote(
         quote={

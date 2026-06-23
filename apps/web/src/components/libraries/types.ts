@@ -31,6 +31,7 @@ export type LibraryImportRowStatus = 'create' | 'update' | 'skipped' | 'duplicat
 export type LibraryImportApplyRowStatus = 'created' | 'updated' | 'skipped' | 'failed'
 export type LibraryImportProblemSeverity = 'error' | 'warning'
 export type LibraryCatalogBulkResource = 'boards' | 'slides' | 'hinges' | 'handles' | 'extras' | 'suppliers'
+export type HandleType = 'standard' | 'full_length' | 'c_channel' | 'j_channel'
 export type LibraryBulkRowStatus = 'preview' | 'updated' | 'failed'
 export type BoardGrainPolicy = 'none' | 'optional' | 'required'
 export type SlideMountType = 'side_mount' | 'undermount' | 'metal_system' | 'custom'
@@ -216,8 +217,10 @@ export type SupplierRow = {
 export type HandleRow = {
   id: string
   name: string
-  supplier: string
-  code: string
+  supplier_id: string | null
+  supplier_name: string
+  handle_type: HandleType
+  front_reduction_mm: number
   created_at: string
   updated_at: string
 }
@@ -514,8 +517,9 @@ export type ItemSupplierDraft = {
 
 export type HandleDraft = {
   name: string
-  supplier: string
-  code: string
+  supplier_id: string
+  handle_type: HandleType
+  front_reduction_mm: string
 }
 
 export type ExtraCategoryDraft = {

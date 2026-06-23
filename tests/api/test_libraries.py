@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from io import BytesIO
 from xml.sax.saxutils import escape
@@ -303,14 +304,24 @@ class FakeLibraryStore:
 
     def create_handle(self, company_id: str, payload: dict):
         self.created_payload = ("handles", payload)
-        return handle("handle-2", name=payload["name"])
+        return handle(
+            "handle-2",
+            name=payload["name"],
+            handle_type=payload.get("handle_type", "standard"),
+            front_reduction_mm=payload.get("front_reduction_mm", 0),
+        )
 
     def get_handle(self, company_id: str, item_id: str):
         return handle(item_id)
 
     def update_handle(self, company_id: str, item_id: str, payload: dict):
         self.updated_payload = ("handles", item_id, payload)
-        return handle(item_id, name=payload["name"])
+        return handle(
+            item_id,
+            name=payload["name"],
+            handle_type=payload.get("handle_type", "standard"),
+            front_reduction_mm=payload.get("front_reduction_mm", 0),
+        )
 
     def delete_handle(self, company_id: str, item_id: str):
         self.deleted.append(("handles", item_id))
@@ -668,12 +679,22 @@ def hinge(item_id: str, *, brand: str = "Blum", accessory_config: dict | None = 
     }
 
 
-def handle(item_id: str, *, name: str = "Slim Bar") -> dict:
+def handle(
+    item_id: str,
+    *,
+    name: str = "Slim Bar",
+    supplier_id: str | None = "supplier-1",
+    supplier_name: str = "Hafele",
+    handle_type: str = "standard",
+    front_reduction_mm: int = 0,
+) -> dict:
     return {
         "id": item_id,
         "name": name,
-        "supplier": "Hafele",
-        "code": "HB-160",
+        "supplier_id": supplier_id,
+        "supplier_name": supplier_name if supplier_id else "",
+        "handle_type": handle_type,
+        "front_reduction_mm": front_reduction_mm,
         "created_at": NOW,
         "updated_at": NOW,
     }
@@ -874,7 +895,7 @@ CATALOG_CASES = [
         "name",
         "Grass ZA",
     ),
-    ("handles", {"name": "Cup Pull", "supplier": "Hafele", "code": "CP-96"}, "name", "Cup Pull"),
+    ("handles", {"name": "Cup Pull", "supplier_id": "supplier-1"}, "name", "Cup Pull"),
     ("extra-categories", {"name": "Lighting"}, "name", "Lighting"),
     (
         "extras",
@@ -1272,6 +1293,89 @@ def test_catalog_library_crud(resource: str, payload: dict, field: str, value: s
     assert store.deleted[-1] == (resource, created_id)
 
 
+@pytest.mark.parametrize("handle_type", ["standard", "full_length", "c_channel", "j_channel"])
+def test_handle_catalog_accepts_typed_handles(handle_type: str):
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "name": "Profile Pull",
+        "supplier_id": "supplier-1",
+        "handle_type": handle_type,
+        "front_reduction_mm": 0 if handle_type == "standard" else 24,
+    }
+    try:
+        create_response = client.post("/api/v1/libraries/handles", json=payload, headers=auth_header())
+        patch_response = client.patch("/api/v1/libraries/handles/handle-2", json={**payload, "front_reduction_mm": 30}, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert create_response.status_code == 201
+    assert create_response.json()["handle_type"] == handle_type
+    assert create_response.json()["front_reduction_mm"] == payload["front_reduction_mm"]
+    assert store.created_payload == ("handles", payload)
+    assert patch_response.status_code == 200
+    assert patch_response.json()["handle_type"] == handle_type
+    assert patch_response.json()["front_reduction_mm"] == 30
+
+
+def test_old_handle_payload_defaults_to_standard_profile_fields():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {"name": "Cup Pull", "supplier_id": "supplier-1"}
+    try:
+        response = client.post("/api/v1/libraries/handles", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert response.json()["handle_type"] == "standard"
+    assert response.json()["front_reduction_mm"] == 0
+    assert store.created_payload == ("handles", {**payload, "handle_type": "standard", "front_reduction_mm": 0})
+
+
+def test_import_preview_normalizes_typed_handle_rows_from_csv():
+    content = "\n".join(
+        [
+            "Name,Supplier,Handle Type,Front Reduction (mm)",
+            "Edge Pull,Core,full length,30",
+            "Top J,Core,j_channel,24",
+            "Old Cup,Hafele,,",
+        ]
+    )
+    preview = build_import_preview(
+        {"resource": "handles", "source_format": "csv", "content": content},
+        build_reference_maps(
+            {
+                "boards": [],
+                "slides": [],
+                "hinges": [],
+                "handles": [],
+                "suppliers": [supplier("supplier-1", name="Core"), supplier("supplier-2", name="Hafele")],
+                "extra_categories": [],
+                "extras": [],
+                "item_suppliers": [],
+                "price_items": [],
+                "price_list_id": "",
+            }
+        ),
+    )
+
+    payloads = [row["payload"] for row in preview["rows"]]
+
+    assert [row["status"] for row in preview["rows"]] == ["create", "create", "create"]
+    assert payloads[0]["handle_type"] == "full_length"
+    assert payloads[0]["supplier_id"] == "supplier-1"
+    assert payloads[0]["front_reduction_mm"] == 30
+    assert payloads[1]["handle_type"] == "j_channel"
+    assert payloads[1]["supplier_id"] == "supplier-1"
+    assert payloads[1]["front_reduction_mm"] == 24
+    assert payloads[2]["handle_type"] == "standard"
+    assert payloads[2]["supplier_id"] == "supplier-2"
+    assert payloads[2]["front_reduction_mm"] == 0
+
+
 def test_board_type_grain_policy_round_trips_and_validates():
     store = FakeLibraryStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
@@ -1578,7 +1682,7 @@ def test_catalog_write_requires_catalog_write_permission():
     try:
         response = client.post(
             "/api/v1/libraries/handles",
-            json={"name": "Cup Pull", "supplier": "Hafele", "code": "CP-96"},
+            json={"name": "Cup Pull", "supplier_id": "supplier-1"},
             headers=auth_header(),
         )
     finally:
@@ -1784,7 +1888,7 @@ def test_catalog_bulk_update_previews_and_applies_selected_rows():
     payload = {
         "resource": "handles",
         "item_ids": ["handle-1", "handle-2"],
-        "updates": {"supplier": "Hafele", "code": "HF"},
+        "updates": {"supplier_id": "supplier-1", "handle_type": "full_length"},
         "confirm": False,
     }
     try:
@@ -1813,6 +1917,35 @@ def test_catalog_bulk_update_previews_and_applies_selected_rows():
     )
 
 
+def test_catalog_bulk_update_allows_handle_type_and_front_reduction():
+    class BulkStore(LibraryStore):
+        def _connect(self):
+            return nullcontext("connection")
+
+        def _get_catalog_bulk_row_with_conn(self, conn, resource: str, company_id: str, item_id: str) -> dict:
+            return handle(item_id)
+
+        def _update_catalog_bulk_row_with_conn(self, conn, resource: str, company_id: str, item_id: str, payload: dict) -> dict:
+            return handle(
+                item_id,
+                name=payload["name"],
+                handle_type=payload["handle_type"],
+                front_reduction_mm=payload["front_reduction_mm"],
+            )
+
+    payload = {
+        "resource": "handles",
+        "item_ids": ["handle-1"],
+        "updates": {"handle_type": "full_length", "front_reduction_mm": 35},
+        "confirm": True,
+    }
+
+    response = BulkStore(database_url="postgresql://unused").bulk_update_catalog("company-1", payload)
+
+    assert response["updated_count"] == 1
+    assert response["rows"][0]["changed_fields"] == ["front_reduction_mm", "handle_type"]
+
+
 def test_catalog_bulk_update_rejects_empty_selection():
     store = FakeLibraryStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
@@ -1820,7 +1953,7 @@ def test_catalog_bulk_update_rejects_empty_selection():
     try:
         response = client.patch(
             "/api/v1/libraries/catalog/bulk-update",
-            json={"resource": "handles", "item_ids": [], "updates": {"supplier": "Hafele"}},
+            json={"resource": "handles", "item_ids": [], "updates": {"supplier_id": "supplier-1"}},
             headers=auth_header(),
         )
     finally:
@@ -1851,7 +1984,7 @@ def test_catalog_bulk_update_requires_catalog_write_permission():
     try:
         response = client.patch(
             "/api/v1/libraries/catalog/bulk-update",
-            json={"resource": "handles", "item_ids": ["handle-1"], "updates": {"supplier": "Hafele"}},
+            json={"resource": "handles", "item_ids": ["handle-1"], "updates": {"supplier_id": "supplier-1"}},
             headers=auth_header(),
         )
     finally:

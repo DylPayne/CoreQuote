@@ -11,13 +11,20 @@ import { Select } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 
-import { emptyAccessoryRule, formatBoardGrainPolicy, formatDrawerSystemKind, formatHingeLabel, formatSlideLabel, formatSlideMountType } from './helpers'
-import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HardwareAccessoryConditionField, HardwareAccessoryConditionOperator, HardwareAccessoryConfig, HardwareAccessoryQuantityRule, HardwareAccessoryRule, HingeRow, PriceItemType, SlideMountType, SlideRow, SupplierRow } from './types'
+import { emptyAccessoryRule, formatBoardGrainPolicy, formatDrawerSystemKind, formatHandleType, formatHingeLabel, formatSlideLabel, formatSlideMountType } from './helpers'
+import type { BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemKind, ExtraCategoryRow, ExtraRow, HandleRow, HandleType, HardwareAccessoryConditionField, HardwareAccessoryConditionOperator, HardwareAccessoryConfig, HardwareAccessoryQuantityRule, HardwareAccessoryRule, HingeRow, PriceItemType, SlideMountType, SlideRow, SupplierRow } from './types'
 
 const boardGrainPolicyOptions: Array<{ label: string; value: BoardGrainPolicy }> = [
   { label: 'Grain required', value: 'required' },
   { label: 'Optional grain', value: 'optional' },
   { label: 'No grain', value: 'none' },
+]
+
+const handleTypeOptions: Array<{ label: string; value: HandleType }> = [
+  { label: 'Standard', value: 'standard' },
+  { label: 'Full length', value: 'full_length' },
+  { label: 'C channel', value: 'c_channel' },
+  { label: 'J channel', value: 'j_channel' },
 ]
 
 type RowSelectionProps = {
@@ -465,8 +472,8 @@ export function LibraryBoardsTable({
                 <TableHead>Brand</TableHead>
                 <TableHead>Material</TableHead>
                 <TableHead>Thickness</TableHead>
-                <TableHead>Length</TableHead>
-                <TableHead>Width</TableHead>
+                <TableHead>Length (mm)</TableHead>
+                <TableHead>Width (mm)</TableHead>
                 <TableHead>Mode</TableHead>
                 <TableHead>Grain</TableHead>
                 <TableHead>Actions</TableHead>
@@ -549,11 +556,11 @@ export function LibraryBoardsTable({
               <Input value={String(editingBoard.thickness)} onChange={(event) => onEditChange({ ...editingBoard, thickness: Number(event.target.value) || 0 })} />
             </Label>
             <Label className="grid gap-1.5">
-              Length
+              Length (mm)
               <Input value={String(editingBoard.length_mm)} onChange={(event) => onEditChange({ ...editingBoard, length_mm: Number(event.target.value) || 0 })} />
             </Label>
             <Label className="grid gap-1.5">
-              Width
+              Width (mm)
               <Input value={String(editingBoard.width_mm)} onChange={(event) => onEditChange({ ...editingBoard, width_mm: Number(event.target.value) || 0 })} />
             </Label>
             <div className="md:col-span-3 flex gap-2">
@@ -608,10 +615,10 @@ export function LibrarySlidesTable({
                 <TableHead>Mount</TableHead>
                 <TableHead>Range</TableHead>
                 <TableHead>System</TableHead>
-                <TableHead>Length</TableHead>
-                <TableHead>Side length</TableHead>
-                <TableHead>Depth</TableHead>
-                <TableHead>Width deduction</TableHead>
+                <TableHead>Length (mm)</TableHead>
+                <TableHead>Side length (mm)</TableHead>
+                <TableHead>Depth (mm)</TableHead>
+                <TableHead>Width deduction (mm)</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -697,11 +704,11 @@ export function LibrarySlidesTable({
                 <Input value={editingSlide.product_family ?? ''} onChange={(event) => onEditChange({ ...editingSlide, product_family: event.target.value })} />
               </Label>
               <Label className="grid gap-1.5">
-                Length
+                Length (mm)
                 <Input value={String(editingSlide.length)} onChange={(event) => onEditChange({ ...editingSlide, length: Number(event.target.value) || 0 })} />
               </Label>
               <Label className="grid gap-1.5">
-                Side length
+                Side length (mm)
                 <Input value={String(editingSlide.side_length)} onChange={(event) => onEditChange({ ...editingSlide, side_length: Number(event.target.value) || 0 })} />
               </Label>
               <Label className="grid gap-1.5">
@@ -717,11 +724,11 @@ export function LibrarySlidesTable({
                 <Input value={String(editingSlide.required_depth_mm ?? 0)} onChange={(event) => onEditChange({ ...editingSlide, required_depth_mm: Number(event.target.value) || 0 })} />
               </Label>
               <Label className="grid gap-1.5">
-                Depth deduction
+                Depth deduction (mm)
                 <Input value={String(editingSlide.drawer_depth_deduction_mm ?? 0)} onChange={(event) => onEditChange({ ...editingSlide, drawer_depth_deduction_mm: Number(event.target.value) || 0 })} />
               </Label>
               <Label className="grid gap-1.5">
-                Width deduction
+                Width deduction (mm)
                 <Input value={String(editingSlide.box_width_deduction_mm ?? 0)} onChange={(event) => onEditChange({ ...editingSlide, box_width_deduction_mm: Number(event.target.value) || 0 })} />
               </Label>
               <Label className="grid gap-1.5">
@@ -896,6 +903,7 @@ export function LibraryHandlesTable({
   onSelectionChange,
   onUpdate,
   selectedIds,
+  suppliers,
 }: {
   editingHandle: HandleRow | null
   handles: HandleRow[]
@@ -904,6 +912,7 @@ export function LibraryHandlesTable({
   onEdit: (row: HandleRow | null) => void
   onEditChange: (row: HandleRow | null) => void
   onUpdate: (event: FormEvent<HTMLFormElement>) => Promise<void>
+  suppliers: SupplierRow[]
 } & RowSelectionProps) {
   return (
     <Card>
@@ -917,15 +926,16 @@ export function LibraryHandlesTable({
               <TableRow>
                 {onSelectionChange ? <TableHead className="w-10">Select</TableHead> : null}
                 <TableHead>Handle</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Reduction (mm)</TableHead>
                 <TableHead>Supplier</TableHead>
-                <TableHead>Code</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {handles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={onSelectionChange ? 5 : 4}>
+                  <TableCell colSpan={onSelectionChange ? 6 : 5}>
                     <EmptyTableMessage
                       title="Add handles when you want handle defaults."
                       detail="Handles can be selected on quote defaults and priced with the rest of the job. Add common ranges or leave this blank until handle costing matters."
@@ -944,8 +954,9 @@ export function LibraryHandlesTable({
                       </TableCell>
                     ) : null}
                     <TableCell>{row.name}</TableCell>
-                    <TableCell>{row.supplier || '-'}</TableCell>
-                    <TableCell>{row.code || '-'}</TableCell>
+                    <TableCell>{formatHandleType(row.handle_type)}</TableCell>
+                    <TableCell>{row.handle_type === 'standard' ? '-' : `${row.front_reduction_mm} mm`}</TableCell>
+                    <TableCell>{row.supplier_name || '-'}</TableCell>
                     <TableCell className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => onEdit({ ...row })}>
                         Edit
@@ -970,12 +981,55 @@ export function LibraryHandlesTable({
               <Input value={editingHandle.name} onChange={(event) => onEditChange({ ...editingHandle, name: event.target.value })} />
             </Label>
             <Label className="grid gap-1.5">
-              Supplier
-              <Input value={editingHandle.supplier} onChange={(event) => onEditChange({ ...editingHandle, supplier: event.target.value })} />
+              Type
+              <Select
+                value={editingHandle.handle_type}
+                onChange={(event) =>
+                  onEditChange({
+                    ...editingHandle,
+                    handle_type: event.target.value as HandleType,
+                    front_reduction_mm: event.target.value === 'standard' ? 0 : editingHandle.front_reduction_mm,
+                  })
+                }
+              >
+                {handleTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
             </Label>
+            {editingHandle.handle_type !== 'standard' ? (
+              <Label className="grid gap-1.5">
+                Front reduction (mm)
+                <Input
+                  min={0}
+                  onChange={(event) => onEditChange({ ...editingHandle, front_reduction_mm: Number(event.target.value) })}
+                  type="number"
+                  value={editingHandle.front_reduction_mm}
+                />
+              </Label>
+            ) : null}
             <Label className="grid gap-1.5">
-              Code
-              <Input value={editingHandle.code} onChange={(event) => onEditChange({ ...editingHandle, code: event.target.value })} />
+              Supplier
+              <Select
+                value={editingHandle.supplier_id ?? ''}
+                onChange={(event) => {
+                  const supplier = suppliers.find((item) => item.id === event.target.value)
+                  onEditChange({
+                    ...editingHandle,
+                    supplier_id: event.target.value || null,
+                    supplier_name: supplier?.name ?? '',
+                  })
+                }}
+              >
+                <option value="">No supplier</option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </Select>
             </Label>
             <div className="md:col-span-3 flex gap-2">
               <Button disabled={isSaving} type="submit">

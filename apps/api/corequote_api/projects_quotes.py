@@ -10,6 +10,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from corequote_core.detailed_pricing import DetailedPricingSettings
+from corequote_core.channel_handles import selected_profile_handle_ids
 from corequote_core.customer_quote_pdf import (
     build_customer_quote_document,
     customer_quote_filename,
@@ -204,6 +205,8 @@ def _quote_hardware_snapshot_refs(
             _add_ref(refs, "hinges", hinge_id)
             _add_configured_hardware_refs(refs, lookups.get("hinges", {}).get(hinge_id))
             _add_ref(refs, "handles", extra_params.get("handle_id") or _default_door_handle_id(quote, canonical_type))
+        for handle_id in selected_profile_handle_ids(extra_params):
+            _add_ref(refs, "handles", handle_id)
 
     for selected_extra in quote_extras:
         _add_ref(refs, "extras", selected_extra.get("extra_id"))
@@ -1373,6 +1376,7 @@ class WorkspaceStore:
             use_rulesets=use_rulesets,
             board_lookup=lookups["boards"],
             slide_lookup=hardware_lookups["slides"],
+            handle_lookup=hardware_lookups["handles"],
         )
 
     def get_quote_readiness(
@@ -1608,6 +1612,7 @@ class WorkspaceStore:
                 use_rulesets=use_rulesets,
                 board_lookup=lookups["boards"],
                 slide_lookup=hardware_lookups["slides"],
+                handle_lookup=hardware_lookups["handles"],
             )
         except WorkspaceValidationError as exc:
             cutting_error = str(exc)
@@ -2214,10 +2219,19 @@ class WorkspaceStore:
             row["id"]: row
             for row in conn.execute(
                 """
-                SELECT id::text, name, supplier, code
-                FROM handles
-                WHERE company_id = %s
-                ORDER BY name ASC, supplier ASC, code ASC
+                SELECT
+                    h.id::text,
+                    h.name,
+                    h.supplier_id::text,
+                    COALESCE(s.name, '') AS supplier_name,
+                    h.handle_type,
+                    h.front_reduction_mm
+                FROM handles h
+                LEFT JOIN suppliers s
+                  ON s.company_id = h.company_id
+                 AND s.id = h.supplier_id
+                WHERE h.company_id = %s
+                ORDER BY h.handle_type ASC, h.name ASC, s.name ASC NULLS LAST
                 """,
                 (company_id,),
             ).fetchall()

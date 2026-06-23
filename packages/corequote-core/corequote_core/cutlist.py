@@ -70,6 +70,7 @@ def _build_unit_from_dict(u: dict):
                           num_drawers=num_drawers,
                           drawer_face_ratios=drawer_face_ratios,
                           drawer_face_heights=drawer_face_heights,
+                          profile_handles=extra,
                           thickness=t)
 
     elif utype in ("Base Door", "Base 1 Door", "Base 2 Door"):
@@ -78,6 +79,7 @@ def _build_unit_from_dict(u: dict):
         num_shelves = int(extra.get("num_shelves", 1))
         return DoorUnit(h=h, w=w, d=d,
                         num_doors=num_doors, num_shelves=num_shelves,
+                        profile_handles=extra,
                         thickness=t)
 
     elif utype in ("Wall Door", "Wall 1 Door", "Wall 2 Door"):
@@ -86,6 +88,7 @@ def _build_unit_from_dict(u: dict):
         num_shelves = int(extra.get("num_shelves", 1))
         return WallUnit(h=h, w=w, d=d,
                         num_doors=num_doors, num_shelves=num_shelves,
+                        profile_handles=extra,
                         thickness=t)
 
     elif utype in ("Tall Standard", "Tall Pantry"):
@@ -94,6 +97,7 @@ def _build_unit_from_dict(u: dict):
         is_pantry   = utype == "Tall Pantry"
         return TallUnit(h=h, w=w, d=d,
                         num_doors=num_doors, num_shelves=num_shelves,
+                        profile_handles=extra,
                         is_pantry=is_pantry, thickness=t)
 
     # Unknown type — caller will skip this unit.

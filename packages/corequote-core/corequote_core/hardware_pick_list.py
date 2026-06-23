@@ -5,6 +5,17 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping
 
+from corequote_core.channel_handles import (
+    BASE_DOOR_TOP_J_CHANNEL_HANDLE_ID,
+    BETWEEN_LOWER_C_CHANNEL_HANDLE_ID,
+    MIDDLE_C_CHANNEL_HANDLE_ID,
+    TALL_VERTICAL_CHANNEL_HANDLE_ID,
+    TOP_J_CHANNEL_HANDLE_ID,
+    attach_profile_handle_lookup,
+    channel_profile_rows_for_unit,
+    has_channel_selection,
+)
+
 
 SIMPLIFIED_UNIT_TYPE_CANDIDATES: dict[str, tuple[str, ...]] = {
     "Base Draw": ("Base Draw", "Base Drawer", "Base 1 Draw", "Base 2 Draw", "Base 3 Draw", "Base 4 Draw"),
@@ -123,6 +134,7 @@ def build_hardware_pick_list(
             num_drawers = _non_negative_int(extra_params.get("num_drawers"), 3)
             if num_drawers > 0:
                 location = _unit_location(unit_number, "drawers")
+                profile_params = attach_profile_handle_lookup(extra_params, handle_lookup)
                 slide_id = str(extra_params.get("slide_id") or quote.get("default_slide_id") or "").strip()
                 if slide_id:
                     slide = slide_lookup.get(slide_id)
@@ -189,18 +201,31 @@ def build_hardware_pick_list(
                         message=f"Choose a drawer slide for {location}.",
                     )
 
-                handle_qty = _non_negative_int(extra_params.get("handle_qty"), num_drawers)
-                handle_id = str(extra_params.get("handle_id") or quote.get("default_drawer_handle_id") or "").strip()
-                _add_handle_requirement(
+                _add_channel_profile_requirement(
                     add_item=add_item,
                     add_warning=add_warning,
-                    handle_lookup=handle_lookup,
-                    handle_id=handle_id,
-                    handle_qty=handle_qty,
+                    unit=unit,
+                    unit_type_key=canonical_type,
+                    profile_params=profile_params,
                     unit_number=unit_number,
+                    height=height,
+                    width=width,
+                    num_fronts=num_drawers,
                     location=location,
-                    handle_label="drawer handle",
                 )
+                if not _channel_selection_requested(extra_params, canonical_type, num_drawers):
+                    handle_qty = _non_negative_int(extra_params.get("handle_qty"), num_drawers)
+                    handle_id = str(extra_params.get("handle_id") or quote.get("default_drawer_handle_id") or "").strip()
+                    _add_handle_requirement(
+                        add_item=add_item,
+                        add_warning=add_warning,
+                        handle_lookup=handle_lookup,
+                        handle_id=handle_id,
+                        handle_qty=handle_qty,
+                        unit_number=unit_number,
+                        location=location,
+                        handle_label="drawer handle",
+                    )
 
         if canonical_type in {"Base Door", "Wall Door", "Tall Door"}:
             num_doors = _non_negative_int(extra_params.get("num_doors"), 2)
@@ -208,6 +233,7 @@ def build_hardware_pick_list(
                 continue
 
             location = _unit_location(unit_number, "doors")
+            profile_params = attach_profile_handle_lookup(extra_params, handle_lookup)
             hinge_id = str(extra_params.get("hinge_id") or quote.get("default_hinge_id") or "").strip()
             hinges_per_door = max(2, math.ceil(height / 600)) if height > 0 else 2
             if hinge_id:
@@ -272,18 +298,31 @@ def build_hardware_pick_list(
             else:
                 default_handle_id = str(quote.get("default_base_handle_id") or "").strip()
                 handle_label = "base handle"
-            handle_id = str(extra_params.get("handle_id") or default_handle_id).strip()
-            handle_qty = _non_negative_int(extra_params.get("handle_qty"), num_doors)
-            _add_handle_requirement(
+            _add_channel_profile_requirement(
                 add_item=add_item,
                 add_warning=add_warning,
-                handle_lookup=handle_lookup,
-                handle_id=handle_id,
-                handle_qty=handle_qty,
+                unit=unit,
+                unit_type_key=canonical_type,
+                profile_params=profile_params,
                 unit_number=unit_number,
+                height=height,
+                width=width,
+                num_fronts=num_doors,
                 location=location,
-                handle_label=handle_label,
             )
+            if not _channel_selection_requested(extra_params, canonical_type, num_doors):
+                handle_id = str(extra_params.get("handle_id") or default_handle_id).strip()
+                handle_qty = _non_negative_int(extra_params.get("handle_qty"), num_doors)
+                _add_handle_requirement(
+                    add_item=add_item,
+                    add_warning=add_warning,
+                    handle_lookup=handle_lookup,
+                    handle_id=handle_id,
+                    handle_qty=handle_qty,
+                    unit_number=unit_number,
+                    location=location,
+                    handle_label=handle_label,
+                )
 
     for selected_extra in quote_extras:
         extra_id = str(selected_extra.get("extra_id") or "").strip()
@@ -708,6 +747,7 @@ def _add_handle_requirement(
             item_ref_id=handle_id,
             message=f"Handle {handle_id} is not available for {location}.",
         )
+    handle_type = str((handle or {}).get("handle_type") or "standard")
     add_item(
         item_type="handle",
         item_ref_id=handle_id,
@@ -715,10 +755,101 @@ def _add_handle_requirement(
         supplier=_catalog_supplier(handle),
         code=_catalog_code(handle),
         quantity=handle_qty,
-        uom="pcs",
+        uom="lengths" if handle_type == "full_length" else "pcs",
         unit_number=unit_number,
         used_in=location,
     )
+
+
+def _add_channel_profile_requirement(
+    *,
+    add_item,
+    add_warning,
+    unit: dict[str, Any],
+    unit_type_key: str,
+    profile_params: dict[str, Any],
+    unit_number: int,
+    height: int,
+    width: int,
+    num_fronts: int,
+    location: str,
+) -> None:
+    _add_missing_profile_warnings(add_warning=add_warning, extra_params=profile_params, unit_type_key=unit_type_key, unit_number=unit_number, location=location)
+    is_pantry = str(unit.get("unit_type_key") or unit.get("unit_type") or "") == "Tall Pantry"
+    rows = [
+        *channel_profile_rows_for_unit(
+            unit_number=unit_number,
+            unit_type_key=unit_type_key,
+            height=height,
+            width=width,
+            num_fronts=num_fronts,
+            profile_params=profile_params,
+            is_pantry=is_pantry,
+        ),
+    ]
+    for row in rows:
+        item_ref_id = str(row.get("item_ref_id") or "").strip()
+        if not item_ref_id:
+            continue
+        handle = (profile_params.get("_profile_handle_lookup") or {}).get(item_ref_id)
+        add_item(
+            item_type="handle",
+            item_ref_id=item_ref_id,
+            item_name=_handle_name(handle),
+            supplier=_catalog_supplier(handle),
+            code=_catalog_code(handle),
+            quantity=int(row["qty"]),
+            uom="lengths",
+            unit_number=unit_number,
+            used_in=location,
+        )
+
+
+def _channel_selection_requested(extra_params: Mapping[str, Any], unit_type_key: str, num_fronts: int) -> bool:
+    if unit_type_key == "Base Draw":
+        if num_fronts in {1, 2, 3} and str(extra_params.get(TOP_J_CHANNEL_HANDLE_ID) or "").strip():
+            return True
+        if num_fronts == 2 and str(extra_params.get(MIDDLE_C_CHANNEL_HANDLE_ID) or "").strip():
+            return True
+        if num_fronts == 3 and str(extra_params.get(BETWEEN_LOWER_C_CHANNEL_HANDLE_ID) or "").strip():
+            return True
+        return False
+    if unit_type_key == "Base Door":
+        return bool(str(extra_params.get(BASE_DOOR_TOP_J_CHANNEL_HANDLE_ID) or "").strip())
+    if unit_type_key == "Tall Door":
+        return bool(str(extra_params.get(TALL_VERTICAL_CHANNEL_HANDLE_ID) or "").strip())
+    return has_channel_selection(extra_params, unit_type_key=unit_type_key, num_fronts=num_fronts)
+
+
+def _add_missing_profile_warnings(
+    *,
+    add_warning,
+    extra_params: Mapping[str, Any],
+    unit_type_key: str,
+    unit_number: int,
+    location: str,
+) -> None:
+    requested_keys: tuple[str, ...]
+    if unit_type_key == "Base Draw":
+        requested_keys = (TOP_J_CHANNEL_HANDLE_ID, MIDDLE_C_CHANNEL_HANDLE_ID, BETWEEN_LOWER_C_CHANNEL_HANDLE_ID)
+    elif unit_type_key == "Base Door":
+        requested_keys = (BASE_DOOR_TOP_J_CHANNEL_HANDLE_ID,)
+    elif unit_type_key == "Tall Door":
+        requested_keys = (TALL_VERTICAL_CHANNEL_HANDLE_ID,)
+    else:
+        requested_keys = ()
+    lookup = extra_params.get("_profile_handle_lookup")
+    lookup = lookup if isinstance(lookup, Mapping) else {}
+    for key in requested_keys:
+        item_ref_id = str(extra_params.get(key) or "").strip()
+        if item_ref_id and item_ref_id not in lookup:
+            add_warning(
+                code="missing_catalog_item",
+                item_type="handle",
+                unit_number=unit_number,
+                item_ref_id=item_ref_id,
+                message=f"Handle {item_ref_id} is not available for {location}.",
+            )
 
 
 def _add_drawer_system_hardware_items(
@@ -878,7 +1009,7 @@ def _brand_supplier(row: dict[str, Any] | None) -> str:
 def _catalog_supplier(row: dict[str, Any] | None) -> str:
     if not row:
         return ""
-    return str(row.get("supplier") or "").strip()
+    return str(row.get("supplier_name") or row.get("supplier") or "").strip()
 
 
 def _catalog_code(row: dict[str, Any] | None) -> str:

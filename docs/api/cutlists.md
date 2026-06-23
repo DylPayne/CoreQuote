@@ -161,3 +161,40 @@ carcass and drawer-front rows, then adds the selected system's
 `drawer_system_config.panel_formulas` rows. Formula rows can target `carcass`,
 `panel`, or `extra_panel`; hardware/accessory rows are emitted by the hardware
 pick-list from `drawer_system_config.hardware_items`.
+
+Units can select library-backed C/J channel profiles and full-length profile
+handles through `extra_params` handle IDs:
+
+```json
+{
+  "top_j_channel_handle_id": "handle-j-uuid",
+  "middle_c_channel_handle_id": "handle-c-uuid",
+  "between_lower_c_channel_handle_id": "handle-c-uuid",
+  "base_door_top_j_channel_handle_id": "handle-j-uuid",
+  "tall_vertical_channel_handle_id": "handle-c-or-j-uuid",
+  "handle_id": "full-length-profile-handle-uuid",
+  "full_length_handle_orientation": "length"
+}
+```
+
+The selected IDs must reference Handles library rows. `handle_type`,
+`supplier_id`, display-only `supplier_name`, and `front_reduction_mm` are read
+from the handle item; unit payloads do not carry profile finish, supplier, code,
+allowance, or reduction fields.
+
+Built-in drawer support is fixed to Base 1/2/3 Draw units:
+
+- Base 1 Draw: `top_j_channel_handle_id`.
+- Base 2 Draw: `top_j_channel_handle_id` and `middle_c_channel_handle_id`.
+- Base 3 Draw: `top_j_channel_handle_id` and `between_lower_c_channel_handle_id`.
+
+Drawer channels reduce the affected drawer-front heights. Base Door top
+J-channels reduce door-front height. Tall vertical channels reduce door/front
+width. Full-length profile handles use `full_length_handle_orientation`:
+`length` cuts the profile to derived door-front height and reduces front width;
+`width` cuts the profile to derived door-front width and reduces front height.
+
+Profile hardware rows use the selected handle library item. The row `W` value is
+the required profile cut length: unit width for horizontal channels, unit height
+for tall vertical channels, and derived door-front height or width for
+full-length profile handles.

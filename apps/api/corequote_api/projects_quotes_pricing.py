@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from corequote_core.detailed_pricing import price_quote_detailed, settings_from_mapping
+from corequote_core.channel_handles import attach_profile_handle_lookup
 from corequote_core.panels import PANEL_PRESET_KEYS, PANEL_PRESET_LABELS, compute_panel_rows
 from corequote_api.cutlist_validation import preview_with_validation
 from corequote_api.cutting_runtime import CutlistRuntimeService
@@ -68,6 +69,7 @@ def _build_cutting_list_preview(
     use_rulesets: bool,
     board_lookup: dict[str, dict[str, Any]],
     slide_lookup: dict[str, dict[str, Any]] | None = None,
+    handle_lookup: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     slide_lookup = slide_lookup or {}
     default_slide = slide_lookup.get(str(quote.get("default_slide_id") or ""))
@@ -77,6 +79,7 @@ def _build_cutting_list_preview(
             quote=quote,
             board_lookup=board_lookup,
             slide_lookup=slide_lookup,
+            handle_lookup=handle_lookup,
             default_slide=default_slide,
             allow_missing_board_fallback=True,
         )
@@ -146,10 +149,15 @@ def _to_runtime_unit(
     quote: dict[str, Any],
     board_lookup: dict[str, dict[str, Any]],
     slide_lookup: dict[str, dict[str, Any]] | None = None,
+    handle_lookup: dict[str, dict[str, Any]] | None = None,
     default_slide: dict[str, Any] | None = None,
     allow_missing_board_fallback: bool = False,
 ) -> dict[str, Any]:
     extra_params = dict(unit.get("extra_params") or {})
+    default_handle_id = _default_handle_id_for_runtime_unit(unit, quote)
+    if default_handle_id and not str(extra_params.get("handle_id") or "").strip():
+        extra_params["handle_id"] = default_handle_id
+    extra_params = attach_profile_handle_lookup(extra_params, handle_lookup or {})
     unit_slide = (slide_lookup or {}).get(str(extra_params.get("slide_id") or "")) or default_slide
     if unit_slide:
         extra_params.setdefault("slide_brand", unit_slide.get("brand", ""))
@@ -209,6 +217,19 @@ def _fallback_unit_thickness(unit: dict[str, Any]) -> int:
     return thickness if thickness > 0 else 16
 
 
+def _default_handle_id_for_runtime_unit(unit: dict[str, Any], quote: dict[str, Any]) -> str:
+    unit_type = str(unit.get("unit_type_key") or unit.get("unit_type") or "").strip().lower()
+    if "draw" in unit_type:
+        return str(quote.get("default_drawer_handle_id") or "").strip()
+    if unit_type.startswith("wall") or "wall" in unit_type:
+        return str(quote.get("default_wall_handle_id") or "").strip()
+    if unit_type.startswith("tall") or "tall" in unit_type:
+        return str(quote.get("default_tall_handle_id") or "").strip()
+    if "door" in unit_type or "hinge" in unit_type:
+        return str(quote.get("default_base_handle_id") or "").strip()
+    return ""
+
+
 def _price_quote(
     *,
     quote: dict[str, Any],
@@ -234,6 +255,7 @@ def _price_quote(
         use_rulesets=use_rulesets,
         board_lookup=board_lookup,
         slide_lookup=slide_lookup,
+        handle_lookup=handle_lookup,
     )
 
     cutlist_warnings = list(cutting_list.get("validation_warnings", []))
