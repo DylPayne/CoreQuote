@@ -15,7 +15,7 @@ import { LoadingScreen } from '@/components/loading-screen'
 import { ProjectsQuotesPage } from '@/components/projects-quotes-page'
 import { SettingsPage } from '@/components/settings-page'
 import { apiRequest, AUTH_TOKEN_KEY, getStoredAuthToken } from '@/lib/api'
-import { colourThemes, createThemeVars, uiStyles } from '@/lib/theme'
+import { colourThemes, createThemeVars } from '@/lib/theme'
 import type { LibraryTab } from '@/components/libraries/types'
 import type { AppPage } from '@/types/app'
 import type { AuthFormState, AuthMode, AuthStatus, AuthTokenResponse, AuthUser } from '@/types/auth'
@@ -28,23 +28,23 @@ const initialAuthForm: AuthFormState = {
   password: '',
 }
 
+const DEFAULT_COLOUR_THEME: ColourTheme = 'neutral'
+const DEFAULT_THEME_MODE: ThemeMode = 'light'
+const DEFAULT_UI_STYLE: UiStyle = 'mira'
+
 function App() {
   const [authMode, setAuthMode] = useState<AuthMode>('login')
   const [authForm, setAuthForm] = useState<AuthFormState>(initialAuthForm)
   const [authToken, setAuthToken] = useState<string | null>(getStoredAuthToken)
   const [authStatus, setAuthStatus] = useState<AuthStatus>(() => (getStoredAuthToken() ? 'checking' : 'signed-out'))
   const [authError, setAuthError] = useState<string | null>(null)
-  const [colourTheme, setColourTheme] = useState<ColourTheme>('neutral')
   const [currentPage, setCurrentPage] = useState<AppPage>('projects')
   const [libraryInitialTab, setLibraryInitialTab] = useState<LibraryTab>('setup-imports')
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
-  const [themeMode, setThemeMode] = useState<ThemeMode>('light')
-  const [uiStyle, setUiStyle] = useState<UiStyle>('lyra')
   const [user, setUser] = useState<AuthUser | null>(null)
-  const selectedTheme = colourThemes.find((theme) => theme.value === colourTheme) ?? colourThemes[0]
-  const selectedStyle = uiStyles.find((style) => style.value === uiStyle) ?? uiStyles[3]
-  const themeVars = useMemo(() => createThemeVars(selectedTheme, themeMode, uiStyle), [selectedTheme, themeMode, uiStyle])
+  const selectedTheme = colourThemes.find((theme) => theme.value === DEFAULT_COLOUR_THEME) ?? colourThemes[0]
+  const themeVars = useMemo(() => createThemeVars(selectedTheme, DEFAULT_THEME_MODE, DEFAULT_UI_STYLE), [selectedTheme])
   const handleSetCurrentPage = useCallback((page: AppPage) => {
     if (page === 'libraries') {
       setLibraryInitialTab('setup-imports')
@@ -152,7 +152,7 @@ function App() {
 
   if (authStatus === 'checking') {
     return (
-      <AppTheme colourTheme={colourTheme} themeMode={themeMode} themeVars={themeVars} uiStyle={uiStyle}>
+      <AppTheme colourTheme={DEFAULT_COLOUR_THEME} themeMode={DEFAULT_THEME_MODE} themeVars={themeVars} uiStyle={DEFAULT_UI_STYLE}>
         <LoadingScreen />
       </AppTheme>
     )
@@ -160,7 +160,7 @@ function App() {
 
   if (authStatus === 'signed-out' || !user || !authToken) {
     return (
-      <AppTheme colourTheme={colourTheme} themeMode={themeMode} themeVars={themeVars} uiStyle={uiStyle}>
+      <AppTheme colourTheme={DEFAULT_COLOUR_THEME} themeMode={DEFAULT_THEME_MODE} themeVars={themeVars} uiStyle={DEFAULT_UI_STYLE}>
         <AuthScreen
           authError={authError}
           authForm={authForm}
@@ -178,7 +178,7 @@ function App() {
   }
 
   return (
-    <AppTheme colourTheme={colourTheme} themeMode={themeMode} themeVars={themeVars} uiStyle={uiStyle}>
+    <AppTheme colourTheme={DEFAULT_COLOUR_THEME} themeMode={DEFAULT_THEME_MODE} themeVars={themeVars} uiStyle={DEFAULT_UI_STYLE}>
       <AppShell
         currentPage={currentPage}
         isLoggingOut={isLoggingOut}
@@ -189,14 +189,7 @@ function App() {
         {currentPage === 'settings' ? (
           <SettingsPage
             authToken={authToken}
-            colourTheme={colourTheme}
             onUserChange={(nextUser) => setUser(nextUser)}
-            selectedStyle={selectedStyle}
-            setColourTheme={setColourTheme}
-            setThemeMode={setThemeMode}
-            setUiStyle={setUiStyle}
-            themeMode={themeMode}
-            uiStyle={uiStyle}
             user={user}
           />
         ) : currentPage === 'projects' ? (
