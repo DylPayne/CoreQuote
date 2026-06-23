@@ -173,7 +173,7 @@ def _slide_depth_warnings(
             continue
         if _effective_drawer_system_kind(extra_params, slide) == "metal":
             continue
-        slide_length = _int_value(slide.get("length"))
+        slide_length = max(_int_value(slide.get("length")), _int_value(slide.get("required_depth_mm")))
         unit_depth = _int_value(unit.get("depth"))
         if slide_length <= 0 or unit_depth >= slide_length:
             continue

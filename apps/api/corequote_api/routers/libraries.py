@@ -37,6 +37,8 @@ from corequote_api.schemas import (
     PricingSettingsRequest,
     PricingSettingsResponse,
     LibrarySetupChecklistResponse,
+    SlideRangeCreateRequest,
+    SlideRangeCreateResponse,
     SlideRequest,
     SlideResponse,
     SupplierItemCostRequest,
@@ -165,6 +167,26 @@ def list_slides(
 @router.post("/slides", response_model=SlideResponse, status_code=status.HTTP_201_CREATED, summary="Create a slide")
 def create_slide(payload: SlideRequest, current_user: CatalogWriter, store: StoreDep) -> SlideResponse:
     return _create_response(SlideResponse, store.create_slide, current_user.company_id, payload)
+
+
+@router.post(
+    "/slides/ranges",
+    response_model=SlideRangeCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a drawer runner product range",
+)
+def create_slide_range(
+    payload: SlideRangeCreateRequest,
+    current_user: CatalogWriter,
+    store: StoreDep,
+) -> SlideRangeCreateResponse:
+    try:
+        result = store.create_slide_range(current_user.company_id, payload.model_dump(mode="json"))
+    except LibraryConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except LibraryValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return SlideRangeCreateResponse.model_validate(result)
 
 
 @router.get("/slides/{item_id}", response_model=SlideResponse, summary="Get a slide")

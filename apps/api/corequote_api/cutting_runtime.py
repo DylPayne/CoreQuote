@@ -760,7 +760,9 @@ class CutlistRuntimeService:
             )
         )
         drawer_clearance = int(_number_or_default(extra_params.get("slide_side_clearance_total"), 0))
-        drawer_width = max(0, int(width - (2 * thickness) - (2 * drawer_clearance)))
+        configured_width_deduction = int(_number_or_default(extra_params.get("slide_box_width_deduction_mm"), 0))
+        drawer_width_deduction = configured_width_deduction if configured_width_deduction > 0 else 2 * drawer_clearance
+        drawer_width = max(0, int(width - (2 * thickness) - drawer_width_deduction))
         num_drawers = int(context["num_drawers"])
         panel_gap_mm = int(context["panel_gap_mm"])
         drawer_front_height = int((height / num_drawers) - panel_gap_mm) if num_drawers > 0 else 0
@@ -773,6 +775,10 @@ class CutlistRuntimeService:
         context["drawer_front_height"] = drawer_front_height
         context["drawer_front_back_height"] = drawer_front_back_height
         context["drawer_side_height"] = drawer_side_height
+        context["slide_mount_type"] = str(extra_params.get("slide_mount_type") or "")
+        context["slide_product_family"] = str(extra_params.get("slide_product_family") or "")
+        context["slide_required_depth_mm"] = int(_number_or_default(extra_params.get("slide_required_depth_mm"), 0))
+        context["slide_box_width_deduction_mm"] = drawer_width_deduction
         context["inner_w"] = max(0, width - (2 * thickness))
         context["inner_h"] = max(0, height - (2 * thickness))
         return context

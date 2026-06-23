@@ -517,6 +517,50 @@ def test_hardware_pick_list_adds_configured_metal_drawer_system_accessories():
     assert items["extra::drawer-system:slide-metal:1:steel-back-set"]["code"] == "BACK-500"
 
 
+def test_hardware_pick_list_applies_metal_side_height_accessory_condition():
+    result = build_hardware_pick_list(
+        quote={"id": "quote-1", "name": "Kitchen Quote", "default_slide_id": "slide-metal"},
+        units=[unit(1, "Base Draw", height=760, extra_params={"num_drawers": 2, "handle_qty": 0})],
+        quote_extras=[],
+        slide_lookup={
+            "slide-metal": {
+                "id": "slide-metal",
+                "brand": "Grass",
+                "model": "Nova Pro Scala H186",
+                "code": "NPS-500",
+                "length": 500,
+                "mount_type": "metal_system",
+                "product_family": "Nova Pro Scala",
+                "drawer_system_kind": "metal",
+                "drawer_system_config": {"side_height_mm": 186},
+                "accessory_config": {
+                    "accessories": [
+                        {
+                            "item_type": "extra",
+                            "item_ref_id": "extra-rail",
+                            "name": "Rail set",
+                            "quantity": 1,
+                            "quantity_rule": "per_drawer",
+                            "condition": {
+                                "field": "metal_side_height",
+                                "operator": "greater_than_or_equal",
+                                "value_number": 180,
+                            },
+                        }
+                    ]
+                },
+            }
+        },
+        hinge_lookup={},
+        handle_lookup={},
+        extra_lookup={"extra-rail": {"id": "extra-rail", "name": "Rail set", "category_name": "Drawer systems"}},
+    )
+
+    items = {item["item_key"]: item for item in result["items"]}
+
+    assert items["extra::extra-rail"]["quantity"] == 2
+
+
 def unit(unit_number: int, unit_type_key: str, *, height: int = 780, extra_params: dict | None = None) -> dict:
     return {
         "unit_number": unit_number,

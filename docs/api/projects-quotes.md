@@ -260,7 +260,7 @@ Request payload (`POST` / `PATCH`):
 
 `thickness` is not accepted in unit create/update requests. The API resolves it from the unit `carcass_board_type_id`, falling back to the quote `default_carcass_board_type_id` when the unit does not override the carcass board. An effective carcass board is required.
 
-`slide_id` and `hinge_id` are unit-level hardware selectors. Drawer units store `slide_id` as an `extra_params` override, and door/hinged units store `hinge_id` as an `extra_params` override. Empty values fall back to the quote default. Drawer units are rejected when the effective slide length is greater than the unit carcass depth; for example, a selected 500 mm slide requires a carcass depth of at least 500 mm internally.
+`slide_id` and `hinge_id` are unit-level hardware selectors. Drawer units store `slide_id` as an `extra_params` override, and door/hinged units store `hinge_id` as an `extra_params` override. Empty values fall back to the quote default. Drawer units are rejected when the effective slide required depth is greater than the unit carcass depth; for example, a selected 500 mm slide or a runner with `required_depth_mm: 510` requires a carcass depth of at least that value internally.
 
 Response shape:
 
@@ -493,7 +493,7 @@ Response shape:
 }
 ```
 
-Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, rows that cannot be tied to a usable board/material choice, and drawer units whose effective slide length is greater than carcass depth. For metal drawer systems (`drawer_system_kind: "metal"` on the selected slide/drawer hardware), validation also checks configured minimum depth, compatible side-wall thicknesses, compatible nominal lengths, internal-width limits, and drawer-front height limits. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
+Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, rows that cannot be tied to a usable board/material choice, and drawer units whose effective slide required depth is greater than carcass depth. For metal drawer systems (`drawer_system_kind: "metal"` on the selected slide/drawer hardware), validation also checks configured minimum depth, compatible side-wall thicknesses, compatible nominal lengths, internal-width limits, and drawer-front height limits. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
 
 ## Quote Readiness
 

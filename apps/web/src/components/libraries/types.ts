@@ -33,6 +33,7 @@ export type LibraryImportProblemSeverity = 'error' | 'warning'
 export type LibraryCatalogBulkResource = 'boards' | 'slides' | 'hinges' | 'handles' | 'extras' | 'suppliers'
 export type LibraryBulkRowStatus = 'preview' | 'updated' | 'failed'
 export type BoardGrainPolicy = 'none' | 'optional' | 'required'
+export type SlideMountType = 'side_mount' | 'undermount' | 'metal_system' | 'custom'
 
 export type LibrarySetupChecklistItem = {
   id: string
@@ -176,6 +177,11 @@ export type SlideRow = {
   side_length: number
   side_clearance_total: number
   side_height_uplift: number
+  mount_type: SlideMountType
+  product_family: string
+  required_depth_mm: number
+  drawer_depth_deduction_mm: number
+  box_width_deduction_mm: number
   drawer_system_kind: DrawerSystemKind
   drawer_system_config: DrawerSystemConfig
   accessory_config: HardwareAccessoryConfig
@@ -328,18 +334,55 @@ export type SlideDraft = {
   side_length: string
   side_clearance_total: string
   side_height_uplift: string
+  mount_type: SlideMountType
+  product_family: string
+  required_depth_mm: string
+  drawer_depth_deduction_mm: string
+  box_width_deduction_mm: string
   drawer_system_kind: DrawerSystemKind
   drawer_system_config: DrawerSystemConfig
   accessory_config: HardwareAccessoryConfig
 }
 
-export type DrawerSystemKind = 'conventional' | 'metal'
+export type SlideRangeLengthDraft = {
+  length: string
+  code: string
+  side_length: string
+  required_depth_mm: string
+  drawer_depth_deduction_mm: string
+  box_width_deduction_mm: string
+}
+
+export type SlideRangeDraft = {
+  brand: string
+  product_family: string
+  mount_type: SlideMountType
+  code_pattern: string
+  lengths: SlideRangeLengthDraft[]
+  side_clearance_total: string
+  side_height_uplift: string
+  drawer_depth_deduction_mm: string
+  box_width_deduction_mm: string
+  required_depth_mm: string
+  drawer_system_config: DrawerSystemConfig
+  accessory_config: HardwareAccessoryConfig
+}
+
+export type SlideRangeCreateResponse = {
+  created_count: number
+  slides: SlideRow[]
+}
+
+export type DrawerSystemKind = 'conventional' | 'metal' | 'custom'
 export type DrawerSystemHardwareItemType = Exclude<PriceItemType, 'board'>
 export type HardwareAccessoryQuantityRule = 'fixed' | 'per_unit' | 'per_drawer' | 'per_slide_pair' | 'per_hinge' | 'per_door'
 export type HardwareAccessoryConditionField =
   | 'always'
   | 'drawer_front_height'
   | 'drawer_side_height'
+  | 'metal_side_height'
+  | 'system_side_height'
+  | 'nominal_length'
   | 'unit_width'
   | 'unit_height'
   | 'unit_depth'
@@ -348,6 +391,8 @@ export type HardwareAccessoryConditionField =
   | 'hinge_count'
   | 'hardware_variant'
   | 'load_class'
+  | 'mount_type'
+  | 'product_family'
 export type HardwareAccessoryConditionOperator =
   | 'always'
   | 'greater_than'

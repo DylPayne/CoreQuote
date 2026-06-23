@@ -1,4 +1,4 @@
-import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemFormulaRow, DrawerSystemKind, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, DrawerSystemConfig, DrawerSystemFormulaRow, DrawerSystemKind, ExtraDraft, ExtraRow, HandleDraft, HandleRow, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, PriceItemType, SlideDraft, SlideMountType, SlideRangeDraft, SlideRow, SupplierDraft, SupplierRow } from './types'
 export { formatCurrencyFromCents } from '@/lib/currency'
 
 export function formatBoardLabel(row: BoardTypeRow) {
@@ -12,12 +12,21 @@ export function formatBoardGrainPolicy(value: BoardGrainPolicy) {
 }
 
 export function formatSlideLabel(row: SlideRow) {
-  const systemSuffix = row.drawer_system_kind === 'metal' ? ' · Metal system' : ''
-  return `${row.brand} ${row.model}${row.code ? ` (${row.code})` : ''}${systemSuffix}`
+  const rangeSuffix = row.product_family ? ` · ${row.product_family}` : ''
+  const mountSuffix = row.mount_type && row.mount_type !== 'side_mount' ? ` · ${formatSlideMountType(row.mount_type)}` : ''
+  return `${row.brand} ${row.model}${row.code ? ` (${row.code})` : ''}${rangeSuffix}${mountSuffix}`
 }
 
 export function formatDrawerSystemKind(value: DrawerSystemKind) {
+  if (value === 'custom') return 'Custom system'
   return value === 'metal' ? 'Metal system' : 'Conventional slide'
+}
+
+export function formatSlideMountType(value: SlideMountType) {
+  if (value === 'undermount') return 'Undermount'
+  if (value === 'metal_system') return 'Metal-sided system'
+  if (value === 'custom') return 'Custom'
+  return 'Side mount'
 }
 
 export function formatHingeLabel(row: HingeRow) {
@@ -73,6 +82,11 @@ export function parseNonNegativeInteger(value: string) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed < 0) return null
   return Math.floor(parsed)
+}
+
+export function parseOptionalNonNegativeInteger(value: string) {
+  if (!value.trim()) return 0
+  return parseNonNegativeInteger(value)
 }
 
 export function normalizeAccessoryConfig(config: HardwareAccessoryConfig | undefined): HardwareAccessoryConfig {
@@ -162,17 +176,23 @@ export function buildSlidePayload(draft: SlideDraft) {
   const side_length = parseNonNegativeInteger(draft.side_length)
   const side_clearance_total = parseNonNegativeInteger(draft.side_clearance_total)
   const side_height_uplift = parseNonNegativeInteger(draft.side_height_uplift)
+  const required_depth_mm = parseOptionalNonNegativeInteger(draft.required_depth_mm)
+  const drawer_depth_deduction_mm = parseOptionalNonNegativeInteger(draft.drawer_depth_deduction_mm)
+  const box_width_deduction_mm = parseOptionalNonNegativeInteger(draft.box_width_deduction_mm)
   if (
     !brand ||
     !model ||
     length === null ||
     side_length === null ||
     side_clearance_total === null ||
-    side_height_uplift === null
+    side_height_uplift === null ||
+    required_depth_mm === null ||
+    drawer_depth_deduction_mm === null ||
+    box_width_deduction_mm === null
   ) {
     return null
   }
-  const drawer_system_kind = draft.drawer_system_kind === 'metal' ? 'metal' : 'conventional'
+  const drawer_system_kind = draft.drawer_system_kind === 'metal' || draft.drawer_system_kind === 'custom' ? draft.drawer_system_kind : 'conventional'
   const drawer_system_config = normalizeDrawerSystemConfig(draft.drawer_system_config, drawer_system_kind)
   return {
     brand,
@@ -182,8 +202,80 @@ export function buildSlidePayload(draft: SlideDraft) {
     side_length,
     side_clearance_total,
     side_height_uplift,
+    mount_type: draft.mount_type,
+    product_family: draft.product_family.trim(),
+    required_depth_mm,
+    drawer_depth_deduction_mm,
+    box_width_deduction_mm,
     drawer_system_kind,
     drawer_system_config,
+    accessory_config: normalizeAccessoryConfig(draft.accessory_config),
+  }
+}
+
+export function buildSlideRangePayload(draft: SlideRangeDraft) {
+  const brand = draft.brand.trim()
+  const product_family = draft.product_family.trim()
+  const side_clearance_total = parseOptionalNonNegativeInteger(draft.side_clearance_total)
+  const side_height_uplift = parseOptionalNonNegativeInteger(draft.side_height_uplift)
+  const drawer_depth_deduction_mm = parseOptionalNonNegativeInteger(draft.drawer_depth_deduction_mm)
+  const box_width_deduction_mm = parseOptionalNonNegativeInteger(draft.box_width_deduction_mm)
+  const required_depth_mm = parseOptionalNonNegativeInteger(draft.required_depth_mm)
+  let hasInvalidLengthRow = false
+  const lengths = draft.lengths
+    .flatMap((row) => {
+      if (!row.length.trim()) return []
+      const length = parsePositiveInteger(row.length)
+      const side_length = parseOptionalNonNegativeInteger(row.side_length)
+      const row_required_depth_mm = parseOptionalNonNegativeInteger(row.required_depth_mm)
+      const row_depth_deduction = parseOptionalNonNegativeInteger(row.drawer_depth_deduction_mm)
+      const row_box_width_deduction = parseOptionalNonNegativeInteger(row.box_width_deduction_mm)
+      if (
+        length === null ||
+        side_length === null ||
+        row_required_depth_mm === null ||
+        row_depth_deduction === null ||
+        row_box_width_deduction === null
+      ) {
+        hasInvalidLengthRow = true
+        return []
+      }
+      return [{
+        length,
+        code: row.code.trim(),
+        ...(row.side_length.trim() ? { side_length } : {}),
+        ...(row.required_depth_mm.trim() ? { required_depth_mm: row_required_depth_mm } : {}),
+        ...(row.drawer_depth_deduction_mm.trim() ? { drawer_depth_deduction_mm: row_depth_deduction } : {}),
+        ...(row.box_width_deduction_mm.trim() ? { box_width_deduction_mm: row_box_width_deduction } : {}),
+      }]
+    })
+  if (
+    !brand ||
+    !product_family ||
+    hasInvalidLengthRow ||
+    !lengths.length ||
+    side_clearance_total === null ||
+    side_height_uplift === null ||
+    drawer_depth_deduction_mm === null ||
+    box_width_deduction_mm === null ||
+    required_depth_mm === null
+  ) {
+    return null
+  }
+  const drawer_system_kind = draft.mount_type === 'metal_system' ? 'metal' : draft.mount_type === 'custom' ? 'custom' : 'conventional'
+  return {
+    brand,
+    product_family,
+    mount_type: draft.mount_type,
+    code_pattern: draft.code_pattern.trim(),
+    lengths,
+    side_clearance_total,
+    side_height_uplift,
+    drawer_depth_deduction_mm,
+    box_width_deduction_mm,
+    required_depth_mm,
+    drawer_system_kind,
+    drawer_system_config: normalizeDrawerSystemConfig(draft.drawer_system_config, drawer_system_kind),
     accessory_config: normalizeAccessoryConfig(draft.accessory_config),
   }
 }

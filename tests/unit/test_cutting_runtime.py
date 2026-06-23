@@ -42,6 +42,37 @@ def test_formula_evaluator_handles_condition_logic():
     assert evaluator.evaluate_condition("num_doors > 1 and h >= 720", {"num_doors": 1, "h": 780}) is False
 
 
+def test_formula_context_uses_slide_width_deduction_when_configured():
+    service = CutlistRuntimeService(store=FakeRuntimeStore())
+
+    fallback_context = service._build_formula_context(
+        unit={
+            "height": 720,
+            "width": 600,
+            "depth": 560,
+            "thickness": 16,
+            "extra_params": {"slide_side_clearance_total": 26, "slide_box_width_deduction_mm": 0},
+        },
+        unit_type_key="Base Draw",
+        unit_config=None,
+    )
+    configured_context = service._build_formula_context(
+        unit={
+            "height": 720,
+            "width": 600,
+            "depth": 560,
+            "thickness": 16,
+            "extra_params": {"slide_side_clearance_total": 26, "slide_box_width_deduction_mm": 42},
+        },
+        unit_type_key="Base Draw",
+        unit_config=None,
+    )
+
+    assert fallback_context["drawer_width"] == 516
+    assert configured_context["drawer_width"] == 526
+    assert configured_context["slide_box_width_deduction_mm"] == 42
+
+
 def test_runtime_service_prefers_company_ruleset_over_global_default():
     store = FakeRuntimeStore(
         unit_configs={

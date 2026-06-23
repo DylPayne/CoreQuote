@@ -178,12 +178,15 @@ function positiveIntegerFromValue(value: string | number, fallback: number) {
 function drawerSystemRequiredDepth(slide: SlideRow) {
   const minDepth = Number(slide.drawer_system_config?.min_depth_mm ?? 0)
   const normalizedMinDepth = Number.isFinite(minDepth) && minDepth > 0 ? Math.floor(minDepth) : 0
-  return Math.max(slide.length || 0, normalizedMinDepth)
+  const requiredDepth = Number(slide.required_depth_mm ?? 0)
+  const normalizedRequiredDepth = Number.isFinite(requiredDepth) && requiredDepth > 0 ? Math.floor(requiredDepth) : 0
+  return Math.max(slide.length || 0, normalizedMinDepth, normalizedRequiredDepth)
 }
 
 function drawerSystemFamilyLabel(slide: SlideRow) {
   const family = typeof slide.drawer_system_config?.product_family === 'string' ? slide.drawer_system_config.product_family.trim() : ''
-  return family || (slide.drawer_system_kind === 'metal' ? 'Metal system' : '')
+  const productFamily = typeof slide.product_family === 'string' ? slide.product_family.trim() : ''
+  return family || productFamily || (slide.drawer_system_kind === 'metal' ? 'Metal system' : '')
 }
 
 function drawerCountFromDraft(draft: Pick<UnitDraft, 'num_drawers'>) {

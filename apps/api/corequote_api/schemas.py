@@ -88,6 +88,9 @@ HardwareAccessoryConditionField = Literal[
     "always",
     "drawer_front_height",
     "drawer_side_height",
+    "metal_side_height",
+    "system_side_height",
+    "nominal_length",
     "unit_width",
     "unit_height",
     "unit_depth",
@@ -96,6 +99,8 @@ HardwareAccessoryConditionField = Literal[
     "hinge_count",
     "hardware_variant",
     "load_class",
+    "mount_type",
+    "product_family",
 ]
 HardwareAccessoryConditionOperator = Literal[
     "always",
@@ -106,7 +111,8 @@ HardwareAccessoryConditionOperator = Literal[
     "equals",
     "not_equals",
 ]
-DrawerSystemKind = Literal["conventional", "metal"]
+DrawerSystemKind = Literal["conventional", "metal", "custom"]
+SlideMountType = Literal["side_mount", "undermount", "metal_system", "custom"]
 DrawerSystemPanelSection = Literal["carcass", "panel", "extra_panel"]
 
 
@@ -1471,6 +1477,11 @@ class SlideRequest(BaseModel):
     side_length: int = Field(ge=0)
     side_clearance_total: int = Field(ge=0)
     side_height_uplift: int = Field(default=0, ge=0)
+    mount_type: SlideMountType = "side_mount"
+    product_family: str = Field(default="", max_length=160)
+    required_depth_mm: int = Field(default=0, ge=0)
+    drawer_depth_deduction_mm: int = Field(default=0, ge=0)
+    box_width_deduction_mm: int = Field(default=0, ge=0)
     drawer_system_kind: DrawerSystemKind = "conventional"
     drawer_system_config: DrawerSystemConfig = Field(default_factory=DrawerSystemConfig)
     accessory_config: HardwareAccessoryConfig = Field(default_factory=HardwareAccessoryConfig)
@@ -1496,6 +1507,68 @@ class SlideResponse(SlideRequest):
     id: str
     created_at: datetime
     updated_at: datetime
+
+
+class SlideRangeLengthRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    length: int = Field(gt=0)
+    code: str = Field(default="", max_length=120)
+    side_length: int | None = Field(default=None, ge=0)
+    required_depth_mm: int | None = Field(default=None, ge=0)
+    drawer_depth_deduction_mm: int | None = Field(default=None, ge=0)
+    box_width_deduction_mm: int | None = Field(default=None, ge=0)
+
+
+class SlideRangeCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    brand: str = Field(min_length=1, max_length=120)
+    product_family: str = Field(min_length=1, max_length=160)
+    mount_type: SlideMountType = "side_mount"
+    code_pattern: str = Field(default="", max_length=120)
+    lengths: list[SlideRangeLengthRequest] = Field(min_length=1, max_length=40)
+    side_clearance_total: int = Field(default=26, ge=0)
+    side_height_uplift: int = Field(default=0, ge=0)
+    drawer_depth_deduction_mm: int = Field(default=10, ge=0)
+    box_width_deduction_mm: int = Field(default=0, ge=0)
+    required_depth_mm: int = Field(default=0, ge=0)
+    drawer_system_kind: DrawerSystemKind = "conventional"
+    drawer_system_config: DrawerSystemConfig = Field(default_factory=DrawerSystemConfig)
+    accessory_config: HardwareAccessoryConfig = Field(default_factory=HardwareAccessoryConfig)
+
+    @field_validator("lengths")
+    @classmethod
+    def validate_unique_lengths(cls, value: list[SlideRangeLengthRequest]):
+        seen: set[int] = set()
+        duplicates: set[int] = set()
+        for row in value:
+            if row.length in seen:
+                duplicates.add(row.length)
+            seen.add(row.length)
+        if duplicates:
+            repeated = ", ".join(str(length) for length in sorted(duplicates))
+            raise ValueError(f"Duplicate runner lengths: {repeated}")
+        return value
+
+    @field_validator("drawer_system_config", mode="before")
+    @classmethod
+    def normalize_drawer_system_config(cls, value):
+        if value in (None, ""):
+            return {}
+        return value
+
+    @field_validator("accessory_config", mode="before")
+    @classmethod
+    def normalize_accessory_config(cls, value):
+        if value in (None, ""):
+            return {}
+        return value
+
+
+class SlideRangeCreateResponse(BaseModel):
+    created_count: int = Field(ge=0)
+    slides: list[SlideResponse] = Field(default_factory=list)
 
 
 class HingeRequest(BaseModel):

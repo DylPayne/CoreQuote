@@ -37,6 +37,7 @@ ALLOWED_ITEM_TYPES = {"board", "slide", "hinge", "handle", "extra"}
 ALLOWED_UOMS = {"sheet", "m2", "m", "board", "pcs", "pairs", "pair", "each", "unit", "set", "day", "trip"}
 ALLOWED_COSTING_MODES = {"sheet", "sqm"}
 ALLOWED_GRAIN_POLICIES = {"none", "optional", "required"}
+ALLOWED_SLIDE_MOUNT_TYPES = {"side_mount", "undermount", "metal_system", "custom"}
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,19 @@ RESOURCE_SPECS: dict[ImportResource, ImportSpec] = {
             ImportField("side_length", "Side length", ("side length", "side_length", "runner length")),
             ImportField("side_clearance_total", "Side clearance", ("side clearance", "side_clearance_total", "clearance")),
             ImportField("side_height_uplift", "Side uplift", ("side uplift", "side_height_uplift", "uplift")),
+            ImportField("mount_type", "Mount type", ("mount type", "mount_type", "runner type", "slide type")),
+            ImportField("product_family", "Product family", ("product family", "product_family", "range", "range name")),
+            ImportField("required_depth_mm", "Required depth", ("required depth", "required_depth_mm", "minimum depth", "min depth")),
+            ImportField(
+                "drawer_depth_deduction_mm",
+                "Drawer depth deduction",
+                ("drawer depth deduction", "drawer_depth_deduction_mm", "depth deduction"),
+            ),
+            ImportField(
+                "box_width_deduction_mm",
+                "Box width deduction",
+                ("box width deduction", "box_width_deduction_mm", "width deduction", "drawer box deduction"),
+            ),
             ImportField("drawer_system_kind", "Drawer system kind", ("drawer system kind", "drawer_system_kind", "system kind")),
             ImportField("drawer_system_config", "Drawer system config", ("drawer system config", "drawer_system_config", "system config")),
             ImportField("accessory_config", "Accessory config", ("accessory config", "accessory_config", "bundle config", "accessory bundle")),
@@ -464,6 +478,16 @@ def _normalize_slide(raw: dict[str, Any], problems: list[dict[str, Any]]) -> dic
         "side_length": _non_negative_int(raw.get("side_length"), "side_length", "Side length", problems, default=length),
         "side_clearance_total": _non_negative_int(raw.get("side_clearance_total"), "side_clearance_total", "Side clearance", problems),
         "side_height_uplift": _non_negative_int(raw.get("side_height_uplift"), "side_height_uplift", "Side uplift", problems),
+        "mount_type": _normalize_slide_mount_type(raw.get("mount_type"), problems),
+        "product_family": _text(raw.get("product_family")),
+        "required_depth_mm": _non_negative_int(raw.get("required_depth_mm"), "required_depth_mm", "Required depth", problems),
+        "drawer_depth_deduction_mm": _non_negative_int(
+            raw.get("drawer_depth_deduction_mm"),
+            "drawer_depth_deduction_mm",
+            "Drawer depth deduction",
+            problems,
+        ),
+        "box_width_deduction_mm": _non_negative_int(raw.get("box_width_deduction_mm"), "box_width_deduction_mm", "Box width deduction", problems),
         "drawer_system_kind": _normalize_drawer_system_kind(raw.get("drawer_system_kind"), problems),
         "drawer_system_config": _normalize_json_object(raw.get("drawer_system_config"), "drawer_system_config", "Drawer system config", problems),
         "accessory_config": _normalize_json_object(raw.get("accessory_config"), "accessory_config", "Accessory config", problems),
@@ -711,7 +735,23 @@ def _find_existing(resource: ImportResource, identity: str, references: dict[str
 def _payload_matches(resource: ImportResource, payload: dict[str, Any], existing: dict[str, Any]) -> bool:
     compare_fields = {
         "boards": ("brand", "material", "thickness", "length_mm", "width_mm", "costing_mode", "grain_policy"),
-        "slides": ("brand", "model", "code", "length", "side_length", "side_clearance_total", "side_height_uplift", "drawer_system_kind", "drawer_system_config", "accessory_config"),
+        "slides": (
+            "brand",
+            "model",
+            "code",
+            "length",
+            "side_length",
+            "side_clearance_total",
+            "side_height_uplift",
+            "mount_type",
+            "product_family",
+            "required_depth_mm",
+            "drawer_depth_deduction_mm",
+            "box_width_deduction_mm",
+            "drawer_system_kind",
+            "drawer_system_config",
+            "accessory_config",
+        ),
         "hinges": ("brand", "model", "code", "opening_angle_deg", "accessory_config"),
         "handles": ("name", "supplier", "code"),
         "suppliers": ("name", "code", "contact_name", "email", "phone", "notes", "default_discount_bps"),
@@ -851,12 +891,22 @@ def _normalize_grain_policy(value: Any) -> str:
 
 
 def _normalize_drawer_system_kind(value: Any, problems: list[dict[str, Any]]) -> str:
-    text = _text(value).lower()
+    text = _text(value).lower().replace("-", "_").replace(" ", "_")
     if not text:
         return "conventional"
-    if text not in {"conventional", "metal"}:
-        problems.append(_problem("drawer_system_kind", "invalid_drawer_system_kind", "Drawer system kind must be conventional or metal.", "Use metal only for supplied drawer-side systems."))
+    if text not in {"conventional", "metal", "custom"}:
+        problems.append(_problem("drawer_system_kind", "invalid_drawer_system_kind", "Drawer system kind must be conventional, metal, or custom.", "Use metal for supplied drawer-side systems."))
         return "conventional"
+    return text
+
+
+def _normalize_slide_mount_type(value: Any, problems: list[dict[str, Any]]) -> str:
+    text = _text(value).lower().replace("-", "_").replace(" ", "_")
+    if not text:
+        return "side_mount"
+    if text not in ALLOWED_SLIDE_MOUNT_TYPES:
+        problems.append(_problem("mount_type", "invalid_mount_type", "Mount type must be side_mount, undermount, metal_system, or custom.", "Use metal_system for drawer systems with metal sides."))
+        return "side_mount"
     return text
 
 

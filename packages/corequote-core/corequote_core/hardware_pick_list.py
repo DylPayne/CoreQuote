@@ -477,10 +477,12 @@ def _drawer_quantity_context(
     side_height_uplift = _non_negative_int(extra_params.get("slide_side_height_uplift") or (slide or {}).get("side_height_uplift"), 0)
     drawer_side_height = max(0, drawer_front_back_height + side_height_uplift)
     drawer_system_config = _drawer_system_config(extra_params, slide)
+    metal_side_height = _non_negative_int(drawer_system_config.get("side_height_mm"), 0)
     return {
         "unit_height": unit_height,
         "unit_width": unit_width,
         "unit_depth": unit_depth,
+        "nominal_length": _non_negative_int((slide or {}).get("length") or extra_params.get("slide_length"), 0),
         "num_drawers": num_drawers,
         "drawer_count": num_drawers,
         "slide_pair_count": num_drawers,
@@ -488,6 +490,10 @@ def _drawer_quantity_context(
         "drawer_front_height": drawer_front_height,
         "drawer_front_heights": drawer_front_heights,
         "drawer_side_height": drawer_side_height,
+        "metal_side_height": metal_side_height,
+        "system_side_height": metal_side_height,
+        "mount_type": str((slide or {}).get("mount_type") or extra_params.get("slide_mount_type") or "").strip(),
+        "product_family": str((slide or {}).get("product_family") or drawer_system_config.get("product_family") or "").strip(),
         "hardware_variant": _hardware_variant(slide),
         "load_class": str(drawer_system_config.get("load_class") or (slide or {}).get("load_class") or "").strip(),
     }
@@ -611,6 +617,13 @@ def _condition_field(condition: Mapping[str, Any]) -> str:
         "depth": "unit_depth",
         "drawer_height": "drawer_front_height",
         "front_height": "drawer_front_height",
+        "side_height": "metal_side_height",
+        "system_height": "metal_side_height",
+        "metal_side": "metal_side_height",
+        "slide_length": "nominal_length",
+        "length": "nominal_length",
+        "family": "product_family",
+        "range": "product_family",
         "doors": "door_count",
         "hinges": "hinge_count",
         "variant": "hardware_variant",
