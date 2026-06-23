@@ -2817,70 +2817,72 @@ export function LibrariesPage({
         }}
         title="Add Drawer Runner Range"
         description="Create length-specific runner rows from one product range."
-        size="wide"
+        size="xwide"
       >
-        <form className="grid gap-4" onSubmit={createSlideRange}>
-          <div className="grid gap-3 md:grid-cols-4">
-            <Label className="grid gap-1.5">
-              Runner type
-              <Select
-                value={slideRangeDraft.mount_type}
-                onChange={(event) => setSlideRangeDraft((current) => rangeDraftForMountType(current, event.target.value as SlideMountType))}
-              >
-                <option value="side_mount">Side mount</option>
-                <option value="undermount">Undermount</option>
-                <option value="metal_system">Metal-sided system</option>
-                <option value="custom">Custom</option>
-              </Select>
-            </Label>
-            <Label className="grid gap-1.5">
-              Brand
-              <Input value={slideRangeDraft.brand} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, brand: event.target.value }))} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Product range
-              <Input
-                value={slideRangeDraft.product_family}
-                onChange={(event) => {
-                  const product_family = event.target.value
-                  setSlideRangeDraft((current) => ({
-                    ...current,
-                    product_family,
-                    drawer_system_config:
-                      current.mount_type === 'metal_system'
-                        ? { ...current.drawer_system_config, product_family }
-                        : current.drawer_system_config,
-                  }))
-                }}
-              />
-            </Label>
-            <Label className="grid gap-1.5">
-              Code pattern
-              <Input placeholder="DYN-{length}" value={slideRangeDraft.code_pattern} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, code_pattern: event.target.value }))} />
-            </Label>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-5">
-            <Label className="grid gap-1.5">
-              Side clearance
-              <Input value={slideRangeDraft.side_clearance_total} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, side_clearance_total: event.target.value }))} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Depth deduction
-              <Input value={slideRangeDraft.drawer_depth_deduction_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, drawer_depth_deduction_mm: event.target.value }))} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Width deduction
-              <Input value={slideRangeDraft.box_width_deduction_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, box_width_deduction_mm: event.target.value }))} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Required depth
-              <Input value={slideRangeDraft.required_depth_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, required_depth_mm: event.target.value }))} />
-            </Label>
-            <Label className="grid gap-1.5">
-              Side uplift
-              <Input value={slideRangeDraft.side_height_uplift} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, side_height_uplift: event.target.value }))} />
-            </Label>
+        <form className="flex flex-col gap-5" onSubmit={createSlideRange}>
+          <div className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-muted/30 p-3">
+            <p className="text-sm font-medium">Runner range</p>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <Label className="grid gap-1.5">
+                Runner type
+                <Select
+                  value={slideRangeDraft.mount_type}
+                  onChange={(event) => setSlideRangeDraft((current) => rangeDraftForMountType(current, event.target.value as SlideMountType))}
+                >
+                  <option value="side_mount">Side mount</option>
+                  <option value="undermount">Undermount</option>
+                  <option value="metal_system">Metal-sided system</option>
+                  <option value="custom">Custom</option>
+                </Select>
+              </Label>
+              <Label className="grid gap-1.5">
+                Brand
+                <Input value={slideRangeDraft.brand} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, brand: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Product range
+                <Input
+                  value={slideRangeDraft.product_family}
+                  onChange={(event) => {
+                    const product_family = event.target.value
+                    setSlideRangeDraft((current) => ({
+                      ...current,
+                      product_family,
+                      drawer_system_config:
+                        current.mount_type === 'metal_system'
+                          ? { ...current.drawer_system_config, product_family }
+                          : current.drawer_system_config,
+                    }))
+                  }}
+                />
+              </Label>
+              <Label className="grid gap-1.5">
+                Code pattern
+                <Input placeholder="DYN-{length}" value={slideRangeDraft.code_pattern} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, code_pattern: event.target.value }))} />
+              </Label>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
+              <Label className="grid gap-1.5">
+                Side clearance
+                <Input value={slideRangeDraft.side_clearance_total} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, side_clearance_total: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Depth deduction
+                <Input value={slideRangeDraft.drawer_depth_deduction_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, drawer_depth_deduction_mm: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Width deduction
+                <Input value={slideRangeDraft.box_width_deduction_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, box_width_deduction_mm: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Required depth
+                <Input value={slideRangeDraft.required_depth_mm} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, required_depth_mm: event.target.value }))} />
+              </Label>
+              <Label className="grid gap-1.5">
+                Side uplift
+                <Input value={slideRangeDraft.side_height_uplift} onChange={(event) => setSlideRangeDraft((current) => ({ ...current, side_height_uplift: event.target.value }))} />
+              </Label>
+            </div>
           </div>
 
           {slideRangeDraft.mount_type === 'metal_system' ? (
@@ -2896,97 +2898,86 @@ export function LibrariesPage({
             </div>
           ) : null}
 
-          <div className="grid gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium">Lengths</p>
-              <Button type="button" variant="outline" size="sm" onClick={addSlideRangeLength}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                Add Length
-              </Button>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+            <div className="grid content-start gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">Lengths</p>
+                <Button type="button" variant="outline" size="sm" onClick={addSlideRangeLength}>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Add Length
+                </Button>
+              </div>
+              <div className="grid gap-2">
+                <div className="hidden gap-2 px-3 text-xs font-medium uppercase text-muted-foreground lg:grid lg:grid-cols-[5rem_minmax(7rem,1fr)_5.5rem_5.5rem_5.5rem_5.5rem_2.25rem]">
+                  <span>Length</span>
+                  <span>Code</span>
+                  <span>Side</span>
+                  <span>Depth</span>
+                  <span>Deduct</span>
+                  <span>Width</span>
+                  <span />
+                </div>
+                {slideRangeDraft.lengths.map((row, index) => (
+                  <div
+                    className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-card p-3 lg:grid-cols-[5rem_minmax(7rem,1fr)_5.5rem_5.5rem_5.5rem_5.5rem_2.25rem] lg:items-center lg:gap-2 lg:p-2"
+                    key={index}
+                  >
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Length</span>
+                      <Input value={row.length} onChange={(event) => updateSlideRangeLength(index, { length: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Code</span>
+                      <Input value={row.code} onChange={(event) => updateSlideRangeLength(index, { code: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Side length</span>
+                      <Input value={row.side_length} onChange={(event) => updateSlideRangeLength(index, { side_length: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Required depth</span>
+                      <Input value={row.required_depth_mm} onChange={(event) => updateSlideRangeLength(index, { required_depth_mm: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Depth deduction</span>
+                      <Input value={row.drawer_depth_deduction_mm} onChange={(event) => updateSlideRangeLength(index, { drawer_depth_deduction_mm: event.target.value })} />
+                    </Label>
+                    <Label className="grid gap-1.5 lg:block">
+                      <span className="lg:sr-only">Width deduction</span>
+                      <Input value={row.box_width_deduction_mm} onChange={(event) => updateSlideRangeLength(index, { box_width_deduction_mm: event.target.value })} />
+                    </Label>
+                    <Button type="button" size="icon" variant="ghost" onClick={() => removeSlideRangeLength(index)} disabled={slideRangeDraft.lengths.length <= 1}>
+                      <XCircle className="h-4 w-4" aria-hidden="true" />
+                      <span className="sr-only">Remove length</span>
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </div>
-            <TableContainer>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Length</TableHead>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Side length</TableHead>
-                    <TableHead>Required depth</TableHead>
-                    <TableHead>Depth deduction</TableHead>
-                    <TableHead>Width deduction</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {slideRangeDraft.lengths.map((row, index) => (
-                    <TableRow key={index}>
-                      <TableCell>
-                        <Input value={row.length} onChange={(event) => updateSlideRangeLength(index, { length: event.target.value })} />
-                      </TableCell>
-                      <TableCell>
-                        <Input value={row.code} onChange={(event) => updateSlideRangeLength(index, { code: event.target.value })} />
-                      </TableCell>
-                      <TableCell>
-                        <Input value={row.side_length} onChange={(event) => updateSlideRangeLength(index, { side_length: event.target.value })} />
-                      </TableCell>
-                      <TableCell>
-                        <Input value={row.required_depth_mm} onChange={(event) => updateSlideRangeLength(index, { required_depth_mm: event.target.value })} />
-                      </TableCell>
-                      <TableCell>
-                        <Input value={row.drawer_depth_deduction_mm} onChange={(event) => updateSlideRangeLength(index, { drawer_depth_deduction_mm: event.target.value })} />
-                      </TableCell>
-                      <TableCell>
-                        <Input value={row.box_width_deduction_mm} onChange={(event) => updateSlideRangeLength(index, { box_width_deduction_mm: event.target.value })} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button type="button" size="icon" variant="ghost" onClick={() => removeSlideRangeLength(index)} disabled={slideRangeDraft.lengths.length <= 1}>
-                          <XCircle className="h-4 w-4" aria-hidden="true" />
-                          <span className="sr-only">Remove length</span>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </div>
 
-          <div className="grid gap-2">
-            <p className="text-sm font-medium">Generated Rows</p>
-            <TableContainer>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Model</TableHead>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Mount</TableHead>
-                    <TableHead>Side length</TableHead>
-                    <TableHead>Required depth</TableHead>
-                    <TableHead>Width deduction</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {slideRangePreview.length > 0 ? (
-                    slideRangePreview.map((row) => (
-                      <TableRow key={`${row.model}-${row.length}`}>
-                        <TableCell>{row.model || `${slideRangeDraft.product_family || 'Runner'} ${row.length}`}</TableCell>
-                        <TableCell>{row.code || '-'}</TableCell>
-                        <TableCell>{formatSlideMountType(slideRangeDraft.mount_type)}</TableCell>
-                        <TableCell>{row.sideLength}mm</TableCell>
-                        <TableCell>{row.requiredDepth}mm</TableCell>
-                        <TableCell>{row.widthDeduction}mm</TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-sm text-muted-foreground">
-                        Add at least one valid runner length.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
+            <div className="grid content-start gap-3 rounded-[var(--card-radius)] border border-border p-3">
+              <p className="text-sm font-medium">Generated rows</p>
+              {slideRangePreview.length > 0 ? (
+                <div className="grid gap-2">
+                  {slideRangePreview.map((row) => (
+                    <div className="grid gap-1 rounded-[var(--control-radius)] bg-muted/50 px-3 py-2 text-sm" key={`${row.model}-${row.length}`}>
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                        <span className="font-medium">{row.model || `${slideRangeDraft.product_family || 'Runner'} ${row.length}`}</span>
+                        <span className="text-muted-foreground">{row.code || '-'}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>{formatSlideMountType(slideRangeDraft.mount_type)}</span>
+                        <span>{row.sideLength}mm side</span>
+                        <span>{row.requiredDepth}mm depth</span>
+                        <span>{row.widthDeduction}mm width</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-[var(--control-radius)] bg-muted/50 px-3 py-2 text-sm text-muted-foreground">Add at least one valid runner length.</p>
+              )}
+            </div>
           </div>
 
           <HardwareAccessoryConfigEditor
@@ -2995,9 +2986,9 @@ export function LibrariesPage({
             options={accessoryOptions}
           />
 
-          <div className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3">
-            <p className="text-sm font-medium">Create Accessory</p>
-            <div className="grid gap-3 md:grid-cols-4">
+          <details className="grid gap-3 rounded-[var(--card-radius)] border border-border p-3">
+            <summary className="cursor-pointer text-sm font-medium">Create accessory item</summary>
+            <div className="mt-3 grid gap-3 md:grid-cols-4">
               <Label className="grid gap-1.5">
                 Name
                 <Input value={inlineSlideAccessoryDraft.name} onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, name: event.target.value }))} />
@@ -3031,18 +3022,20 @@ export function LibrariesPage({
                 Code
                 <Input value={inlineSlideAccessoryDraft.code} onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, code: event.target.value }))} />
               </Label>
+              <Label className="grid gap-1.5 md:col-span-4">
+                Notes
+                <Textarea value={inlineSlideAccessoryDraft.notes} onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, notes: event.target.value }))} />
+              </Label>
+              <div className="md:col-span-4">
+                <Button disabled={isSaving || extraCategories.length === 0} type="button" variant="outline" onClick={() => void createInlineSlideAccessory()}>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Add accessory to setup
+                </Button>
+              </div>
             </div>
-            <Label className="grid gap-1.5">
-              Notes
-              <Textarea value={inlineSlideAccessoryDraft.notes} onChange={(event) => setInlineSlideAccessoryDraft((current) => ({ ...current, notes: event.target.value }))} />
-            </Label>
-            <Button disabled={isSaving || extraCategories.length === 0} type="button" variant="outline" onClick={() => void createInlineSlideAccessory()}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add Accessory To Setup
-            </Button>
-          </div>
+          </details>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="sticky bottom-0 -mx-[var(--card-padding)] -mb-[var(--card-padding)] flex flex-wrap gap-2 border-t border-border bg-card px-[var(--card-padding)] py-3">
             <Button disabled={isSaving} type="submit">
               <Save className="h-4 w-4" aria-hidden="true" />
               Save Runner Range
