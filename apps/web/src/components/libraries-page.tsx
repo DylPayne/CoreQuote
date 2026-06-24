@@ -42,7 +42,7 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, upsertPriceItem } from '@/components/libraries/api'
-import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideRangeDraft, defaultSupplierDraft, libraryTabs } from '@/components/libraries/constants'
+import { defaultBoardDraft, defaultExtraCategoryDraft, defaultExtraDraft, defaultHandleDraft, defaultHingeDraft, defaultItemSupplierDraft, defaultPriceListDraft, defaultSlideRangeDraft, defaultSupplierDraft } from '@/components/libraries/constants'
 import { amountStringToCents, bpsToPercentString, buildBoardPayload, buildExtraPayload, buildHandlePayload, buildHingePayload, buildItemSupplierPayload, buildSlidePayload, buildSlideRangePayload, buildSupplierPayload, calculateDiscountedAmountString, centsToAmountString, emptyAccessoryRule, formatBoardLabel, formatCurrencyFromCents, formatDateTime, formatExtraLabel, formatHandleLabel, formatHingeLabel, formatSlideLabel, formatSlideMountType, itemTypeDefaultUom, normalizeAccessoryConfig, percentStringToBps } from '@/components/libraries/helpers'
 import { DrawerSystemConfigEditor, HardwareAccessoryConfigEditor, LibraryBoardsTable, LibraryExtraCategoriesTable, LibraryExtrasTable, LibraryHandlesTable, LibraryHingesTable, LibrarySlidesTable } from '@/components/libraries/tables'
 import type { HardwareAccessoryOptions } from '@/components/libraries/tables'
@@ -975,17 +975,19 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
 }
 
 export function LibrariesPage({
+  activeTab,
   authToken,
   currencyCode,
-  initialTab = 'setup-imports',
+  onActiveTabChange,
   onOpenProjects,
 }: {
+  activeTab: LibraryTab
   authToken: string
   currencyCode: string
-  initialTab?: LibraryTab
+  onActiveTabChange: (tab: LibraryTab) => void
   onOpenProjects: () => void
 }) {
-  const [activeTab, setActiveTab] = useState<LibraryTab>(initialTab)
+  const setActiveTab = onActiveTabChange
 
   const [setupChecklist, setSetupChecklist] = useState<LibrarySetupChecklist | null>(null)
   const [boards, setBoards] = useState<BoardTypeRow[]>([])
@@ -2836,58 +2838,6 @@ export function LibrariesPage({
     ? importPreview.summary.create_count + importPreview.summary.update_count
     : 0
   const importHasBlockedRows = (importPreview?.summary.blocked_count ?? 0) > 0
-  const everydayTabs = libraryTabs.filter((tab) => tab.value !== 'setup-imports' && tab.value !== 'extra-categories')
-  const advancedTabs = libraryTabs.filter((tab) => tab.value === 'setup-imports' || tab.value === 'extra-categories')
-  const setupQuickActions: Array<{
-    badge: string
-    detail: string
-    icon: ReactNode
-    label: string
-    target: LibraryTab
-  }> = [
-    {
-      badge: setupChecklist ? `${setupChecklist.complete_count}/${setupChecklist.total_count} ready` : 'Checking',
-      detail: nextSetupItem ? `Next: ${nextSetupItem.label}` : 'Review what must be ready before quoting.',
-      icon: <ClipboardCheck className="h-4 w-4" aria-hidden="true" />,
-      label: 'Setup checklist',
-      target: 'setup-imports',
-    },
-    {
-      badge: `${boards.length} saved`,
-      detail: 'Boards used for carcasses, doors, panels, cutlists, and material prices.',
-      icon: <PackagePlus className="h-4 w-4" aria-hidden="true" />,
-      label: 'Board materials',
-      target: 'boards',
-    },
-    {
-      badge: `${slides.length + hinges.length} saved`,
-      detail: 'Drawer hardware and hinges used by quote defaults and readiness checks.',
-      icon: <PackagePlus className="h-4 w-4" aria-hidden="true" />,
-      label: 'Hardware',
-      target: 'slides',
-    },
-    {
-      badge: `${suppliers.length} saved`,
-      detail: 'Supplier details and cost sources for generating reliable selling prices.',
-      icon: <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />,
-      label: 'Suppliers and costs',
-      target: 'suppliers',
-    },
-    {
-      badge: `${handles.length + extras.length} saved`,
-      detail: 'Handles, extras, add-ons, delivery, installation, and accessories.',
-      icon: <PackagePlus className="h-4 w-4" aria-hidden="true" />,
-      label: 'Handles and extras',
-      target: 'handles',
-    },
-    {
-      badge: missingPriceRows.length > 0 ? `${missingPriceRows.length} missing` : 'Current',
-      detail: 'Current sell prices used when checking quote totals.',
-      icon: <CircleDollarSign className="h-4 w-4" aria-hidden="true" />,
-      label: 'Pricing setup',
-      target: 'pricing',
-    },
-  ]
 
   return (
     <div className="grid gap-4">
@@ -3436,94 +3386,42 @@ export function LibrariesPage({
           </form>
         )}
       </Dialog>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>Setup Libraries</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Keep the materials, hardware, suppliers, extras, and prices that quoting users pick every day.
-            </p>
-          </div>
-          <Button
-            disabled={isLoading || isLoadingChecklist || isSaving}
-            onClick={() => {
-              void refreshSetupChecklist()
-              void refreshCatalog()
-              void refreshPricing()
-            }}
-            variant="outline"
-          >
-            {isLoading || isLoadingChecklist ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCcw className="h-4 w-4" aria-hidden="true" />}
-            Refresh
-          </Button>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {setupQuickActions.map((item) => (
-              <Button
-                className="h-auto min-h-24 justify-start whitespace-normal p-3 text-left"
-                key={item.label}
-                onClick={() => setActiveTab(item.target)}
-                type="button"
-                variant={activeTab === item.target ? 'secondary' : 'outline'}
-              >
-                <span className="grid w-full gap-2">
-                  <span className="flex items-center justify-between gap-3">
-                    <span className="inline-flex items-center gap-2 font-semibold">
-                      {item.icon}
-                      {item.label}
-                    </span>
-                    <Badge variant="outline">{item.badge}</Badge>
-                  </span>
-                  <span className="text-xs font-normal leading-5 text-muted-foreground">{item.detail}</span>
-                </span>
-              </Button>
-            ))}
-          </div>
+      <div className="flex flex-col gap-2 rounded-[var(--card-radius)] border border-border bg-card px-3 py-2 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+          {setupChecklist ? (
+            <Badge variant={setupChecklist.status === 'ready' ? 'success' : 'warning'}>
+              {setupChecklist.complete_count}/{setupChecklist.total_count} ready
+            </Badge>
+          ) : (
+            <Badge variant="outline">Checking setup</Badge>
+          )}
+          {missingPriceRows.length > 0 ? <Badge variant="warning">{missingPriceRows.length} missing prices</Badge> : null}
+        </div>
+        <Button
+          className="w-fit"
+          disabled={isLoading || isLoadingChecklist || isSaving}
+          onClick={() => {
+            void refreshSetupChecklist()
+            void refreshCatalog()
+            void refreshPricing()
+          }}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {isLoading || isLoadingChecklist ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCcw className="h-4 w-4" aria-hidden="true" />}
+          Refresh
+        </Button>
+      </div>
 
-          <div className="grid gap-2">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Everyday setup</p>
-            <ControlGroup className="flex-wrap" role="tablist" aria-label="Everyday library setup tabs">
-              {everydayTabs.map((tab) => (
-                <ControlGroupItem
-                  aria-pressed={activeTab === tab.value}
-                  key={tab.value}
-                  onClick={() => setActiveTab(tab.value)}
-                >
-                  {tab.label}
-                </ControlGroupItem>
-              ))}
-            </ControlGroup>
-          </div>
-
-          <details className="rounded-[var(--control-radius)] border border-border p-3">
-            <summary className="cursor-pointer text-sm font-semibold">Advanced setup and imports</summary>
-            <div className="mt-3 grid gap-2">
-              <p className="text-sm text-muted-foreground">
-                Use these when you need to check readiness, import supplier sheets, or manage supporting categories.
-              </p>
-              <ControlGroup className="flex-wrap" role="tablist" aria-label="Advanced library setup tabs">
-                {advancedTabs.map((tab) => (
-                  <ControlGroupItem
-                    aria-pressed={activeTab === tab.value}
-                    key={tab.value}
-                    onClick={() => setActiveTab(tab.value)}
-                  >
-                    {tab.label}
-                  </ControlGroupItem>
-                ))}
-              </ControlGroup>
-            </div>
-          </details>
-
-          {catalogError ? <Alert variant="destructive">Could not load the library rows. Refresh and try again. {catalogError}</Alert> : null}
-          {pricingError ? <Alert variant="destructive">Could not load pricing rows. Refresh and try again. {pricingError}</Alert> : null}
-          {checklistError ? <Alert variant="destructive">Could not check library readiness. Refresh and try again. {checklistError}</Alert> : null}
-          {actionError ? <Alert variant="destructive">The change was not saved. Check the details and try again. {actionError}</Alert> : null}
-          {bulkError ? <Alert variant="destructive">The bulk edit was not saved. Preview the selected rows and try again. {bulkError}</Alert> : null}
-          {actionSuccess ? <Alert>{actionSuccess}</Alert> : null}
-        </CardContent>
-      </Card>
+      <div className="grid gap-2">
+        {catalogError ? <Alert variant="destructive">Could not load the library rows. Refresh and try again. {catalogError}</Alert> : null}
+        {pricingError ? <Alert variant="destructive">Could not load pricing rows. Refresh and try again. {pricingError}</Alert> : null}
+        {checklistError ? <Alert variant="destructive">Could not check library readiness. Refresh and try again. {checklistError}</Alert> : null}
+        {actionError ? <Alert variant="destructive">The change was not saved. Check the details and try again. {actionError}</Alert> : null}
+        {bulkError ? <Alert variant="destructive">The bulk edit was not saved. Preview the selected rows and try again. {bulkError}</Alert> : null}
+        {actionSuccess ? <Alert>{actionSuccess}</Alert> : null}
+      </div>
 
       {activeTab === 'setup-imports' ? (
         <>

@@ -39,16 +39,13 @@ function App() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>(() => (getStoredAuthToken() ? 'checking' : 'signed-out'))
   const [authError, setAuthError] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState<AppPage>('projects')
-  const [libraryInitialTab, setLibraryInitialTab] = useState<LibraryTab>('setup-imports')
+  const [currentLibraryTab, setCurrentLibraryTab] = useState<LibraryTab>('setup-imports')
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [user, setUser] = useState<AuthUser | null>(null)
   const selectedTheme = colourThemes.find((theme) => theme.value === DEFAULT_COLOUR_THEME) ?? colourThemes[0]
   const themeVars = useMemo(() => createThemeVars(selectedTheme, DEFAULT_THEME_MODE, DEFAULT_UI_STYLE), [selectedTheme])
   const handleSetCurrentPage = useCallback((page: AppPage) => {
-    if (page === 'libraries') {
-      setLibraryInitialTab('setup-imports')
-    }
     setCurrentPage(page)
   }, [])
 
@@ -180,8 +177,10 @@ function App() {
   return (
     <AppTheme colourTheme={DEFAULT_COLOUR_THEME} themeMode={DEFAULT_THEME_MODE} themeVars={themeVars} uiStyle={DEFAULT_UI_STYLE}>
       <AppShell
+        currentLibraryTab={currentLibraryTab}
         currentPage={currentPage}
         isLoggingOut={isLoggingOut}
+        onLibraryTabChange={setCurrentLibraryTab}
         onLogout={handleLogout}
         setCurrentPage={handleSetCurrentPage}
         user={user}
@@ -197,15 +196,16 @@ function App() {
             authToken={authToken}
             currencyCode={user.company_currency_code}
             onOpenLibraries={(target = 'setup-imports') => {
-              setLibraryInitialTab(target)
+              setCurrentLibraryTab(target)
               setCurrentPage('libraries')
             }}
           />
         ) : currentPage === 'libraries' ? (
           <LibrariesPage
+            activeTab={currentLibraryTab}
             authToken={authToken}
             currencyCode={user.company_currency_code}
-            initialTab={libraryInitialTab}
+            onActiveTabChange={setCurrentLibraryTab}
             onOpenProjects={() => setCurrentPage('projects')}
           />
         ) : currentPage === 'cutlist' ? (
