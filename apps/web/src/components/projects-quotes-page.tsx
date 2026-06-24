@@ -35,13 +35,13 @@ import { Table, TableBody, TableCell, TableContainer, TableHead, TableHeader, Ta
 import { Textarea } from '@/components/ui/textarea'
 import { apiRequest, apiRequestBlob } from '@/components/projects-quotes/api'
 import type { LibraryTab } from '@/components/libraries/types'
-import { customUnitTypeValue, defaultProjectDraft, defaultProductionMetadata, defaultQuoteDraft, defaultUnitDraft, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
+import { customUnitTypeValue, defaultProjectDraft, defaultProductionMetadata, defaultQuoteDraft, defaultUnitDraft, defaultWallFrontOverhang, fallbackUnitDefaults, quoteStatusLabels, quoteStatusOptions, unitPresets } from '@/components/projects-quotes/constants'
 import { QuotePanelsEditor } from '@/components/projects-quotes/quote-panels-editor'
 import { CutlistSection, LibrarySelect, ModalCard, QuoteDefaultDimensionGrid } from '@/components/projects-quotes/shared-ui'
-import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, isBaseDoorUnitType, isDrawerUnitType, isHingedUnitType, isTallUnitType, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft } from '@/components/projects-quotes/helpers'
+import { countPanelFamilies, formatCents, formatExtraParams, formatPercentFromBps, formatWallFrontOverhangDefault, formatWallFrontOverhangOverride, isBaseDoorUnitType, isDrawerUnitType, isHingedUnitType, isTallUnitType, isWallDoorUnitType, normalizeQuoteCustomPanelsState, numberFromExtra, previousQuoteRevisionLabel, quotePayloadFromDraft, quoteRevisionLabel, quoteStatusBadgeVariant, resolveDefaultDims, resolvedUnitType, toQuoteDraft, unitPayloadFromDraft, wallFrontOverhangDefaultFromQuoteDraft, wallFrontOverhangDraftFromExtra } from '@/components/projects-quotes/helpers'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft, type ProjectPricingSettingsRow, type QuotePricingSettingsRow } from '@/components/pricing-settings'
-import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, DrawerSplitMode, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProductionGrainDirection, ProductionMetadata, ProductionRotationGuidance, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow } from '@/components/projects-quotes/types'
+import type { BoardRow, CutlistValidationWarning, CuttingListViewTab, DrawerSplitMode, ExtraRow, HandleRow, HingeRow, HardwarePickList, MaterialSummary, MaterialSummaryGroup, MissingPrice, PricingWorkspaceTab, ProductionGrainDirection, ProductionMetadata, ProductionRotationGuidance, ProjectDraft, ProjectPricingSummary, ProjectRow, ProjectWorkspaceTab, QuoteCuttingList, QuoteCustomPanelComputedRow, QuoteCustomPanelsState, QuoteCustomPanelsResponse, QuoteDraft, QuoteExtrasResponse, QuoteOutputAction, QuoteOutputReview, QuoteOutputStatus, QuoteProductionHandoff, QuoteReadiness, QuoteReadinessCheck, QuoteReadinessSeverity, QuoteRow, QuoteStatus, QuoteWorkspaceTab, SlideRow, UnitDraft, UnitPresetKey, UnitRow, WallFrontOverhangApplyTo, WallFrontOverhangEdge } from '@/components/projects-quotes/types'
 
 type ProductionExportFormat = 'csv' | 'xlsx'
 
@@ -64,6 +64,24 @@ function formatMaterialArea(value: number) {
 function formatEstimatedSheets(value: number | null) {
   if (value === null) return 'Needs dimensions'
   return `${formatPricingQty(value)} est. ${value === 1 ? 'sheet' : 'sheets'}`
+}
+
+function formatUnitDraftWallOverhang(draft: UnitDraft, quoteDefault?: QuoteRow['wall_front_overhang_default'] | null) {
+  if (draft.wall_front_overhang_mode !== 'custom') {
+    return formatWallFrontOverhangOverride({ wall_front_overhang: { mode: draft.wall_front_overhang_mode } }, quoteDefault)
+  }
+  return formatWallFrontOverhangOverride({
+    wall_front_overhang: {
+      mode: 'custom',
+      amount_mm: Number(draft.wall_front_overhang_amount_mm) || defaultWallFrontOverhang.amount_mm,
+      edge: draft.wall_front_overhang_edge,
+      apply_to: draft.wall_front_overhang_apply_to,
+      front_indexes: draft.wall_front_overhang_front_indexes
+        .split(',')
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0),
+    },
+  }, quoteDefault)
 }
 
 function formatSheetSize(group: MaterialSummaryGroup) {
@@ -1596,6 +1614,7 @@ export function ProjectsQuotesPage({
   const isDrawerUnitDraft = isDrawerUnitType(unitDraftType)
   const isHingedUnitDraft = isHingedUnitType(unitDraftType)
   const isBaseDoorUnitDraft = isBaseDoorUnitType(unitDraftType)
+  const isWallDoorUnitDraft = isWallDoorUnitType(unitDraftType)
   const isTallUnitDraft = isTallUnitType(unitDraftType)
   const unitDraftDrawerCount = positiveIntegerFromValue(unitDraft.num_drawers, 3)
   const standardHandles = handles.filter((handle) => handle.handle_type === 'standard')
@@ -2304,6 +2323,7 @@ export function ProjectsQuotesPage({
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
       num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
       ...profileHandleDraftFromExtra(unit.extra_params),
+      ...wallFrontOverhangDraftFromExtra(unit.extra_params),
     })
     setIsUnitModalOpen(true)
   }
@@ -2349,6 +2369,7 @@ export function ProjectsQuotesPage({
       num_doors: String(numberFromExtra(unit.extra_params, 'num_doors', 2)),
       num_shelves: String(numberFromExtra(unit.extra_params, 'num_shelves', 1)),
       ...profileHandleDraftFromExtra(unit.extra_params),
+      ...wallFrontOverhangDraftFromExtra(unit.extra_params),
     }
   }
 
@@ -3606,6 +3627,9 @@ export function ProjectsQuotesPage({
                               : isHingedUnitType(unit.unit_type_key)
                                 ? `Hinge: ${hingeLabel((unitHingeId || selectedQuote?.default_hinge_id) ?? null)}`
                                 : '-'
+                            const wallOverhangSummary = isWallDoorUnitType(unit.unit_type_key)
+                              ? formatWallFrontOverhangOverride(unit.extra_params, selectedQuote?.wall_front_overhang_default)
+                              : null
                             const unitActionsDisabled = isReorderingUnits || duplicatingUnitId !== null
                             return (
                               <TableRow
@@ -3641,7 +3665,16 @@ export function ProjectsQuotesPage({
                                     ) : null}
                                   </div>
                                 </TableCell>
-                                <TableCell className="max-w-72 truncate text-xs text-muted-foreground">{formatExtraParams(unit.extra_params)}</TableCell>
+                                <TableCell className="max-w-72 text-xs text-muted-foreground">
+                                  <div className="grid gap-1">
+                                    <span className="truncate">{formatExtraParams(unit.extra_params)}</span>
+                                    {wallOverhangSummary ? (
+                                      <Badge className="w-fit max-w-full truncate" title={wallOverhangSummary} variant="outline">
+                                        {wallOverhangSummary}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
                                 <TableCell>
                                   <div className="flex justify-end gap-1">
                                     <Button
@@ -4410,6 +4443,78 @@ export function ProjectsQuotesPage({
               />
             </div>
 
+            <div className="grid gap-3 rounded-md border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Wall overhang default</p>
+                <Badge className="max-w-full truncate" title={formatWallFrontOverhangDefault(wallFrontOverhangDefaultFromQuoteDraft(quoteDraft))} variant="outline">
+                  {formatWallFrontOverhangDefault(wallFrontOverhangDefaultFromQuoteDraft(quoteDraft))}
+                </Badge>
+              </div>
+              <Label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={quoteDraft.wall_front_overhang_enabled}
+                  onChange={(event) => setQuoteDraft((current) => ({ ...current, wall_front_overhang_enabled: event.target.checked }))}
+                />
+                Enable wall door overhang
+              </Label>
+              <div className="grid gap-3 md:grid-cols-4">
+                <Label className="grid gap-1.5">
+                  Amount (mm)
+                  <Input
+                    disabled={!quoteDraft.wall_front_overhang_enabled}
+                    min={1}
+                    onChange={(event) => setQuoteDraft((current) => ({ ...current, wall_front_overhang_amount_mm: event.target.value }))}
+                    required
+                    type="number"
+                    value={quoteDraft.wall_front_overhang_amount_mm}
+                  />
+                </Label>
+                <Label className="grid gap-1.5">
+                  Edge
+                  <Select
+                    disabled={!quoteDraft.wall_front_overhang_enabled}
+                    onChange={(event) =>
+                      setQuoteDraft((current) => ({
+                        ...current,
+                        wall_front_overhang_edge: event.target.value as WallFrontOverhangEdge,
+                      }))
+                    }
+                    value={quoteDraft.wall_front_overhang_edge}
+                  >
+                    <option value="bottom">Bottom</option>
+                    <option value="top">Top</option>
+                    <option value="left">Left</option>
+                    <option value="right">Right</option>
+                  </Select>
+                </Label>
+                <Label className="grid gap-1.5">
+                  Apply to
+                  <Select
+                    disabled={!quoteDraft.wall_front_overhang_enabled}
+                    onChange={(event) =>
+                      setQuoteDraft((current) => ({
+                        ...current,
+                        wall_front_overhang_apply_to: event.target.value as WallFrontOverhangApplyTo,
+                      }))
+                    }
+                    value={quoteDraft.wall_front_overhang_apply_to}
+                  >
+                    <option value="all">All fronts</option>
+                    <option value="selected">Selected fronts</option>
+                  </Select>
+                </Label>
+                <Label className="grid gap-1.5">
+                  Front indexes
+                  <Input
+                    disabled={!quoteDraft.wall_front_overhang_enabled || quoteDraft.wall_front_overhang_apply_to !== 'selected'}
+                    onChange={(event) => setQuoteDraft((current) => ({ ...current, wall_front_overhang_front_indexes: event.target.value }))}
+                    placeholder="1, 2"
+                    value={quoteDraft.wall_front_overhang_front_indexes}
+                  />
+                </Label>
+              </div>
+            </div>
+
             <div className="grid gap-2">
               <p className="text-xs font-semibold uppercase text-muted-foreground">Default unit dimensions</p>
               <QuoteDefaultDimensionGrid draft={quoteDraft} setDraft={setQuoteDraft} />
@@ -4664,6 +4769,81 @@ export function ProjectsQuotesPage({
                 </Label>
               </div>
             )}
+
+            {isWallDoorUnitDraft ? (
+              <div className="grid gap-3 rounded-md border border-border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground">Wall overhang</p>
+                  <Badge
+                    className="max-w-full truncate"
+                    title={formatUnitDraftWallOverhang(unitDraft, selectedQuote?.wall_front_overhang_default)}
+                    variant="outline"
+                  >
+                    {formatUnitDraftWallOverhang(unitDraft, selectedQuote?.wall_front_overhang_default)}
+                  </Badge>
+                </div>
+                <Label className="grid gap-1.5">
+                  Unit setting
+                  <Select
+                    onChange={(event) =>
+                      updateUnitDraft({
+                        wall_front_overhang_mode: event.target.value === 'none' || event.target.value === 'custom' ? event.target.value : 'inherit',
+                      })
+                    }
+                    value={unitDraft.wall_front_overhang_mode}
+                  >
+                    <option value="inherit">Use quote default</option>
+                    <option value="none">No overhang</option>
+                    <option value="custom">Custom overhang</option>
+                  </Select>
+                </Label>
+                {unitDraft.wall_front_overhang_mode === 'custom' ? (
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <Label className="grid gap-1.5">
+                      Amount (mm)
+                      <Input
+                        min={1}
+                        onChange={(event) => updateUnitDraft({ wall_front_overhang_amount_mm: event.target.value })}
+                        required
+                        type="number"
+                        value={unitDraft.wall_front_overhang_amount_mm}
+                      />
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Edge
+                      <Select
+                        onChange={(event) => updateUnitDraft({ wall_front_overhang_edge: event.target.value as WallFrontOverhangEdge })}
+                        value={unitDraft.wall_front_overhang_edge}
+                      >
+                        <option value="bottom">Bottom</option>
+                        <option value="top">Top</option>
+                        <option value="left">Left</option>
+                        <option value="right">Right</option>
+                      </Select>
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Apply to
+                      <Select
+                        onChange={(event) => updateUnitDraft({ wall_front_overhang_apply_to: event.target.value as WallFrontOverhangApplyTo })}
+                        value={unitDraft.wall_front_overhang_apply_to}
+                      >
+                        <option value="all">All fronts</option>
+                        <option value="selected">Selected fronts</option>
+                      </Select>
+                    </Label>
+                    <Label className="grid gap-1.5">
+                      Front indexes
+                      <Input
+                        disabled={unitDraft.wall_front_overhang_apply_to !== 'selected'}
+                        onChange={(event) => updateUnitDraft({ wall_front_overhang_front_indexes: event.target.value })}
+                        placeholder="1, 2"
+                        value={unitDraft.wall_front_overhang_front_indexes}
+                      />
+                    </Label>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {isDrawerUnitDraft && [1, 2, 3].includes(unitDraftDrawerCount) ? (
               <div className="grid gap-3 md:grid-cols-2">

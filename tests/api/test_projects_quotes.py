@@ -21,6 +21,13 @@ DEFAULT_PRODUCTION_METADATA = {
     "door_panel": {"edge_banding": "", "grain_direction": "none", "rotation": "none", "notes": ""},
     "visible_panel": {"edge_banding": "", "grain_direction": "none", "rotation": "none", "notes": ""},
 }
+DEFAULT_WALL_FRONT_OVERHANG = {
+    "enabled": False,
+    "amount_mm": 20,
+    "edge": "bottom",
+    "apply_to": "all",
+    "front_indexes": [],
+}
 
 
 class FakeAuthStore:
@@ -117,7 +124,14 @@ class FakeWorkspaceStore:
         if project_id == "missing":
             raise WorkspaceNotFound("Project not found")
         self.created_quote_payload = (company_id, project_id, payload)
-        return quote("quote-2", project_id=project_id, name=payload["name"], notes=payload.get("notes", ""), unit_count=0)
+        return quote(
+            "quote-2",
+            project_id=project_id,
+            name=payload["name"],
+            notes=payload.get("notes", ""),
+            unit_count=0,
+            wall_front_overhang_default=payload.get("wall_front_overhang_default"),
+        )
 
     def get_quote(self, company_id: str, quote_id: str) -> dict:
         if quote_id == "missing":
@@ -128,7 +142,14 @@ class FakeWorkspaceStore:
         if quote_id == "missing":
             raise WorkspaceNotFound("Quote not found")
         self.updated_quote_payload = (company_id, quote_id, payload)
-        return quote(quote_id, project_id="project-1", name=payload["name"], notes=payload.get("notes", ""), unit_count=2)
+        return quote(
+            quote_id,
+            project_id="project-1",
+            name=payload["name"],
+            notes=payload.get("notes", ""),
+            unit_count=2,
+            wall_front_overhang_default=payload.get("wall_front_overhang_default"),
+        )
 
     def update_quote_status(self, company_id: str, quote_id: str, status: str) -> dict:
         if quote_id == "missing":
@@ -544,6 +565,13 @@ def test_create_quote_passes_payload_to_store():
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
     app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
     payload = quote_payload(name="Kitchen Quote v1")
+    payload["wall_front_overhang_default"] = default_wall_front_overhang(
+        enabled=True,
+        amount_mm=22,
+        edge="bottom",
+        apply_to="selected",
+        front_indexes=[1, 2],
+    )
     try:
         response = client.post("/api/v1/projects/project-1/quotes", json=payload, headers=auth_header())
     finally:
@@ -552,6 +580,7 @@ def test_create_quote_passes_payload_to_store():
     assert response.status_code == 201
     assert store.created_quote_payload == ("company-1", "project-1", payload)
     assert response.json()["name"] == "Kitchen Quote v1"
+    assert response.json()["wall_front_overhang_default"] == payload["wall_front_overhang_default"]
 
 
 def test_update_quote_requires_quotes_write_permission():
@@ -565,6 +594,22 @@ def test_update_quote_requires_quotes_write_permission():
 
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: quotes:write"}
+
+
+def test_update_quote_passes_wall_front_overhang_default_to_store():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    payload = quote_payload(name="Kitchen Quote v2")
+    payload["wall_front_overhang_default"] = default_wall_front_overhang(enabled=True, amount_mm=20, edge="top")
+    try:
+        response = client.patch("/api/v1/quotes/quote-1", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.updated_quote_payload == ("company-1", "quote-1", payload)
+    assert response.json()["wall_front_overhang_default"] == payload["wall_front_overhang_default"]
 
 
 def test_update_quote_status_from_workspace():
@@ -746,6 +791,53 @@ def test_create_unit_cleans_drawer_split_payload():
         "drawer_split_mode": "manual",
         "drawer_face_heights": [194, 194, 383],
     }
+
+
+def test_create_and_update_units_keep_wall_front_overhang_only_for_wall_doors():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    wall_payload = unit_payload(unit_type_key="Wall Door", width=600)
+    wall_payload["extra_params"] = {
+        "num_doors": 2,
+        "num_shelves": 1,
+        "wall_front_overhang": {
+            "mode": "custom",
+            "amount_mm": "20",
+            "edge": "bottom",
+            "apply_to": "selected",
+            "front_indexes": ["2", 2],
+        },
+    }
+    drawer_payload = unit_payload(unit_type_key="Base Draw", width=900)
+    drawer_payload["extra_params"] = {
+        "num_drawers": 3,
+        "wall_front_overhang": {"mode": "custom", "amount_mm": 20, "edge": "bottom", "apply_to": "all"},
+    }
+    try:
+        create_response = client.post("/api/v1/quotes/quote-1/units", json=wall_payload, headers=auth_header())
+        update_response = client.patch(
+            "/api/v1/quotes/quote-1/units/unit-1",
+            json=drawer_payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert create_response.status_code == 201
+    assert update_response.status_code == 200
+    assert store.created_unit_payload is not None
+    assert store.created_unit_payload[2]["extra_params"]["wall_front_overhang"] == {
+        "mode": "custom",
+        "amount_mm": 20,
+        "edge": "bottom",
+        "apply_to": "selected",
+        "front_indexes": [2],
+    }
+    assert store.updated_unit_payload is not None
+    assert "wall_front_overhang" not in store.updated_unit_payload[3]["extra_params"]
+    assert create_response.json()["extra_params"]["wall_front_overhang"]["front_indexes"] == [2]
+    assert "wall_front_overhang" not in update_response.json()["extra_params"]
 
 
 def test_create_and_update_units_persist_selector_fields_as_unit_overrides():
@@ -1948,6 +2040,7 @@ def quote(
     previous_revision_quote_number: str | None = None,
     previous_revision_revision: int | None = None,
     unit_count: int = 0,
+    wall_front_overhang_default: dict | None = None,
 ) -> dict:
     return {
         "id": item_id,
@@ -1976,6 +2069,7 @@ def quote(
             "Wall Door": {"height": 720, "depth": 330},
             "Tall Door": {"height": 2100, "depth": 580},
         },
+        "wall_front_overhang_default": wall_front_overhang_default or default_wall_front_overhang(),
         "production_metadata": DEFAULT_PRODUCTION_METADATA,
         "unit_count": unit_count,
         "created_at": NOW,
@@ -2045,8 +2139,15 @@ def quote_payload(*, name: str = "Kitchen Quote") -> dict:
             "Base Draw": {"height": 780, "depth": 580},
             "Base Door": {"height": 780, "depth": 580},
         },
+        "wall_front_overhang_default": default_wall_front_overhang(),
         "production_metadata": DEFAULT_PRODUCTION_METADATA,
     }
+
+
+def default_wall_front_overhang(**overrides) -> dict:
+    payload = {**DEFAULT_WALL_FRONT_OVERHANG, **overrides}
+    payload["front_indexes"] = list(payload.get("front_indexes") or [])
+    return payload
 
 
 def unit_payload(*, unit_type_key: str = "Base Draw", width: int = 900) -> dict:

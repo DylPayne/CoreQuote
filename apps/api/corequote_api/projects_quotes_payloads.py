@@ -4,6 +4,13 @@ import os
 from collections import defaultdict
 from typing import Any
 
+from corequote_core.front_overhangs import (
+    WALL_FRONT_OVERHANG_APPLY_TO,
+    WALL_FRONT_OVERHANG_DEFAULT,
+    WALL_FRONT_OVERHANG_EDGES,
+    WALL_FRONT_OVERHANG_KEY,
+    WALL_FRONT_OVERHANG_MODES,
+)
 from corequote_core.panels import PANEL_PRESET_KEYS
 from corequote_api.projects_quotes_errors import WorkspaceValidationError
 
@@ -55,6 +62,7 @@ def _clean_quote_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "default_tall_handle_id": _optional_uuid(payload.get("default_tall_handle_id")),
         "default_drawer_handle_id": _optional_uuid(payload.get("default_drawer_handle_id")),
         "unit_defaults": cleaned_unit_defaults,
+        "wall_front_overhang_default": _clean_wall_front_overhang_default(payload.get("wall_front_overhang_default")),
         "production_metadata": _clean_production_metadata_by_role(payload.get("production_metadata"), field="production_metadata"),
     }
 
@@ -86,6 +94,8 @@ def _clean_unit_payload(payload: dict[str, Any]) -> dict[str, Any]:
             _set_optional_extra_param(extra_params, "hinge_id", hinge_id)
         else:
             extra_params.pop("hinge_id", None)
+
+    _clean_wall_front_overhang_for_unit(extra_params, unit_type_key)
 
     return {
         "unit_type_key": unit_type_key,
@@ -185,11 +195,76 @@ def _is_hinged_unit(unit_type_key: str) -> bool:
     return "door" in value or "hinge" in value or value.startswith("tall")
 
 
+def _is_wall_door_unit(unit_type_key: str) -> bool:
+    value = unit_type_key.lower()
+    return "wall" in value and "door" in value
+
+
 def _set_optional_extra_param(extra_params: dict[str, Any], key: str, value: str | None) -> None:
     if value:
         extra_params[key] = value
     else:
         extra_params.pop(key, None)
+
+
+def _clean_wall_front_overhang_default(payload: Any) -> dict[str, Any]:
+    if payload is None:
+        return dict(WALL_FRONT_OVERHANG_DEFAULT)
+    if not isinstance(payload, dict):
+        raise WorkspaceValidationError("wall_front_overhang_default must be an object")
+
+    edge = str(payload.get("edge") or WALL_FRONT_OVERHANG_DEFAULT["edge"]).strip().lower()
+    if edge not in WALL_FRONT_OVERHANG_EDGES:
+        raise WorkspaceValidationError("wall_front_overhang_default.edge must be bottom, top, left, or right")
+
+    apply_to = str(payload.get("apply_to") or WALL_FRONT_OVERHANG_DEFAULT["apply_to"]).strip().lower()
+    if apply_to not in WALL_FRONT_OVERHANG_APPLY_TO:
+        raise WorkspaceValidationError("wall_front_overhang_default.apply_to must be all or selected")
+
+    front_indexes = _positive_int_list(payload.get("front_indexes") or [], field="wall_front_overhang_default.front_indexes")
+    return {
+        "enabled": _bool_value(payload.get("enabled"), fallback=bool(WALL_FRONT_OVERHANG_DEFAULT["enabled"])),
+        "amount_mm": _positive_int(payload.get("amount_mm", WALL_FRONT_OVERHANG_DEFAULT["amount_mm"]), field="wall_front_overhang_default.amount_mm"),
+        "edge": edge,
+        "apply_to": apply_to,
+        "front_indexes": _dedupe_ints(front_indexes) if apply_to == "selected" else [],
+    }
+
+
+def _clean_wall_front_overhang_for_unit(extra_params: dict[str, Any], unit_type_key: str) -> None:
+    if not _is_wall_door_unit(unit_type_key):
+        extra_params.pop(WALL_FRONT_OVERHANG_KEY, None)
+        return
+    if WALL_FRONT_OVERHANG_KEY not in extra_params:
+        return
+    extra_params[WALL_FRONT_OVERHANG_KEY] = _clean_wall_front_overhang_override(extra_params.get(WALL_FRONT_OVERHANG_KEY))
+
+
+def _clean_wall_front_overhang_override(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise WorkspaceValidationError("wall_front_overhang must be an object")
+    mode = str(payload.get("mode") or "inherit").strip().lower()
+    if mode not in WALL_FRONT_OVERHANG_MODES:
+        raise WorkspaceValidationError("wall_front_overhang.mode must be inherit, none, or custom")
+    if mode != "custom":
+        return {"mode": mode}
+
+    edge = str(payload.get("edge") or WALL_FRONT_OVERHANG_DEFAULT["edge"]).strip().lower()
+    if edge not in WALL_FRONT_OVERHANG_EDGES:
+        raise WorkspaceValidationError("wall_front_overhang.edge must be bottom, top, left, or right")
+
+    apply_to = str(payload.get("apply_to") or WALL_FRONT_OVERHANG_DEFAULT["apply_to"]).strip().lower()
+    if apply_to not in WALL_FRONT_OVERHANG_APPLY_TO:
+        raise WorkspaceValidationError("wall_front_overhang.apply_to must be all or selected")
+
+    front_indexes = _positive_int_list(payload.get("front_indexes") or [], field="wall_front_overhang.front_indexes")
+    return {
+        "mode": "custom",
+        "amount_mm": _positive_int(payload.get("amount_mm", WALL_FRONT_OVERHANG_DEFAULT["amount_mm"]), field="wall_front_overhang.amount_mm"),
+        "edge": edge,
+        "apply_to": apply_to,
+        "front_indexes": _dedupe_ints(front_indexes) if apply_to == "selected" else [],
+    }
 
 
 def _clean_drawer_extra_params(extra_params: dict[str, Any], *, height: int) -> dict[str, Any]:
@@ -249,6 +324,27 @@ def _positive_number_list(value: Any, *, field: str) -> list[int | float]:
             raise WorkspaceValidationError(f"{field}[{index}] must be a positive number")
         cleaned.append(int(parsed) if parsed.is_integer() else parsed)
     return cleaned
+
+
+def _bool_value(value: Any, *, fallback: bool) -> bool:
+    if value is None:
+        return fallback
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    raise WorkspaceValidationError("enabled must be true or false")
+
+
+def _dedupe_ints(values: list[int]) -> list[int]:
+    result: list[int] = []
+    for value in values:
+        if value not in result:
+            result.append(value)
+    return result
 
 
 def _is_enabled(name: str) -> bool:

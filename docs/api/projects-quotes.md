@@ -108,6 +108,13 @@ Request payload (`POST` / `PATCH`):
     "Wall Door": { "height": 720, "depth": 330 },
     "Tall Door": { "height": 2100, "depth": 580 }
   },
+  "wall_front_overhang_default": {
+    "enabled": false,
+    "amount_mm": 20,
+    "edge": "bottom",
+    "apply_to": "all",
+    "front_indexes": []
+  },
   "production_metadata": {
     "carcass": {
       "edge_banding": "",
@@ -132,6 +139,8 @@ Request payload (`POST` / `PATCH`):
 ```
 
 Quote responses include `unit_count`, status, quote number, and revision fields so UIs can render quote cards without extra unit queries:
+
+`wall_front_overhang_default` controls handle-free overhangs for inherited wall-door unit fronts. New quotes default to disabled with a ready 20 mm bottom-edge value. Supported `edge` values are `bottom`, `top`, `left`, and `right`; `apply_to` is either `all` or `selected`. Selected fronts use 1-based `front_indexes`.
 
 ```json
 {
@@ -267,6 +276,26 @@ Channel and full-length profile selections also live in `extra_params`, but only
 as handle IDs and placement/orientation values. The Handles library item owns
 `supplier_id`, display-only `supplier_name`, `handle_type`, and
 `front_reduction_mm`.
+
+Wall-door units may include `extra_params.wall_front_overhang`:
+
+```json
+{
+  "unit_type_key": "Wall Door",
+  "extra_params": {
+    "num_doors": 2,
+    "wall_front_overhang": {
+      "mode": "custom",
+      "amount_mm": 20,
+      "edge": "bottom",
+      "apply_to": "selected",
+      "front_indexes": [2]
+    }
+  }
+}
+```
+
+`mode: "inherit"` uses the quote-level `wall_front_overhang_default`, `mode: "none"` disables the overhang for that wall unit, and `mode: "custom"` replaces the quote default for that wall unit. Non-wall units do not persist `wall_front_overhang`.
 
 - `top_j_channel_handle_id`: Base 1/2/3 Draw top J-channel.
 - `middle_c_channel_handle_id`: Base 2 Draw middle C-channel.
@@ -473,7 +502,8 @@ Response shape:
     { "unit_number": 1, "desc": "Side", "length": 748, "width": 564, "qty": 2 }
   ],
   "panels": [
-    { "unit_number": 1, "desc": "Door", "length": 777, "width": 297, "qty": 2 }
+    { "unit_number": 1, "desc": "Door", "length": 777, "width": 297, "qty": 1 },
+    { "unit_number": 1, "desc": "Door (bottom overhang 20 mm)", "length": 797, "width": 297, "qty": 1 }
   ],
   "hardware": [],
   "extras": [
@@ -511,7 +541,7 @@ Response shape:
 }
 ```
 
-Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, rows that cannot be tied to a usable board/material choice, and drawer units whose effective slide required depth is greater than carcass depth. For metal drawer systems (`drawer_system_kind: "metal"` on the selected slide/drawer hardware), validation also checks configured minimum depth, compatible side-wall thicknesses, compatible nominal lengths, internal-width limits, and drawer-front height limits. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
+Cutlist validation runs after row generation. It warns on zero or negative length, width, or quantity, rows that cannot be tied to a usable board/material choice, and drawer units whose effective slide required depth is greater than carcass depth. For metal drawer systems (`drawer_system_kind: "metal"` on the selected slide/drawer hardware), validation also checks configured minimum depth, compatible side-wall thicknesses, compatible nominal lengths, internal-width limits, and drawer-front height limits. Wall-door overhang validation warns when selected front indexes are outside the unit's 1-based front range, selected targeting has no valid front, top-edge overhang needs cornice clearance, side-edge overhang needs adjacent-unit clearance, or bottom-edge overhang may clash with saved pelmet settings. The schedule rows remain visible so estimators can inspect and correct the source unit or quote-level panel.
 
 ## Quote Readiness
 

@@ -1,4 +1,4 @@
-import { customUnitTypeValue, defaultProductionMetadata, fallbackUnitDefaults, panelPresetFamily, panelPresetKeys } from './constants'
+import { customUnitTypeValue, defaultProductionMetadata, defaultWallFrontOverhang, fallbackUnitDefaults, panelPresetFamily, panelPresetKeys } from './constants'
 import { DEFAULT_CURRENCY_CODE, formatCurrencyFromCents } from '@/lib/currency'
 import type {
   DrawerSplitMode,
@@ -15,6 +15,10 @@ import type {
   UnitDraft,
   UnitPresetKey,
   UnitRow,
+  WallFrontOverhangApplyTo,
+  WallFrontOverhangDefault,
+  WallFrontOverhangEdge,
+  WallFrontOverhangOverride,
 } from './types'
 
 type QuoteRevisionMeta = {
@@ -58,6 +62,7 @@ export function unitPayloadFromDraft(draft: UnitDraft) {
   const unitType = resolvedUnitType(draft)
   const isDrawer = isDrawerUnitType(unitType)
   const isHinged = isHingedUnitType(unitType)
+  const isWallDoor = isWallDoorUnitType(unitType)
   const numDrawers = parsePositiveInteger(draft.num_drawers, 3)
   const slideId = optionalId(draft.slide_id)
   const hingeId = optionalId(draft.hinge_id)
@@ -77,6 +82,7 @@ export function unitPayloadFromDraft(draft: UnitDraft) {
           num_shelves: parseNonNegativeInteger(draft.num_shelves, 1),
           ...(isHinged && hingeId ? { hinge_id: hingeId } : {}),
           ...(isHinged ? doorProfileExtraParamsFromDraft(draft, unitType) : {}),
+          ...(isWallDoor ? wallFrontOverhangExtraParamsFromDraft(draft) : {}),
         },
   }
 }
@@ -137,6 +143,25 @@ function doorProfileExtraParamsFromDraft(draft: UnitDraft, unitType: string) {
   return extraParams
 }
 
+function wallFrontOverhangExtraParamsFromDraft(draft: UnitDraft) {
+  const mode = draft.wall_front_overhang_mode
+  if (mode === 'none') {
+    return { wall_front_overhang: { mode: 'none' } satisfies WallFrontOverhangOverride }
+  }
+  if (mode !== 'custom') {
+    return { wall_front_overhang: { mode: 'inherit' } satisfies WallFrontOverhangOverride }
+  }
+  return {
+    wall_front_overhang: {
+      mode: 'custom',
+      amount_mm: parsePositiveInteger(draft.wall_front_overhang_amount_mm, defaultWallFrontOverhang.amount_mm),
+      edge: normalizeWallFrontOverhangEdge(draft.wall_front_overhang_edge),
+      apply_to: normalizeWallFrontOverhangApplyTo(draft.wall_front_overhang_apply_to),
+      front_indexes: parseFrontIndexes(draft.wall_front_overhang_front_indexes),
+    } satisfies WallFrontOverhangOverride,
+  }
+}
+
 export function isDrawerUnitType(unitType: string): boolean {
   return unitType.toLowerCase().includes('draw')
 }
@@ -149,6 +174,11 @@ export function isHingedUnitType(unitType: string): boolean {
 export function isBaseDoorUnitType(unitType: string): boolean {
   const value = unitType.toLowerCase()
   return value.includes('base') && value.includes('door')
+}
+
+export function isWallDoorUnitType(unitType: string): boolean {
+  const value = unitType.toLowerCase()
+  return value.includes('wall') && value.includes('door')
 }
 
 export function isTallUnitType(unitType: string): boolean {
@@ -196,6 +226,7 @@ export function quotePayloadFromDraft(draft: QuoteDraft) {
         depth: parsePositiveInteger(draft.tall_door_depth, fallbackUnitDefaults['Tall Door'].depth),
       },
     },
+    wall_front_overhang_default: wallFrontOverhangDefaultFromQuoteDraft(draft),
     production_metadata: normalizeProductionMetadataByRole(draft.production_metadata),
   }
 }
@@ -205,6 +236,7 @@ export function toQuoteDraft(quote: QuoteRow): QuoteDraft {
   const baseDoor = resolveDefaultDims(quote.unit_defaults, 'Base Door')
   const wallDoor = resolveDefaultDims(quote.unit_defaults, 'Wall Door')
   const tallDoor = resolveDefaultDims(quote.unit_defaults, 'Tall Door')
+  const wallFrontOverhang = normalizeWallFrontOverhangDefault(quote.wall_front_overhang_default)
 
   return {
     name: quote.name,
@@ -226,8 +258,74 @@ export function toQuoteDraft(quote: QuoteRow): QuoteDraft {
     wall_door_depth: String(wallDoor.depth),
     tall_door_height: String(tallDoor.height),
     tall_door_depth: String(tallDoor.depth),
+    wall_front_overhang_enabled: wallFrontOverhang.enabled,
+    wall_front_overhang_amount_mm: String(wallFrontOverhang.amount_mm),
+    wall_front_overhang_edge: wallFrontOverhang.edge,
+    wall_front_overhang_apply_to: wallFrontOverhang.apply_to,
+    wall_front_overhang_front_indexes: formatFrontIndexes(wallFrontOverhang.front_indexes),
     production_metadata: normalizeProductionMetadataByRole(quote.production_metadata),
   }
+}
+
+export function normalizeWallFrontOverhangDefault(value: Partial<WallFrontOverhangDefault> | null | undefined): WallFrontOverhangDefault {
+  const applyTo = normalizeWallFrontOverhangApplyTo(value?.apply_to)
+  return {
+    enabled: Boolean(value?.enabled ?? defaultWallFrontOverhang.enabled),
+    amount_mm: positiveIntegerFromUnknown(value?.amount_mm, defaultWallFrontOverhang.amount_mm),
+    edge: normalizeWallFrontOverhangEdge(value?.edge),
+    apply_to: applyTo,
+    front_indexes: applyTo === 'selected' ? normalizeFrontIndexes(value?.front_indexes) : [],
+  }
+}
+
+export function normalizeWallFrontOverhangOverride(value: unknown): WallFrontOverhangOverride {
+  if (!value || typeof value !== 'object') return { mode: 'inherit' }
+  const raw = value as Record<string, unknown>
+  const mode = raw.mode === 'none' || raw.mode === 'custom' ? raw.mode : 'inherit'
+  if (mode !== 'custom') return { mode }
+  const applyTo = normalizeWallFrontOverhangApplyTo(raw.apply_to)
+  return {
+    mode: 'custom',
+    amount_mm: positiveIntegerFromUnknown(raw.amount_mm, defaultWallFrontOverhang.amount_mm),
+    edge: normalizeWallFrontOverhangEdge(raw.edge),
+    apply_to: applyTo,
+    front_indexes: applyTo === 'selected' ? normalizeFrontIndexes(raw.front_indexes) : [],
+  }
+}
+
+export function wallFrontOverhangDraftFromExtra(extra: Record<string, unknown>) {
+  const overhang = normalizeWallFrontOverhangOverride(extra.wall_front_overhang)
+  if (overhang.mode !== 'custom') {
+    return {
+      wall_front_overhang_mode: overhang.mode,
+      wall_front_overhang_amount_mm: String(defaultWallFrontOverhang.amount_mm),
+      wall_front_overhang_edge: defaultWallFrontOverhang.edge,
+      wall_front_overhang_apply_to: defaultWallFrontOverhang.apply_to,
+      wall_front_overhang_front_indexes: '',
+    }
+  }
+  return {
+    wall_front_overhang_mode: 'custom' as const,
+    wall_front_overhang_amount_mm: String(overhang.amount_mm ?? defaultWallFrontOverhang.amount_mm),
+    wall_front_overhang_edge: normalizeWallFrontOverhangEdge(overhang.edge),
+    wall_front_overhang_apply_to: normalizeWallFrontOverhangApplyTo(overhang.apply_to),
+    wall_front_overhang_front_indexes: formatFrontIndexes(overhang.front_indexes ?? []),
+  }
+}
+
+export function formatWallFrontOverhangDefault(value: Partial<WallFrontOverhangDefault> | null | undefined): string {
+  const overhang = normalizeWallFrontOverhangDefault(value)
+  if (!overhang.enabled) return 'No wall overhang'
+  const target = overhang.apply_to === 'all' ? 'all fronts' : `fronts ${formatFrontIndexes(overhang.front_indexes) || '-'}`
+  return `${overhang.amount_mm} mm ${overhang.edge} overhang on ${target}`
+}
+
+export function formatWallFrontOverhangOverride(extra: Record<string, unknown>, quoteDefault?: Partial<WallFrontOverhangDefault> | null): string {
+  const override = normalizeWallFrontOverhangOverride(extra.wall_front_overhang)
+  if (override.mode === 'none') return 'Overhang off'
+  if (override.mode === 'inherit') return formatWallFrontOverhangDefault(quoteDefault)
+  const target = override.apply_to === 'selected' ? `fronts ${formatFrontIndexes(override.front_indexes ?? []) || '-'}` : 'all fronts'
+  return `${override.amount_mm ?? defaultWallFrontOverhang.amount_mm} mm ${override.edge ?? defaultWallFrontOverhang.edge} overhang on ${target}`
 }
 
 export function normalizeProductionMetadata(value: Partial<ProductionMetadata> | null | undefined): ProductionMetadata {
@@ -339,11 +437,62 @@ export function numberFromExtra(extra: Record<string, unknown>, key: string, fal
 }
 
 export function formatExtraParams(extra: Record<string, unknown>): string {
-  const entries = Object.entries(extra)
+  const entries = Object.entries(extra).filter(([key]) => key !== 'wall_front_overhang')
   if (entries.length === 0) return '-'
   return entries
     .map(([key, value]) => `${key}:${formatExtraValue(value)}`)
     .join(', ')
+}
+
+export function wallFrontOverhangDefaultFromQuoteDraft(draft: QuoteDraft): WallFrontOverhangDefault {
+  const applyTo = normalizeWallFrontOverhangApplyTo(draft.wall_front_overhang_apply_to)
+  return {
+    enabled: draft.wall_front_overhang_enabled,
+    amount_mm: parsePositiveInteger(draft.wall_front_overhang_amount_mm, defaultWallFrontOverhang.amount_mm),
+    edge: normalizeWallFrontOverhangEdge(draft.wall_front_overhang_edge),
+    apply_to: applyTo,
+    front_indexes: applyTo === 'selected' ? parseFrontIndexes(draft.wall_front_overhang_front_indexes) : [],
+  }
+}
+
+function normalizeWallFrontOverhangEdge(value: unknown): WallFrontOverhangEdge {
+  return value === 'top' || value === 'left' || value === 'right' ? value : 'bottom'
+}
+
+function normalizeWallFrontOverhangApplyTo(value: unknown): WallFrontOverhangApplyTo {
+  return value === 'selected' ? 'selected' : 'all'
+}
+
+function parseFrontIndexes(value: string): number[] {
+  return normalizeFrontIndexes(
+    value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )
+}
+
+function normalizeFrontIndexes(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  const indexes: number[] = []
+  value.forEach((item) => {
+    const parsed = positiveIntegerFromUnknown(item, 0)
+    if (parsed > 0 && !indexes.includes(parsed)) indexes.push(parsed)
+  })
+  return indexes
+}
+
+function formatFrontIndexes(values: number[]): string {
+  return values.join(', ')
+}
+
+function positiveIntegerFromUnknown(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.floor(value)
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed)
+  }
+  return fallback
 }
 
 function formatExtraValue(value: unknown): string {

@@ -446,6 +446,90 @@ def test_runtime_service_falls_back_to_legacy_when_ruleset_missing():
     assert {"unit_number": 1, "desc": "Door", "length": 777, "width": 447, "qty": 2} in result["panels"]
 
 
+def test_runtime_legacy_wall_door_sizing_is_unchanged_without_overhang():
+    service = CutlistRuntimeService(store=FakeRuntimeStore())
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[_wall_door_unit()],
+        use_db_rulesets=False,
+    )
+
+    assert {"unit_number": 1, "desc": "Door", "length": 717, "width": 297, "qty": 2} in result["panels"]
+    assert all("overhang" not in row["desc"].lower() for row in result["panels"])
+
+
+def test_runtime_legacy_wall_door_applies_bottom_overhang_to_all_fronts():
+    service = CutlistRuntimeService(store=FakeRuntimeStore())
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[
+            _wall_door_unit(
+                extra_params={
+                    "num_doors": 2,
+                    "num_shelves": 1,
+                    "wall_front_overhang": {"mode": "custom", "amount_mm": 20, "edge": "bottom", "apply_to": "all"},
+                }
+            )
+        ],
+        use_db_rulesets=False,
+    )
+
+    assert result["panels"] == [{"unit_number": 1, "desc": "Door (bottom overhang 20 mm)", "length": 737, "width": 297, "qty": 2}]
+
+
+def test_runtime_legacy_wall_door_splits_selected_overhang_fronts():
+    service = CutlistRuntimeService(store=FakeRuntimeStore())
+
+    result = service.build_preview(
+        company_id="company-1",
+        units=[
+            _wall_door_unit(
+                extra_params={
+                    "num_doors": 2,
+                    "num_shelves": 1,
+                    "wall_front_overhang": {
+                        "mode": "custom",
+                        "amount_mm": 20,
+                        "edge": "bottom",
+                        "apply_to": "selected",
+                        "front_indexes": [2],
+                    },
+                }
+            )
+        ],
+        use_db_rulesets=False,
+    )
+
+    assert result["panels"] == [
+        {"unit_number": 1, "desc": "Door", "length": 717, "width": 297, "qty": 1},
+        {"unit_number": 1, "desc": "Door (bottom overhang 20 mm)", "length": 737, "width": 297, "qty": 1},
+    ]
+
+
+def test_runtime_ruleset_wall_door_overhang_matches_legacy_path():
+    service = CutlistRuntimeService(store=_wall_door_ruleset_store())
+    units = [
+        _wall_door_unit(
+            extra_params={
+                "num_doors": 2,
+                "num_shelves": 1,
+                "wall_front_overhang": {"mode": "custom", "amount_mm": 20, "edge": "bottom", "apply_to": "all"},
+            }
+        )
+    ]
+
+    runtime_result = service.build_preview(company_id="company-1", units=units, use_db_rulesets=True)
+    legacy_result = service.build_preview(company_id="company-1", units=units, use_db_rulesets=False)
+
+    assert runtime_result["runtime_mode"] == "ruleset"
+    assert runtime_result["panels"] == legacy_result["panels"]
+    assert runtime_result["panels"] == [
+        {"unit_number": 1, "desc": "Door (bottom overhang 20 mm)", "length": 737, "width": 297, "qty": 2}
+    ]
+
+
 def test_runtime_legacy_output_includes_base_door_top_j_channel():
     service = CutlistRuntimeService(store=FakeRuntimeStore())
 
@@ -624,3 +708,75 @@ def test_runtime_ruleset_path_matches_legacy_for_base_door_fixture():
     assert runtime_result["runtime_mode"] == "ruleset"
     assert runtime_result["carcass"] == legacy_result["carcass"]
     assert runtime_result["panels"] == legacy_result["panels"]
+
+
+def _wall_door_unit(*, extra_params: dict | None = None) -> dict:
+    return {
+        "unit_number": 1,
+        "unit_type": "Wall Door",
+        "height": 720,
+        "width": 600,
+        "depth": 330,
+        "thickness": 16,
+        "extra_params": extra_params or {"num_doors": 2, "num_shelves": 1},
+    }
+
+
+def _wall_door_ruleset_store() -> FakeRuntimeStore:
+    return FakeRuntimeStore(
+        unit_configs={
+            (None, "Wall Door"): {
+                "id": "wall-config",
+                "unit_type_key": "Wall Door",
+                "variant_config": {"num_doors": 2, "default_shelves": 1, "panel_gap_mm": 3, "shelf_setback": 20},
+            }
+        },
+        rulesets={
+            (None, "Wall Door"): {
+                "id": "wall-ruleset",
+                "unit_type_key": "Wall Door",
+                "unit_config_id": "wall-config",
+                "rows": [
+                    {
+                        "sort_order": 10,
+                        "section": "carcass",
+                        "description": "Side",
+                        "length_formula": "h - (2 * t)",
+                        "width_formula": "d - t",
+                        "qty_formula": "2",
+                        "condition_formula": "",
+                        "edge_long_1": False,
+                        "edge_long_2": False,
+                        "edge_short_1": False,
+                        "edge_short_2": False,
+                    },
+                    {
+                        "sort_order": 20,
+                        "section": "carcass",
+                        "description": "Shelf",
+                        "length_formula": "w - (2 * t)",
+                        "width_formula": "d - t - shelf_setback",
+                        "qty_formula": "num_shelves",
+                        "condition_formula": "num_shelves > 0",
+                        "edge_long_1": False,
+                        "edge_long_2": False,
+                        "edge_short_1": False,
+                        "edge_short_2": False,
+                    },
+                    {
+                        "sort_order": 100,
+                        "section": "panel",
+                        "description": "Door",
+                        "length_formula": "h - panel_gap_mm",
+                        "width_formula": "(w / num_doors) - panel_gap_mm",
+                        "qty_formula": "num_doors",
+                        "condition_formula": "num_doors > 0",
+                        "edge_long_1": False,
+                        "edge_long_2": False,
+                        "edge_short_1": False,
+                        "edge_short_2": False,
+                    },
+                ],
+            }
+        },
+    )

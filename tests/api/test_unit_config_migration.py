@@ -6,6 +6,7 @@ MIGRATION_0006 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrati
 MIGRATION_0020 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0020_production_metadata.sql"
 MIGRATION_0021 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0021_board_type_grain_policy.sql"
 MIGRATION_0022 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0022_one_active_company_cutting_ruleset.sql"
+MIGRATION_0030 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0030_wall_front_overhang_defaults.sql"
 MIGRATION_0007 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0007_simplify_default_unit_types.sql"
 MIGRATION_0008 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0008_cutting_ruleset_history.sql"
 MIGRATION_0017 = Path(__file__).resolve().parents[2] / "infra" / "db" / "migrations" / "0017_default_non_drawer_cutting_formulas.sql"
@@ -57,6 +58,18 @@ def test_production_metadata_migration_is_postgres_jsonb_and_company_scoped_sour
     assert "CHECK (jsonb_typeof(production_metadata) = 'object')" in sql
     assert "Quote-scoped workshop production instructions by material role" in sql
     assert "Unit-scoped workshop production instruction overrides by material role" in sql
+
+
+def test_wall_front_overhang_default_migration_is_quote_scoped_jsonb():
+    sql = MIGRATION_0030.read_text()
+
+    assert "ALTER TABLE quotes" in sql
+    assert "ADD COLUMN IF NOT EXISTS wall_front_overhang_default JSONB NOT NULL DEFAULT" in sql
+    assert '"enabled":false' in sql
+    assert '"amount_mm":20' in sql
+    assert '"edge":"bottom"' in sql
+    assert "CHECK (jsonb_typeof(wall_front_overhang_default) = 'object')" in sql
+    assert "Quote-level default for handle-free wall-unit front overhang geometry" in sql
 
 
 def test_board_type_grain_policy_migration_defaults_existing_boards_to_required():
