@@ -1,10 +1,10 @@
 import {
   Building2,
   Calculator,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  CopyPlus,
   HardHat,
   LoaderCircle,
   LogOut,
@@ -39,7 +39,6 @@ import type { AppPage } from '@/types/app'
 import type { AuthUser } from '@/types/auth'
 
 type NavigationItem = {
-  icon?: LucideIcon
   label: string
   libraryTab?: LibraryTab
   page: AppPage
@@ -79,12 +78,10 @@ const navigationGroups: NavigationGroup[] = [
     icon: Calculator,
     items: [
       {
-        icon: Calculator,
         label: 'Cutlist rules',
         page: 'cutlist',
       },
       {
-        icon: CopyPlus,
         label: 'Rule tester',
         page: 'cutlist-tester',
       },
@@ -142,6 +139,7 @@ export function AppShell({
   user: AuthUser
 }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [expandedMenuGroups, setExpandedMenuGroups] = useState<Record<string, boolean>>({})
   const title = pageTitle(currentPage, currentLibraryTab)
 
   function openNavigationItem(item: NavigationItem) {
@@ -156,6 +154,21 @@ export function AppShell({
       onLibraryTabChange('setup-imports')
     }
     setCurrentPage(group.page)
+  }
+
+  function toggleNavigationGroup(group: NavigationGroup, isGroupActive: boolean) {
+    if (group.items.length < 1) {
+      openNavigationGroup(group)
+      return
+    }
+
+    if (!isGroupActive) {
+      openNavigationGroup(group)
+      setExpandedMenuGroups((current) => ({ ...current, [group.label]: true }))
+      return
+    }
+
+    setExpandedMenuGroups((current) => ({ ...current, [group.label]: !current[group.label] }))
   }
 
   return (
@@ -191,6 +204,8 @@ export function AppShell({
             {navigationGroups.map((group) => {
               const GroupIcon = group.icon
               const isGroupActive = navGroupIsActive(group, currentPage)
+              const hasSubmenu = group.items.length > 1
+              const isGroupExpanded = hasSubmenu && (expandedMenuGroups[group.label] ?? isGroupActive)
 
               return (
                 <SidebarGroup key={group.label}>
@@ -200,24 +215,29 @@ export function AppShell({
                       <SidebarMenuItem>
                         <SidebarMenuButton
                           aria-label={isSidebarCollapsed ? group.label : undefined}
+                          aria-expanded={hasSubmenu && !isSidebarCollapsed ? isGroupExpanded : undefined}
                           isActive={isGroupActive}
-                          onClick={() => openNavigationGroup(group)}
+                          onClick={() => toggleNavigationGroup(group, isGroupActive)}
                           title={group.label}
                         >
                           <GroupIcon aria-hidden="true" />
                           {isSidebarCollapsed ? <span className="sr-only">{group.label}</span> : <span className="truncate">{group.label}</span>}
+                          {!isSidebarCollapsed && hasSubmenu ? (
+                            <ChevronDown
+                              className={`ml-auto h-4 w-4 transition-transform ${isGroupExpanded ? 'rotate-180' : ''}`}
+                              aria-hidden="true"
+                            />
+                          ) : null}
                         </SidebarMenuButton>
-                        {!isSidebarCollapsed && group.items.length > 1 ? (
+                        {!isSidebarCollapsed && isGroupExpanded ? (
                           <SidebarMenuSub aria-label={`${group.label} sections`}>
                             {group.items.map((item) => {
-                              const ItemIcon = item.icon
                               return (
                                 <SidebarMenuSubItem key={`${item.page}-${item.libraryTab ?? item.label}`}>
                                   <SidebarMenuSubButton
                                     isActive={navItemIsActive(item, currentPage, currentLibraryTab)}
                                     onClick={() => openNavigationItem(item)}
                                   >
-                                    {ItemIcon ? <ItemIcon aria-hidden="true" /> : null}
                                     <span className="truncate">{item.label}</span>
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
@@ -314,14 +334,37 @@ function MobileNavigation({
   setCurrentPage: (page: AppPage) => void
 }) {
   const isAdvancedPage = currentPage === 'cutlist' || currentPage === 'cutlist-tester'
+  const [expandedMobileGroups, setExpandedMobileGroups] = useState<Partial<Record<'advanced' | 'libraries', boolean>>>({})
+  const isLibraryMenuExpanded = currentPage === 'libraries' && (expandedMobileGroups.libraries ?? true)
+  const isAdvancedMenuExpanded = isAdvancedPage && (expandedMobileGroups.advanced ?? true)
 
   function openLibraryTab(tab: LibraryTab) {
     onLibraryTabChange(tab)
     setCurrentPage('libraries')
   }
 
+  function toggleLibraryMenu() {
+    if (currentPage !== 'libraries') {
+      openLibraryTab('setup-imports')
+      setExpandedMobileGroups((current) => ({ ...current, libraries: true }))
+      return
+    }
+
+    setExpandedMobileGroups((current) => ({ ...current, libraries: !current.libraries }))
+  }
+
   function openAdvancedPage(page: Extract<AppPage, 'cutlist' | 'cutlist-tester'>) {
     setCurrentPage(page)
+  }
+
+  function toggleAdvancedMenu() {
+    if (!isAdvancedPage) {
+      openAdvancedPage('cutlist')
+      setExpandedMobileGroups((current) => ({ ...current, advanced: true }))
+      return
+    }
+
+    setExpandedMobileGroups((current) => ({ ...current, advanced: !current.advanced }))
   }
 
   return (
@@ -340,29 +383,33 @@ function MobileNavigation({
         </Button>
         <Button
           aria-pressed={currentPage === 'libraries'}
+          aria-expanded={isLibraryMenuExpanded}
           className="h-9 justify-start gap-2 px-2 text-xs"
-          onClick={() => openLibraryTab('setup-imports')}
+          onClick={toggleLibraryMenu}
           size="sm"
           type="button"
           variant={currentPage === 'libraries' ? 'navActive' : 'nav'}
         >
           <Building2 className="h-4 w-4" aria-hidden="true" />
           <span className="truncate">Setup</span>
+          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${isLibraryMenuExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
         </Button>
         <Button
           aria-pressed={isAdvancedPage}
+          aria-expanded={isAdvancedMenuExpanded}
           className="h-9 justify-start gap-2 px-2 text-xs"
-          onClick={() => setCurrentPage('cutlist')}
+          onClick={toggleAdvancedMenu}
           size="sm"
           type="button"
           variant={isAdvancedPage ? 'navActive' : 'nav'}
         >
           <Calculator className="h-4 w-4" aria-hidden="true" />
           <span className="truncate">Advanced</span>
+          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${isAdvancedMenuExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
         </Button>
       </div>
 
-      {currentPage === 'libraries' ? (
+      {isLibraryMenuExpanded ? (
         <div className="grid grid-cols-2 gap-1.5 border-l border-border pl-2 sm:grid-cols-3" aria-label="Setup library sections">
           {libraryTabs.map((tab) => (
             <Button
@@ -380,28 +427,26 @@ function MobileNavigation({
         </div>
       ) : null}
 
-      {isAdvancedPage ? (
+      {isAdvancedMenuExpanded ? (
         <div className="grid grid-cols-2 gap-1.5 border-l border-border pl-2" aria-label="Advanced tools">
           <Button
             aria-pressed={currentPage === 'cutlist'}
-            className="h-8 justify-start gap-2 px-2 text-xs"
+            className="h-8 justify-start px-2 text-xs"
             onClick={() => openAdvancedPage('cutlist')}
             size="sm"
             type="button"
             variant={currentPage === 'cutlist' ? 'secondary' : 'outline'}
           >
-            <Calculator className="h-4 w-4" aria-hidden="true" />
             <span className="truncate">Cutlist rules</span>
           </Button>
           <Button
             aria-pressed={currentPage === 'cutlist-tester'}
-            className="h-8 justify-start gap-2 px-2 text-xs"
+            className="h-8 justify-start px-2 text-xs"
             onClick={() => openAdvancedPage('cutlist-tester')}
             size="sm"
             type="button"
             variant={currentPage === 'cutlist-tester' ? 'secondary' : 'outline'}
           >
-            <CopyPlus className="h-4 w-4" aria-hidden="true" />
             <span className="truncate">Rule tester</span>
           </Button>
         </div>
