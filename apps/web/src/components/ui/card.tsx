@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 function Card({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
-      className={cn('rounded-[var(--card-radius)] border border-border bg-card text-card-foreground shadow-[var(--shadow-card)]', className)}
+      className={cn('min-w-0 rounded-[var(--card-radius)] border border-border bg-card text-card-foreground shadow-[var(--shadow-card)]', className)}
       {...props}
     />
   )

@@ -52,7 +52,16 @@ type NavigationGroup = {
   page: AppPage
 }
 
-const setupLibraryItems: NavigationItem[] = libraryTabs.map((tab) => ({
+const setupLibraryTabValues: LibraryTab[] = ['setup-imports', 'pricing', 'suppliers']
+const catalogLibraryTabValues: LibraryTab[] = ['boards', 'hinges', 'slides', 'handles', 'extras', 'extra-categories']
+
+const setupLibraryItems: NavigationItem[] = libraryTabs.filter((tab) => setupLibraryTabValues.includes(tab.value)).map((tab) => ({
+  label: tab.label,
+  libraryTab: tab.value,
+  page: 'libraries',
+}))
+
+const catalogLibraryItems: NavigationItem[] = libraryTabs.filter((tab) => catalogLibraryTabValues.includes(tab.value)).map((tab) => ({
   label: tab.label,
   libraryTab: tab.value,
   page: 'libraries',
@@ -70,7 +79,14 @@ const navigationGroups: NavigationGroup[] = [
     groupLabel: 'Setup',
     icon: Building2,
     items: setupLibraryItems,
-    label: 'Setup libraries',
+    label: 'Setup',
+    page: 'libraries',
+  },
+  {
+    groupLabel: 'Library',
+    icon: Building2,
+    items: catalogLibraryItems,
+    label: 'Library',
     page: 'libraries',
   },
   {
@@ -114,8 +130,9 @@ function navItemIsActive(item: NavigationItem, currentPage: AppPage, currentLibr
   return true
 }
 
-function navGroupIsActive(group: NavigationGroup, currentPage: AppPage) {
+function navGroupIsActive(group: NavigationGroup, currentPage: AppPage, currentLibraryTab: LibraryTab) {
   if (group.page === 'cutlist') return currentPage === 'cutlist' || currentPage === 'cutlist-tester'
+  if (group.page === 'libraries') return currentPage === 'libraries' && group.items.some((item) => item.libraryTab === currentLibraryTab)
   return currentPage === group.page
 }
 
@@ -151,7 +168,7 @@ export function AppShell({
 
   function openNavigationGroup(group: NavigationGroup) {
     if (group.page === 'libraries') {
-      onLibraryTabChange('setup-imports')
+      onLibraryTabChange(group.items[0]?.libraryTab ?? 'setup-imports')
     }
     setCurrentPage(group.page)
   }
@@ -203,7 +220,7 @@ export function AppShell({
           <SidebarContent>
             {navigationGroups.map((group) => {
               const GroupIcon = group.icon
-              const isGroupActive = navGroupIsActive(group, currentPage)
+              const isGroupActive = navGroupIsActive(group, currentPage, currentLibraryTab)
               const hasSubmenu = group.items.length > 1
               const isGroupExpanded = hasSubmenu && (expandedMenuGroups[group.label] ?? isGroupActive)
 
@@ -334,8 +351,11 @@ function MobileNavigation({
   setCurrentPage: (page: AppPage) => void
 }) {
   const isAdvancedPage = currentPage === 'cutlist' || currentPage === 'cutlist-tester'
-  const [expandedMobileGroups, setExpandedMobileGroups] = useState<Partial<Record<'advanced' | 'libraries', boolean>>>({})
-  const isLibraryMenuExpanded = currentPage === 'libraries' && (expandedMobileGroups.libraries ?? true)
+  const isSetupLibraryTab = setupLibraryItems.some((item) => item.libraryTab === currentLibraryTab)
+  const isCatalogLibraryTab = catalogLibraryItems.some((item) => item.libraryTab === currentLibraryTab)
+  const [expandedMobileGroups, setExpandedMobileGroups] = useState<Partial<Record<'advanced' | 'catalog' | 'setup', boolean>>>({})
+  const isSetupMenuExpanded = currentPage === 'libraries' && isSetupLibraryTab && (expandedMobileGroups.setup ?? true)
+  const isCatalogMenuExpanded = currentPage === 'libraries' && isCatalogLibraryTab && (expandedMobileGroups.catalog ?? true)
   const isAdvancedMenuExpanded = isAdvancedPage && (expandedMobileGroups.advanced ?? true)
 
   function openLibraryTab(tab: LibraryTab) {
@@ -343,14 +363,24 @@ function MobileNavigation({
     setCurrentPage('libraries')
   }
 
-  function toggleLibraryMenu() {
-    if (currentPage !== 'libraries') {
+  function toggleSetupMenu() {
+    if (currentPage !== 'libraries' || !isSetupLibraryTab) {
       openLibraryTab('setup-imports')
-      setExpandedMobileGroups((current) => ({ ...current, libraries: true }))
+      setExpandedMobileGroups((current) => ({ ...current, setup: true }))
       return
     }
 
-    setExpandedMobileGroups((current) => ({ ...current, libraries: !current.libraries }))
+    setExpandedMobileGroups((current) => ({ ...current, setup: !current.setup }))
+  }
+
+  function toggleCatalogMenu() {
+    if (currentPage !== 'libraries' || !isCatalogLibraryTab) {
+      openLibraryTab('boards')
+      setExpandedMobileGroups((current) => ({ ...current, catalog: true }))
+      return
+    }
+
+    setExpandedMobileGroups((current) => ({ ...current, catalog: !current.catalog }))
   }
 
   function openAdvancedPage(page: Extract<AppPage, 'cutlist' | 'cutlist-tester'>) {
@@ -369,7 +399,7 @@ function MobileNavigation({
 
   return (
     <nav className="grid gap-2 border-b border-border bg-background px-4 py-2 lg:hidden" aria-label="Main navigation">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Button
           aria-pressed={currentPage === 'projects'}
           className="h-9 justify-start gap-2 px-2 text-xs"
@@ -382,17 +412,30 @@ function MobileNavigation({
           <span className="truncate">Projects</span>
         </Button>
         <Button
-          aria-pressed={currentPage === 'libraries'}
-          aria-expanded={isLibraryMenuExpanded}
+          aria-pressed={currentPage === 'libraries' && isSetupLibraryTab}
+          aria-expanded={isSetupMenuExpanded}
           className="h-9 justify-start gap-2 px-2 text-xs"
-          onClick={toggleLibraryMenu}
+          onClick={toggleSetupMenu}
           size="sm"
           type="button"
-          variant={currentPage === 'libraries' ? 'navActive' : 'nav'}
+          variant={currentPage === 'libraries' && isSetupLibraryTab ? 'navActive' : 'nav'}
         >
           <Building2 className="h-4 w-4" aria-hidden="true" />
           <span className="truncate">Setup</span>
-          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${isLibraryMenuExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${isSetupMenuExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+        </Button>
+        <Button
+          aria-pressed={currentPage === 'libraries' && isCatalogLibraryTab}
+          aria-expanded={isCatalogMenuExpanded}
+          className="h-9 justify-start gap-2 px-2 text-xs"
+          onClick={toggleCatalogMenu}
+          size="sm"
+          type="button"
+          variant={currentPage === 'libraries' && isCatalogLibraryTab ? 'navActive' : 'nav'}
+        >
+          <Building2 className="h-4 w-4" aria-hidden="true" />
+          <span className="truncate">Library</span>
+          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${isCatalogMenuExpanded ? 'rotate-180' : ''}`} aria-hidden="true" />
         </Button>
         <Button
           aria-pressed={isAdvancedPage}
@@ -409,19 +452,37 @@ function MobileNavigation({
         </Button>
       </div>
 
-      {isLibraryMenuExpanded ? (
-        <div className="grid grid-cols-2 gap-1.5 border-l border-border pl-2 sm:grid-cols-3" aria-label="Setup library sections">
-          {libraryTabs.map((tab) => (
+      {isSetupMenuExpanded ? (
+        <div className="grid grid-cols-2 gap-1.5 border-l border-border pl-2 sm:grid-cols-3" aria-label="Setup sections">
+          {setupLibraryItems.map((item) => (
             <Button
-              aria-pressed={currentLibraryTab === tab.value}
+              aria-pressed={currentLibraryTab === item.libraryTab}
               className="h-8 justify-start px-2 text-xs"
-              key={tab.value}
-              onClick={() => openLibraryTab(tab.value)}
+              key={item.libraryTab}
+              onClick={() => openLibraryTab(item.libraryTab ?? 'setup-imports')}
               size="sm"
               type="button"
-              variant={currentLibraryTab === tab.value ? 'secondary' : 'outline'}
+              variant={currentLibraryTab === item.libraryTab ? 'secondary' : 'outline'}
             >
-              <span className="truncate">{tab.label}</span>
+              <span className="truncate">{item.label}</span>
+            </Button>
+          ))}
+        </div>
+      ) : null}
+
+      {isCatalogMenuExpanded ? (
+        <div className="grid grid-cols-2 gap-1.5 border-l border-border pl-2 sm:grid-cols-3" aria-label="Library sections">
+          {catalogLibraryItems.map((item) => (
+            <Button
+              aria-pressed={currentLibraryTab === item.libraryTab}
+              className="h-8 justify-start px-2 text-xs"
+              key={item.libraryTab}
+              onClick={() => openLibraryTab(item.libraryTab ?? 'boards')}
+              size="sm"
+              type="button"
+              variant={currentLibraryTab === item.libraryTab ? 'secondary' : 'outline'}
+            >
+              <span className="truncate">{item.label}</span>
             </Button>
           ))}
         </div>

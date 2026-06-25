@@ -96,6 +96,7 @@ type RecentFilterValue = 'all' | '7' | '30' | '90'
 type PriceStatusFilterValue = 'all' | LibraryEffectiveStatus
 type PriceTypeFilterValue = 'all' | PriceItemType
 type PriceSourceFilterValue = 'all' | PriceListItemRow['cost_source']
+type PricingSubTab = 'settings' | 'lists' | 'quick-update' | 'history' | 'all-prices'
 type BulkAccessoryResource = Extract<LibraryCatalogBulkResource, 'slides' | 'hinges'>
 type CreateCatalogResource = LibraryCatalogBulkResource | 'extra-categories'
 type CatalogBulkMode = 'fields' | 'accessories'
@@ -134,6 +135,14 @@ const priceSourceOptions: Array<{ label: string; value: PriceSourceFilterValue }
   { label: 'From supplier cost', value: 'supplier' },
   { label: 'Manual override', value: 'override' },
   { label: 'Imported', value: 'import' },
+]
+
+const pricingSubTabs: Array<{ label: string; value: PricingSubTab }> = [
+  { label: 'Pricing Settings', value: 'settings' },
+  { label: 'Price Lists', value: 'lists' },
+  { label: 'Quick Price Update', value: 'quick-update' },
+  { label: 'Price History', value: 'history' },
+  { label: 'All Prices', value: 'all-prices' },
 ]
 
 const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> = {
@@ -988,6 +997,7 @@ export function LibrariesPage({
   onOpenProjects: () => void
 }) {
   const setActiveTab = onActiveTabChange
+  const [activePricingTab, setActivePricingTab] = useState<PricingSubTab>('settings')
 
   const [setupChecklist, setSetupChecklist] = useState<LibrarySetupChecklist | null>(null)
   const [boards, setBoards] = useState<BoardTypeRow[]>([])
@@ -1363,6 +1373,10 @@ export function LibrariesPage({
   }, [boards, extras, handles, hinges, missingPriceTypeFilter, priceItems, priceSearch, slides])
   const currentVisiblePriceRows = useMemo(
     () => visiblePriceRows.filter((row) => row.effective_status === 'current'),
+    [visiblePriceRows],
+  )
+  const historyVisiblePriceRows = useMemo(
+    () => visiblePriceRows.filter((row) => row.effective_status !== 'current'),
     [visiblePriceRows],
   )
 
@@ -1833,7 +1847,7 @@ export function LibrariesPage({
     }
   }
 
-  function renderCatalogMaintenance(resource: LibraryCatalogBulkResource, totalCount: number, visibleIds: string[]) {
+  function renderCatalogMaintenance(resource: LibraryCatalogBulkResource, totalCount: number, visibleIds: string[], actions?: ReactNode) {
     const selectedCount = onlyVisibleSelected(selectedCatalogIds[resource], visibleIds).length
     const accessoryResource = resource === 'slides' || resource === 'hinges' ? resource : null
     return (
@@ -1857,6 +1871,7 @@ export function LibrariesPage({
               </Select>
             </Label>
           ) : null}
+          {actions}
         </MaintenanceToolbar>
         <details className="rounded-[var(--control-radius)] border border-border p-3">
           <summary className="cursor-pointer text-sm font-semibold">
@@ -1910,6 +1925,81 @@ export function LibrariesPage({
         </details>
         <FilteredEmptyNotice filteredCount={visibleIds.length} totalCount={totalCount} />
       </div>
+    )
+  }
+
+  function renderPriceRowsTable(rows: PriceListItemRow[], showSelection: boolean) {
+    return (
+      <TableContainer>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {showSelection ? <TableHead className="w-10">Select</TableHead> : null}
+              <TableHead>Type</TableHead>
+              <TableHead>Item</TableHead>
+              <TableHead>Price part</TableHead>
+              <TableHead>Unit</TableHead>
+              <TableHead>Source</TableHead>
+              <TableHead>Starts</TableHead>
+              <TableHead>Replaced on</TableHead>
+              <TableHead>Price</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={showSelection ? 9 : 8}>
+                  <div className="grid gap-1 py-3">
+                    <p className="font-medium">{priceItems.length === 0 ? 'Build prices for the active list.' : 'No price rows match the filters.'}</p>
+                    <p className="text-sm leading-5 text-muted-foreground">
+                      {priceItems.length === 0
+                        ? 'Add board, hardware, handle, and extra prices here so quote totals can be trusted.'
+                        : 'Clear the search or widen the filters to see the price rows in this list.'}
+                    </p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((row) => (
+                <TableRow key={row.id}>
+                  {showSelection ? (
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedPriceItemIds.includes(row.id)}
+                        disabled={row.effective_status !== 'current'}
+                        onChange={(event) => handlePriceSelection(row.id, event.target.checked)}
+                      />
+                    </TableCell>
+                  ) : null}
+                  <TableCell>{priceItemTypeLabel(row.item_type)}</TableCell>
+                  <TableCell>
+                    {row.item_ref_id
+                      ? itemLabelByRef.get(`${row.item_type}:${row.item_ref_id}`) ?? row.item_key
+                      : row.item_key}
+                  </TableCell>
+                  <TableCell>{priceComponentLabel(row.price_component)}</TableCell>
+                  <TableCell>{row.uom}</TableCell>
+                  <TableCell>
+                    <Badge variant={row.cost_source === 'supplier' ? 'default' : 'outline'}>{priceSourceLabel(row.cost_source)}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="grid gap-1 text-xs">
+                      <Badge variant={row.effective_status === 'current' ? 'success' : row.effective_status === 'retired' ? 'warning' : 'outline'}>
+                        {priceStatusLabel(row.effective_status)}
+                      </Badge>
+                      <span className="text-muted-foreground">{formatDateTime(row.effective_from)}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {row.effective_to ? formatDateTime(row.effective_to) : 'Still current'}
+                  </TableCell>
+                  <TableCell>{formatCurrencyFromCents(row.unit_price_cents, displayCurrencyCode)}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
     )
   }
 
@@ -2840,7 +2930,7 @@ export function LibrariesPage({
   const importHasBlockedRows = (importPreview?.summary.blocked_count ?? 0) > 0
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4">
       <Dialog
         open={createHardwareResource === 'slides'}
         onOpenChange={(open) => {
@@ -3833,6 +3923,23 @@ export function LibrariesPage({
       {!isLoading && activeTab === 'pricing' ? (
         <>
           <Card>
+            <CardContent className="overflow-x-auto p-3">
+              <ControlGroup className="min-w-max" role="tablist" aria-label="Pricing tabs">
+                {pricingSubTabs.map((tab) => (
+                  <ControlGroupItem
+                    aria-pressed={activePricingTab === tab.value}
+                    key={tab.value}
+                    onClick={() => setActivePricingTab(tab.value)}
+                  >
+                    {tab.label}
+                  </ControlGroupItem>
+                ))}
+              </ControlGroup>
+            </CardContent>
+          </Card>
+
+          {activePricingTab === 'settings' ? (
+          <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <CircleDollarSign className="h-4 w-4" aria-hidden="true" />
@@ -3855,8 +3962,9 @@ export function LibrariesPage({
               ) : null}
             </CardContent>
           </Card>
+          ) : null}
 
-          <section className="grid gap-4 xl:grid-cols-2">
+          {activePricingTab === 'lists' ? (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Price Lists</CardTitle>
@@ -3971,7 +4079,9 @@ export function LibrariesPage({
                 </form>
               </CardContent>
             </Card>
+          ) : null}
 
+          {activePricingTab === 'quick-update' ? (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Quick Price Update</CardTitle>
@@ -4053,13 +4163,73 @@ export function LibrariesPage({
                 </form>
               </CardContent>
             </Card>
-          </section>
+          ) : null}
 
+          {activePricingTab === 'history' ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Price History</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                Current prices are used for new or recalculated totals. Future prices wait until their start date. History-only prices remain for audit.
+                Future prices wait until their start date. History-only prices remain for audit.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Badge variant="outline">{futurePriceRows.length} start later</Badge>
+                <Badge variant="warning">{retiredPriceRows.length} history only</Badge>
+              </div>
+              <div className="mb-3 grid gap-3">
+                <MaintenanceToolbar
+                  recentDays={priceRecentDays}
+                  search={priceSearch}
+                  onRecentDaysChange={setPriceRecentDays}
+                  onSearchChange={setPriceSearch}
+                >
+                  <Label className="grid min-w-36 gap-1.5">
+                    Status
+                    <Select value={priceStatusFilter} onChange={(event) => setPriceStatusFilter(event.target.value as PriceStatusFilterValue)}>
+                      {priceStatusOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                  <Label className="grid min-w-32 gap-1.5">
+                    Type
+                    <Select value={priceTypeFilter} onChange={(event) => setPriceTypeFilter(event.target.value as PriceTypeFilterValue)}>
+                      <option value="all">All types</option>
+                      {priceItemTypes.map((itemType) => (
+                        <option key={itemType} value={itemType}>
+                          {priceItemTypeLabel(itemType)}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                  <Label className="grid min-w-36 gap-1.5">
+                    Source
+                    <Select value={priceSourceFilter} onChange={(event) => setPriceSourceFilter(event.target.value as PriceSourceFilterValue)}>
+                      {priceSourceOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Label>
+                </MaintenanceToolbar>
+                <FilteredEmptyNotice filteredCount={historyVisiblePriceRows.length} totalCount={priceItems.length} />
+              </div>
+              {renderPriceRowsTable(historyVisiblePriceRows, false)}
+            </CardContent>
+          </Card>
+          ) : null}
+
+          {activePricingTab === 'all-prices' ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">All Prices</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Current prices are used for new or recalculated totals. Select current rows here for bulk changes.
               </p>
             </CardHeader>
             <CardContent>
@@ -4150,89 +4320,24 @@ export function LibrariesPage({
                 />
                 <FilteredEmptyNotice filteredCount={visiblePriceRows.length} totalCount={priceItems.length} />
               </div>
-              <TableContainer>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10">Select</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Item</TableHead>
-                      <TableHead>Price part</TableHead>
-                      <TableHead>Unit</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Starts</TableHead>
-                      <TableHead>Replaced on</TableHead>
-                      <TableHead>Price</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {visiblePriceRows.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={9}>
-                          <div className="grid gap-1 py-3">
-                            <p className="font-medium">{priceItems.length === 0 ? 'Build prices for the active list.' : 'No price rows match the filters.'}</p>
-                            <p className="text-sm leading-5 text-muted-foreground">
-                              {priceItems.length === 0
-                                ? 'Add board, hardware, handle, and extra prices here so quote totals can be trusted.'
-                                : 'Clear the search or widen the filters to see the price rows in this list.'}
-                            </p>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      visiblePriceRows.map((row) => (
-                        <TableRow key={row.id}>
-                          <TableCell>
-                            <Checkbox
-                              checked={selectedPriceItemIds.includes(row.id)}
-                              disabled={row.effective_status !== 'current'}
-                              onChange={(event) => handlePriceSelection(row.id, event.target.checked)}
-                            />
-                          </TableCell>
-                          <TableCell>{priceItemTypeLabel(row.item_type)}</TableCell>
-                          <TableCell>
-                            {row.item_ref_id
-                              ? itemLabelByRef.get(`${row.item_type}:${row.item_ref_id}`) ?? row.item_key
-                              : row.item_key}
-                          </TableCell>
-                          <TableCell>{priceComponentLabel(row.price_component)}</TableCell>
-                          <TableCell>{row.uom}</TableCell>
-                          <TableCell>
-                            <Badge variant={row.cost_source === 'supplier' ? 'default' : 'outline'}>{priceSourceLabel(row.cost_source)}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="grid gap-1 text-xs">
-                              <Badge variant={row.effective_status === 'current' ? 'success' : row.effective_status === 'retired' ? 'warning' : 'outline'}>
-                                {priceStatusLabel(row.effective_status)}
-                              </Badge>
-                              <span className="text-muted-foreground">{formatDateTime(row.effective_from)}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {row.effective_to ? formatDateTime(row.effective_to) : 'Still current'}
-                          </TableCell>
-                          <TableCell>{formatCurrencyFromCents(row.unit_price_cents, displayCurrencyCode)}</TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              {renderPriceRowsTable(visiblePriceRows, true)}
             </CardContent>
           </Card>
+          ) : null}
         </>
       ) : null}
 
       {!isLoading && activeTab === 'boards' ? (
         <>
-          <div className="flex flex-wrap justify-end gap-2">
+          {renderCatalogMaintenance(
+            'boards',
+            boards.length,
+            visibleBoards.map((row) => row.id),
             <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('boards')}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add Board
-            </Button>
-          </div>
-
-          {renderCatalogMaintenance('boards', boards.length, visibleBoards.map((row) => row.id))}
+            </Button>,
+          )}
 
           <LibraryBoardsTable
             boards={visibleBoards}
@@ -4250,14 +4355,15 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'slides' ? (
         <>
-          <div className="flex flex-wrap justify-end gap-2">
+          {renderCatalogMaintenance(
+            'slides',
+            slides.length,
+            visibleSlides.map((row) => row.id),
             <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('slides')}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add Drawer Hardware
-            </Button>
-          </div>
-
-          {renderCatalogMaintenance('slides', slides.length, visibleSlides.map((row) => row.id))}
+            </Button>,
+          )}
 
           <LibrarySlidesTable
             accessoryOptions={accessoryOptions}
@@ -4276,14 +4382,15 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'hinges' ? (
         <>
-          <div className="flex flex-wrap justify-end gap-2">
+          {renderCatalogMaintenance(
+            'hinges',
+            hinges.length,
+            visibleHinges.map((row) => row.id),
             <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('hinges')}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add Hinge
-            </Button>
-          </div>
-
-          {renderCatalogMaintenance('hinges', hinges.length, visibleHinges.map((row) => row.id))}
+            </Button>,
+          )}
 
           <LibraryHingesTable
             accessoryOptions={accessoryOptions}
@@ -4302,13 +4409,6 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'suppliers' ? (
         <>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('suppliers')}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add Supplier
-            </Button>
-          </div>
-
           <section className="grid gap-4 xl:grid-cols-2">
             <Card>
               <CardHeader>
@@ -4462,7 +4562,15 @@ export function LibrariesPage({
             </Card>
           </section>
 
-          {renderCatalogMaintenance('suppliers', suppliers.length, visibleSuppliers.map((row) => row.id))}
+          {renderCatalogMaintenance(
+            'suppliers',
+            suppliers.length,
+            visibleSuppliers.map((row) => row.id),
+            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('suppliers')}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Supplier
+            </Button>,
+          )}
 
           <Card>
             <CardHeader>
@@ -4579,13 +4687,13 @@ export function LibrariesPage({
           </Card>
 
           <Card>
-	            <CardHeader>
-	              <CardTitle className="text-base">Supplier Sources</CardTitle>
-	            </CardHeader>
-	            <CardContent className="grid gap-3">
-	              <FilteredEmptyNotice filteredCount={visibleItemSuppliers.length} totalCount={itemSuppliers.length} />
-	              <TableContainer>
-	                <Table>
+            <CardHeader>
+              <CardTitle className="text-base">Supplier Sources</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <FilteredEmptyNotice filteredCount={visibleItemSuppliers.length} totalCount={itemSuppliers.length} />
+              <TableContainer>
+                <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Item</TableHead>
@@ -4598,9 +4706,9 @@ export function LibrariesPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-	                    {visibleItemSuppliers.length === 0 ? (
-	                      <TableRow>
-	                        <TableCell colSpan={7}>
+                    {visibleItemSuppliers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7}>
                           <div className="grid gap-1 py-3">
                             <p className="font-medium">Link supplier costs when you are ready to automate pricing.</p>
                             <p className="text-sm leading-5 text-muted-foreground">
@@ -4610,7 +4718,7 @@ export function LibrariesPage({
                         </TableCell>
                       </TableRow>
                     ) : (
-	                      visibleItemSuppliers.map((row) => (
+                      visibleItemSuppliers.map((row) => (
                         <TableRow key={row.id}>
                           <TableCell>
                             {itemLabelByRef.get(`${row.item_type}:${row.item_ref_id}`) ?? `${row.item_type} ${row.item_ref_id}`}
@@ -4643,14 +4751,15 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'handles' ? (
         <>
-          <div className="flex flex-wrap justify-end gap-2">
+          {renderCatalogMaintenance(
+            'handles',
+            handles.length,
+            visibleHandles.map((row) => row.id),
             <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('handles')}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add Handle
-            </Button>
-          </div>
-
-          {renderCatalogMaintenance('handles', handles.length, visibleHandles.map((row) => row.id))}
+            </Button>,
+          )}
 
           <LibraryHandlesTable
             editingHandle={editingHandle}
@@ -4669,20 +4778,18 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'extra-categories' ? (
         <>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('extra-categories')}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Add Extra Category
-            </Button>
-          </div>
-
           <div className="grid gap-3">
             <MaintenanceToolbar
               recentDays={catalogRecentDays}
               search={catalogSearch}
               onRecentDaysChange={setCatalogRecentDays}
               onSearchChange={setCatalogSearch}
-            />
+            >
+              <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('extra-categories')}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Add Extra Category
+              </Button>
+            </MaintenanceToolbar>
             <FilteredEmptyNotice filteredCount={visibleExtraCategories.length} totalCount={extraCategories.length} />
           </div>
 
@@ -4700,14 +4807,15 @@ export function LibrariesPage({
 
       {!isLoading && activeTab === 'extras' ? (
         <>
-          <div className="flex flex-wrap justify-end gap-2">
+          {renderCatalogMaintenance(
+            'extras',
+            extras.length,
+            visibleExtras.map((row) => row.id),
             <Button disabled={isSaving} type="button" onClick={() => setCreateHardwareResource('extras')}>
               <Plus className="h-4 w-4" aria-hidden="true" />
               Add Extra
-            </Button>
-          </div>
-
-          {renderCatalogMaintenance('extras', extras.length, visibleExtras.map((row) => row.id))}
+            </Button>,
+          )}
 
           <LibraryExtrasTable
             categories={extraCategories}
