@@ -51,6 +51,13 @@ def test_insert_quote_copy_copies_payload_units_extras_and_pricing_without_sourc
         "default_tall_handle_id": "handle-tall",
         "default_drawer_handle_id": "handle-drawer",
         "unit_defaults": {"Base Door": {"height": 780, "depth": 580}},
+        "wall_front_overhang_default": {
+            "enabled": True,
+            "amount_mm": 20,
+            "edge": "bottom",
+            "apply_to": "selected",
+            "front_indexes": [2],
+        },
         "production_metadata": {
             "door_panel": {
                 "edge_banding": "1mm ABS",
@@ -91,7 +98,8 @@ def test_insert_quote_copy_copies_payload_units_extras_and_pricing_without_sourc
         1,
         None,
     )
-    assert quote_params[-3].obj == source["unit_defaults"]
+    assert quote_params[-4].obj == source["unit_defaults"]
+    assert quote_params[-3].obj == source["wall_front_overhang_default"]
     assert quote_params[-2].obj == source["production_metadata"]
     assert quote_params[-1].obj == source["custom_panels"]
 
@@ -131,6 +139,7 @@ def test_insert_quote_copy_preserves_revision_link_when_requested():
         "default_tall_handle_id": None,
         "default_drawer_handle_id": None,
         "unit_defaults": {},
+        "wall_front_overhang_default": {},
         "production_metadata": {},
         "custom_panels": {},
     }

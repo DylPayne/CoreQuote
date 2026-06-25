@@ -1,4 +1,4 @@
-import type { PanelPresetKey, ProductionMetadata, ProductionMetadataByRole, ProjectDraft, QuoteDraft, QuoteStatus, UnitDefaults, UnitDraft, UnitPresetKey } from './types'
+import type { PanelPresetKey, ProductionMetadata, ProductionMetadataByRole, ProjectDraft, QuoteDraft, QuoteStatus, UnitDefaults, UnitDraft, UnitPresetKey, WallFrontOverhangDefault } from './types'
 
 export const unitPresets: UnitPresetKey[] = ['Base Draw', 'Base Door', 'Wall Door', 'Tall Door']
 export const customUnitTypeValue = '__custom_unit_type__'
@@ -60,6 +60,14 @@ export const defaultProductionMetadataByRole: ProductionMetadataByRole = {
   visible_panel: { ...defaultProductionMetadata },
 }
 
+export const defaultWallFrontOverhang: WallFrontOverhangDefault = {
+  enabled: false,
+  amount_mm: 20,
+  edge: 'bottom',
+  apply_to: 'all',
+  front_indexes: [],
+}
+
 export const defaultProjectDraft: ProjectDraft = {
   name: '',
   client: '',
@@ -87,6 +95,11 @@ export const defaultQuoteDraft: QuoteDraft = {
   wall_door_depth: String(fallbackUnitDefaults['Wall Door'].depth),
   tall_door_height: String(fallbackUnitDefaults['Tall Door'].height),
   tall_door_depth: String(fallbackUnitDefaults['Tall Door'].depth),
+  wall_front_overhang_enabled: defaultWallFrontOverhang.enabled,
+  wall_front_overhang_amount_mm: String(defaultWallFrontOverhang.amount_mm),
+  wall_front_overhang_edge: defaultWallFrontOverhang.edge,
+  wall_front_overhang_apply_to: defaultWallFrontOverhang.apply_to,
+  wall_front_overhang_front_indexes: '',
   production_metadata: defaultProductionMetadataByRole,
 }
 
@@ -112,4 +125,9 @@ export const defaultUnitDraft: UnitDraft = {
   base_door_top_j_channel_handle_id: '',
   tall_vertical_channel_handle_id: '',
   full_length_handle_orientation: 'length',
+  wall_front_overhang_mode: 'inherit',
+  wall_front_overhang_amount_mm: String(defaultWallFrontOverhang.amount_mm),
+  wall_front_overhang_edge: defaultWallFrontOverhang.edge,
+  wall_front_overhang_apply_to: defaultWallFrontOverhang.apply_to,
+  wall_front_overhang_front_indexes: '',
 }

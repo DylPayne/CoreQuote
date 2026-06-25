@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 
 from corequote_core.detailed_pricing import DetailedPricingSettings
 from corequote_core.channel_handles import selected_profile_handle_ids
+from corequote_core.front_overhangs import WALL_FRONT_OVERHANG_DEFAULT
 from corequote_core.customer_quote_pdf import (
     build_customer_quote_document,
     customer_quote_filename,
@@ -99,6 +100,7 @@ QUOTE_SELECT = """
     q.default_tall_handle_id::text,
     q.default_drawer_handle_id::text,
     q.unit_defaults,
+    q.wall_front_overhang_default,
     q.production_metadata,
     q.custom_panels,
     q.hardware_catalog_snapshot,
@@ -513,9 +515,10 @@ class WorkspaceStore:
                         default_tall_handle_id,
                         default_drawer_handle_id,
                         unit_defaults,
+                        wall_front_overhang_default,
                         production_metadata
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id::text
                     """,
                     (
@@ -536,6 +539,7 @@ class WorkspaceStore:
                         data["default_tall_handle_id"],
                         data["default_drawer_handle_id"],
                         Jsonb(data["unit_defaults"]),
+                        Jsonb(data["wall_front_overhang_default"]),
                         Jsonb(data["production_metadata"]),
                     ),
                 ).fetchone()
@@ -587,6 +591,7 @@ class WorkspaceStore:
                         default_tall_handle_id = %s,
                         default_drawer_handle_id = %s,
                         unit_defaults = %s,
+                        wall_front_overhang_default = %s,
                         production_metadata = %s
                     WHERE company_id = %s
                       AND id = %s
@@ -605,6 +610,7 @@ class WorkspaceStore:
                         data["default_tall_handle_id"],
                         data["default_drawer_handle_id"],
                         Jsonb(data["unit_defaults"]),
+                        Jsonb(data["wall_front_overhang_default"]),
                         Jsonb(data["production_metadata"]),
                         company_id,
                         quote_id,
@@ -726,10 +732,11 @@ class WorkspaceStore:
                 default_tall_handle_id,
                 default_drawer_handle_id,
                 unit_defaults,
+                wall_front_overhang_default,
                 production_metadata,
                 custom_panels
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id::text
             """,
             (
@@ -751,6 +758,7 @@ class WorkspaceStore:
                 source["default_tall_handle_id"],
                 source["default_drawer_handle_id"],
                 Jsonb(source.get("unit_defaults") or {}),
+                Jsonb(source.get("wall_front_overhang_default") or WALL_FRONT_OVERHANG_DEFAULT),
                 Jsonb(source.get("production_metadata") or {}),
                 Jsonb(source.get("custom_panels") or {}),
             ),
@@ -1948,6 +1956,8 @@ class WorkspaceStore:
                 default_tall_handle_id::text,
                 default_drawer_handle_id::text,
                 unit_defaults,
+                wall_front_overhang_default,
+                production_metadata,
                 custom_panels,
                 created_at,
                 updated_at

@@ -1,4 +1,5 @@
 from corequote_api.projects_quotes_pricing import _build_cutting_list_preview, _price_quote, _to_runtime_unit
+from corequote_core.front_overhangs import WALL_FRONT_OVERHANG_QUOTE_DEFAULT_KEY
 
 
 class FakeRuntimeService:
@@ -163,6 +164,26 @@ def test_runtime_unit_attaches_default_full_length_handle_lookup():
 
     assert result["extra_params"]["handle_id"] == "handle-profile"
     assert result["extra_params"]["_profile_handle_lookup"]["handle-profile"]["handle_type"] == "full_length"
+
+
+def test_runtime_unit_includes_quote_wall_front_overhang_default():
+    quote_default = {"enabled": True, "amount_mm": 20, "edge": "bottom", "apply_to": "all", "front_indexes": []}
+
+    result = _to_runtime_unit(
+        {
+            "unit_number": 3,
+            "unit_type_key": "Wall Door",
+            "height": 720,
+            "width": 600,
+            "depth": 330,
+            "carcass_board_type_id": "board-1",
+            "extra_params": {"num_doors": 2, "num_shelves": 1},
+        },
+        quote={"default_carcass_board_type_id": "board-1", "wall_front_overhang_default": quote_default},
+        board_lookup={"board-1": {"thickness": 16}},
+    )
+
+    assert result["extra_params"][WALL_FRONT_OVERHANG_QUOTE_DEFAULT_KEY] == quote_default
 
 
 def test_quote_pricing_includes_required_slide_accessory_prices():

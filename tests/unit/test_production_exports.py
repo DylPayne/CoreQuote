@@ -47,6 +47,34 @@ def test_production_handoff_csv_exports_workshop_rows_custom_panels_and_warnings
     assert "client_quote_total_cents" not in flattened
 
 
+def test_production_handoff_exports_include_wall_front_overhang_rows():
+    handoff = build_production_handoff(
+        quote=_quote(),
+        project={"id": "project-1", "name": "Smith Kitchen Phase 5 Workshop Handoff"},
+        units=[_unit(1, "Wall Door", carcass_board_type_id="board-white", door_board_type_id="board-oak")],
+        cutting_list={
+            "panels": [
+                {"unit_number": 1, "desc": "Door", "length": 717, "width": 297, "qty": 1},
+                {"unit_number": 1, "desc": "Door (bottom overhang 20 mm)", "length": 737, "width": 297, "qty": 1},
+            ],
+            "validation_warnings": [],
+        },
+        material_summary={"groups": [], "warnings": [], "total_area_m2": 0, "total_piece_count": 0, "total_edge_m": 0},
+        hardware_pick_list={"items": [], "warnings": [], "total_item_count": 0, "total_quantity": 0},
+        board_lookup=_board_lookup(),
+    )
+
+    csv_row = next(row for row in _csv_rows(render_production_handoff_csv(handoff)) if row["Part"] == "Door (bottom overhang 20 mm)")
+    workbook = _xlsx_sheets(render_production_handoff_xlsx(handoff))
+    xlsx_row = next(row for row in workbook["Cutting Schedule"] if row[9] == "Door (bottom overhang 20 mm)")
+    label_row = next(row for row in workbook["Labels"] if row[5] == "Door (bottom overhang 20 mm)")
+
+    assert csv_row["Length (mm)"] == "737"
+    assert csv_row["Width (mm)"] == "297"
+    assert xlsx_row[17:20] == [737, 297, 1]
+    assert label_row[6] == "737 x 297 mm"
+
+
 def test_production_handoff_xlsx_exports_related_handoff_sheets_without_pricing_fields():
     handoff = _handoff_with_custom_panel_and_warning()
     handoff["board_requirements"]["groups"][0]["margin_bps"] = 2500

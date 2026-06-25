@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from corequote_core.channel_handles import channel_front_validation_messages
+from corequote_core.front_overhangs import wall_front_overhang_validation_messages
 
 
 CutlistWarningSection = Literal["carcass", "panel", "hardware", "extra_panel"]
@@ -56,6 +57,7 @@ def validate_cutlist_preview(
     warnings.extend(_slide_depth_warnings(quote=quote or {}, units=units or [], slide_lookup=slide_lookup or {}))
     warnings.extend(_drawer_system_warnings(quote=quote or {}, units=units or [], slide_lookup=slide_lookup or {}))
     warnings.extend(_channel_handle_warnings(units=units or []))
+    warnings.extend(_wall_front_overhang_warnings(quote=quote or {}, units=units or []))
     return warnings
 
 
@@ -290,6 +292,23 @@ def _channel_handle_warnings(*, units: list[dict[str, Any]]) -> list[dict[str, A
                     "unit_number": _int_value(unit.get("unit_number")),
                     "section": "hardware",
                     "row_desc": "Channel handle profile",
+                    "reason": message,
+                }
+            )
+    return warnings
+
+
+def _wall_front_overhang_warnings(*, quote: dict[str, Any], units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    for unit in units:
+        for message in wall_front_overhang_validation_messages(unit, quote=quote):
+            warnings.append(
+                {
+                    "severity": "warning",
+                    "source": "unit",
+                    "unit_number": _int_value(unit.get("unit_number")),
+                    "section": "panel",
+                    "row_desc": "Door overhang",
                     "reason": message,
                 }
             )

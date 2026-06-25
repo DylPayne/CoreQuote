@@ -4,6 +4,7 @@ from typing import Any
 
 from corequote_core.detailed_pricing import price_quote_detailed, settings_from_mapping
 from corequote_core.channel_handles import attach_profile_handle_lookup
+from corequote_core.front_overhangs import WALL_FRONT_OVERHANG_QUOTE_DEFAULT_KEY
 from corequote_core.panels import PANEL_PRESET_KEYS, PANEL_PRESET_LABELS, compute_panel_rows
 from corequote_api.cutlist_validation import preview_with_validation
 from corequote_api.cutting_runtime import CutlistRuntimeService
@@ -154,6 +155,7 @@ def _to_runtime_unit(
     allow_missing_board_fallback: bool = False,
 ) -> dict[str, Any]:
     extra_params = dict(unit.get("extra_params") or {})
+    extra_params.setdefault(WALL_FRONT_OVERHANG_QUOTE_DEFAULT_KEY, dict(quote.get("wall_front_overhang_default") or {}))
     default_handle_id = _default_handle_id_for_runtime_unit(unit, quote)
     if default_handle_id and not str(extra_params.get("handle_id") or "").strip():
         extra_params["handle_id"] = default_handle_id

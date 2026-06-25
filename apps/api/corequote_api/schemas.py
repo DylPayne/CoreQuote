@@ -45,6 +45,8 @@ HandleType = Literal["standard", "full_length", "c_channel", "j_channel"]
 QuoteStatus = Literal["draft", "ready", "sent", "accepted", "rejected", "revised", "expired"]
 QuoteReadinessStatus = Literal["ready", "needs_attention"]
 QuoteReadinessSeverity = Literal["pass", "warning", "error"]
+WallFrontOverhangEdge = Literal["bottom", "top", "left", "right"]
+WallFrontOverhangApplyTo = Literal["all", "selected"]
 QuoteReadinessActionTarget = Literal[
     "project",
     "quote",
@@ -278,6 +280,16 @@ class ProductionMetadataByRole(BaseModel):
     visible_panel: ProductionMetadata = Field(default_factory=ProductionMetadata)
 
 
+class WallFrontOverhangDefault(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    amount_mm: int = Field(default=20, gt=0)
+    edge: WallFrontOverhangEdge = "bottom"
+    apply_to: WallFrontOverhangApplyTo = "all"
+    front_indexes: list[int] = Field(default_factory=list)
+
+
 class ProjectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -312,6 +324,7 @@ class QuoteRequest(BaseModel):
     default_tall_handle_id: str | None = None
     default_drawer_handle_id: str | None = None
     unit_defaults: dict[str, UnitDefaultsDimensions] = Field(default_factory=dict)
+    wall_front_overhang_default: WallFrontOverhangDefault = Field(default_factory=WallFrontOverhangDefault)
     production_metadata: ProductionMetadataByRole = Field(default_factory=ProductionMetadataByRole)
 
 

@@ -17,6 +17,7 @@ from corequote_core.channel_handles import (
     channel_profile_rows_for_unit,
     full_length_profile_rows_for_unit,
 )
+from corequote_core.front_overhangs import split_wall_front_overhang_row
 from corequote_core.cutlist import build_cutlist
 
 
@@ -1103,12 +1104,25 @@ def _apply_channel_to_generated_panel_rows(rows: list[dict], *, unit: Mapping[st
             unit_type_key=unit_type_key,
             is_pantry=is_pantry,
         )
-        return [
-            {**row, "length": door_height, "width": door_width}
-            if row.get("section") == "panel" and "door" in str(row.get("desc") or "").lower()
-            else row
-            for row in rows
-        ]
+        adjusted_rows: list[dict] = []
+        for row in rows:
+            if row.get("section") != "panel" or "door" not in str(row.get("desc") or "").lower():
+                adjusted_rows.append(row)
+                continue
+
+            base_row = {**row, "length": door_height, "width": door_width}
+            if canonical == "Wall Door":
+                adjusted_rows.extend(
+                    split_wall_front_overhang_row(
+                        base_row,
+                        unit_type_key=unit_type_key,
+                        extra_params=extra_params,
+                        num_fronts=num_doors,
+                    )
+                )
+            else:
+                adjusted_rows.append(base_row)
+        return adjusted_rows
     return rows
 
 

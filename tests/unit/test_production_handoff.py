@@ -174,6 +174,34 @@ def test_production_handoff_uses_workspace_cutlist_rows_and_unassigned_warnings(
     assert result["groups"][0]["board_name"] == "Unassigned material"
 
 
+def test_production_handoff_preserves_wall_front_overhang_dimensions_and_labels():
+    result = build_production_handoff(
+        quote=quote(),
+        project=project(),
+        units=[unit(1, "Wall Door", carcass_board_type_id="board-white", door_board_type_id="board-oak")],
+        cutting_list={
+            "panels": [
+                {"unit_number": 1, "desc": "Door", "length": 717, "width": 297, "qty": 1},
+                {"unit_number": 1, "desc": "Door (bottom overhang 20 mm)", "length": 737, "width": 297, "qty": 1},
+            ],
+            "validation_warnings": [],
+        },
+        material_summary={"groups": [], "warnings": [], "total_area_m2": 0, "total_piece_count": 0, "total_edge_m": 0},
+        hardware_pick_list={"items": [], "warnings": [], "total_item_count": 0, "total_quantity": 0},
+        board_lookup=board_lookup(),
+    )
+
+    normal = next(row for row in result["rows"] if row["desc"] == "Door")
+    overhang = next(row for row in result["rows"] if row["desc"] == "Door (bottom overhang 20 mm)")
+    overhang_label = next(label for label in result["labels"] if label["desc"] == "Door (bottom overhang 20 mm)")
+
+    assert (normal["length"], normal["width"], normal["quantity"]) == (717, 297, 1)
+    assert (overhang["length"], overhang["width"], overhang["quantity"]) == (737, 297, 1)
+    assert overhang["board_name"] == "Seno Oak (18mm)"
+    assert overhang_label["dimensions_label"] == "737 x 297 mm"
+    assert "Door (bottom overhang 20 mm)" in overhang_label["label"]
+
+
 def test_production_handoff_keeps_split_drawer_rows_distinct():
     result = build_production_handoff(
         quote=quote(),

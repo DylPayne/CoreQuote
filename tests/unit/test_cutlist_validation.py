@@ -191,3 +191,92 @@ def test_cutlist_validation_flags_incompatible_metal_drawer_system():
     assert any("requires drawer fronts of at least 120 mm" in reason for reason in reasons)
     assert any("supports drawer fronts up to 220 mm" in reason for reason in reasons)
     assert result["readiness"] == {"cutlist_valid": False, "warning_count": 6}
+
+
+def test_cutlist_validation_warns_for_invalid_selected_wall_front_overhang_indexes_and_top_edge():
+    result = preview_with_validation(
+        _empty_preview(),
+        quote={
+            "wall_front_overhang_default": {
+                "enabled": True,
+                "amount_mm": 20,
+                "edge": "top",
+                "apply_to": "selected",
+                "front_indexes": [3],
+            }
+        },
+        units=[
+                {
+                    "unit_number": 4,
+                    "unit_type_key": "Wall Door",
+                    "height": 720,
+                    "width": 600,
+                    "extra_params": {"num_doors": 2},
+                }
+        ],
+    )
+
+    reasons = [warning["reason"] for warning in result["validation_warnings"]]
+    assert reasons == [
+        "Wall front overhang selected front indexes must be between 1 and 2; invalid: 3.",
+        "Wall front overhang is set to selected fronts but no valid front indexes are selected.",
+        "Top-edge wall front overhang needs cornice clearance checked before production.",
+    ]
+    assert all(warning["row_desc"] == "Door overhang" for warning in result["validation_warnings"])
+
+
+def test_cutlist_validation_warns_for_side_edge_wall_front_overhang_clearance():
+    result = preview_with_validation(
+        _empty_preview(),
+        units=[
+                {
+                    "unit_number": 5,
+                    "unit_type_key": "Wall Door",
+                    "height": 720,
+                    "width": 600,
+                    "extra_params": {
+                        "num_doors": 2,
+                        "wall_front_overhang": {"mode": "custom", "amount_mm": 18, "edge": "right", "apply_to": "all"},
+                },
+            }
+        ],
+    )
+
+    assert [warning["reason"] for warning in result["validation_warnings"]] == [
+        "Side-edge wall front overhang needs adjacent-unit clearance checked before production."
+    ]
+
+
+def test_cutlist_validation_warns_for_bottom_wall_front_overhang_with_pelmet_settings():
+    result = preview_with_validation(
+        _empty_preview(),
+        quote={
+            "wall_front_overhang_default": {"enabled": True, "amount_mm": 20, "edge": "bottom", "apply_to": "all"},
+            "custom_panels": {"auto": {"pelmet_board_type_id": "board-pelmet"}},
+        },
+        units=[
+                {
+                    "unit_number": 6,
+                    "unit_type_key": "Wall Door",
+                    "height": 720,
+                    "width": 600,
+                    "extra_params": {"num_doors": 2},
+                }
+        ],
+    )
+
+    assert [warning["reason"] for warning in result["validation_warnings"]] == [
+        "Bottom-edge wall front overhang may clash with the quote pelmet/light-pelmet setup."
+    ]
+
+
+def _empty_preview() -> dict:
+    return {
+        "carcass": [],
+        "panels": [],
+        "hardware": [],
+        "extras": [],
+        "runtime_rows": [],
+        "runtime_mode": "legacy",
+        "unit_sources": [],
+    }

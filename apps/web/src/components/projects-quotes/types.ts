@@ -5,6 +5,22 @@ export type QuoteStatus = 'draft' | 'ready' | 'sent' | 'accepted' | 'rejected' |
 export type ProductionGrainDirection = 'none' | 'length' | 'width'
 export type ProductionRotationGuidance = 'none' | 'allow_rotation' | 'no_rotation'
 export type BoardGrainPolicy = 'none' | 'optional' | 'required'
+export type WallFrontOverhangEdge = 'bottom' | 'top' | 'left' | 'right'
+export type WallFrontOverhangApplyTo = 'all' | 'selected'
+export type WallFrontOverhangDefault = {
+  enabled: boolean
+  amount_mm: number
+  edge: WallFrontOverhangEdge
+  apply_to: WallFrontOverhangApplyTo
+  front_indexes: number[]
+}
+export type WallFrontOverhangOverride = {
+  mode: 'inherit' | 'none' | 'custom'
+  amount_mm?: number
+  edge?: WallFrontOverhangEdge
+  apply_to?: WallFrontOverhangApplyTo
+  front_indexes?: number[]
+}
 export type ProductionMetadata = {
   edge_banding: string
   grain_direction: ProductionGrainDirection
@@ -51,6 +67,7 @@ export type QuoteRow = {
   default_tall_handle_id: string | null
   default_drawer_handle_id: string | null
   unit_defaults: UnitDefaults
+  wall_front_overhang_default: WallFrontOverhangDefault
   production_metadata: ProductionMetadataByRole
   unit_count: number
   created_at: string
@@ -763,6 +780,11 @@ export type QuoteDraft = {
   wall_door_depth: string
   tall_door_height: string
   tall_door_depth: string
+  wall_front_overhang_enabled: boolean
+  wall_front_overhang_amount_mm: string
+  wall_front_overhang_edge: WallFrontOverhangEdge
+  wall_front_overhang_apply_to: WallFrontOverhangApplyTo
+  wall_front_overhang_front_indexes: string
   production_metadata: ProductionMetadataByRole
 }
 
@@ -788,4 +810,9 @@ export type UnitDraft = {
   base_door_top_j_channel_handle_id: string
   tall_vertical_channel_handle_id: string
   full_length_handle_orientation: 'length' | 'width'
+  wall_front_overhang_mode: 'inherit' | 'none' | 'custom'
+  wall_front_overhang_amount_mm: string
+  wall_front_overhang_edge: WallFrontOverhangEdge
+  wall_front_overhang_apply_to: WallFrontOverhangApplyTo
+  wall_front_overhang_front_indexes: string
 }

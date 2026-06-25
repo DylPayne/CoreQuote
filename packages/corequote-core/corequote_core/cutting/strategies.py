@@ -46,6 +46,7 @@ from corequote_core.channel_handles import (
     adjust_drawer_front_heights,
     profile_params_from_unit,
 )
+from corequote_core.front_overhangs import wall_front_overhang_boards
 from corequote_core.models import Board
 
 if TYPE_CHECKING:
@@ -393,24 +394,26 @@ class WallUnitStrategy(CuttingStrategy):
     def get_panel_boards(self, unit: "CabinetUnit") -> list[Board]:
         num_doors = unit.num_doors   # type: ignore[attr-defined]
         gap_mm    = 3
+        profile_params = profile_params_from_unit(unit)
 
         panel_height, panel_width = adjust_door_front_dimensions(
             unit_height=unit.h,
             unit_width=unit.w,
             num_doors=num_doors,
             gap_mm=gap_mm,
-            profile_params=profile_params_from_unit(unit),
+            profile_params=profile_params,
             unit_type_key=unit.unit_type_key,
         )
 
-        return [
-            Board(
-                name   = "Door",
-                length = int(panel_height),
-                width  = int(panel_width),
-                qty    = num_doors,
-            )
-        ]
+        return wall_front_overhang_boards(
+            name="Door",
+            length=int(panel_height),
+            width=int(panel_width),
+            qty=num_doors,
+            unit_type_key=unit.unit_type_key,
+            extra_params=profile_params,
+            num_fronts=num_doors,
+        )
 
 
 # ── Tall Unit Strategy ─────────────────────────────────────────────────────────
