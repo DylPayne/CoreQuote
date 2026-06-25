@@ -100,6 +100,7 @@ type PricingSubTab = 'settings' | 'lists' | 'quick-update' | 'history' | 'all-pr
 type BulkAccessoryResource = Extract<LibraryCatalogBulkResource, 'slides' | 'hinges'>
 type CreateCatalogResource = LibraryCatalogBulkResource | 'extra-categories'
 type CatalogBulkMode = 'fields' | 'accessories'
+type PricingOption = { label: string; value: string }
 
 type CatalogBulkField = {
   label: string
@@ -139,11 +140,33 @@ const priceSourceOptions: Array<{ label: string; value: PriceSourceFilterValue }
 
 const pricingSubTabs: Array<{ label: string; value: PricingSubTab }> = [
   { label: 'Pricing Settings', value: 'settings' },
-  { label: 'Price Lists', value: 'lists' },
-  { label: 'Quick Price Update', value: 'quick-update' },
+  { label: 'Supplier Costs & Lists', value: 'lists' },
+  { label: 'Manual Override', value: 'quick-update' },
   { label: 'Price History', value: 'history' },
   { label: 'All Prices', value: 'all-prices' },
 ]
+
+const priceComponentOptionsByValue: Record<string, PricingOption> = {
+  unit: { label: 'Unit', value: 'unit' },
+  sqm: { label: 'Square metre', value: 'sqm' },
+  sheet: { label: 'Sheet', value: 'sheet' },
+  edging_m: { label: 'Edging / m', value: 'edging_m' },
+  labour_board: { label: 'Labour / board', value: 'labour_board' },
+}
+
+const orderUomOptionsByValue: Record<string, PricingOption> = {
+  sheet: { label: 'Sheet', value: 'sheet' },
+  m2: { label: 'Square metre', value: 'm2' },
+  m: { label: 'Metre', value: 'm' },
+  pairs: { label: 'Pairs', value: 'pairs' },
+  pcs: { label: 'Pieces', value: 'pcs' },
+  each: { label: 'Each', value: 'each' },
+  unit: { label: 'Unit', value: 'unit' },
+  set: { label: 'Set', value: 'set' },
+  day: { label: 'Day', value: 'day' },
+  trip: { label: 'Trip', value: 'trip' },
+  board: { label: 'Board', value: 'board' },
+}
 
 const catalogBulkFields: Record<LibraryCatalogBulkResource, CatalogBulkField[]> = {
   boards: [
@@ -371,6 +394,46 @@ function priceComponentsForItem(itemType: PriceItemType, row?: BoardTypeRow) {
     return row?.costing_mode === 'sqm' ? ['sqm'] : ['sheet', 'edging_m', 'labour_board']
   }
   return ['unit']
+}
+
+function priceComponentOptionsForItem(itemType: PriceItemType, row?: BoardTypeRow | null): PricingOption[] {
+  return priceComponentsForItem(itemType, row ?? undefined).map((component) => priceComponentOptionsByValue[component])
+}
+
+function orderUomOptionsForComponent(itemType: PriceItemType, component: string): PricingOption[] {
+  if (itemType === 'board') {
+    if (component === 'sqm') return [orderUomOptionsByValue.m2]
+    if (component === 'edging_m') return [orderUomOptionsByValue.m]
+    if (component === 'labour_board') return [orderUomOptionsByValue.board]
+    return [orderUomOptionsByValue.sheet]
+  }
+  if (itemType === 'slide') {
+    return [orderUomOptionsByValue.pairs, orderUomOptionsByValue.pcs, orderUomOptionsByValue.each, orderUomOptionsByValue.set]
+  }
+  if (itemType === 'extra') {
+    return [
+      orderUomOptionsByValue.pcs,
+      orderUomOptionsByValue.each,
+      orderUomOptionsByValue.unit,
+      orderUomOptionsByValue.set,
+      orderUomOptionsByValue.day,
+      orderUomOptionsByValue.trip,
+    ]
+  }
+  return [orderUomOptionsByValue.pcs, orderUomOptionsByValue.each, orderUomOptionsByValue.unit, orderUomOptionsByValue.set]
+}
+
+function defaultOrderUomForComponent(itemType: PriceItemType, component: string) {
+  return orderUomOptionsForComponent(itemType, component)[0]?.value ?? itemTypeDefaultUom(itemType)
+}
+
+function componentUomSummary(itemType: PriceItemType, row?: BoardTypeRow | null) {
+  return priceComponentsForItem(itemType, row ?? undefined)
+    .map((component) => {
+      const uom = defaultOrderUomForComponent(itemType, component)
+      return `${priceComponentOptionsByValue[component]?.label ?? component} (${orderUomOptionsByValue[uom]?.label ?? uom})`
+    })
+    .join(', ')
 }
 
 function hasCurrentPrice(
@@ -872,12 +935,14 @@ function PriceBulkPanel({
 }) {
   const applyDisabled = isSaving || selectedCount === 0 || !preview || preview.confirm || preview.failed_count > 0
   return (
-    <div className="mb-3 grid gap-3 rounded-[var(--control-radius)] border border-border p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <details className="mb-3 rounded-[var(--control-radius)] border border-border">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={selectedCount > 0 ? 'default' : 'outline'}>{selectedCount} selected</Badge>
-          <span className="text-sm font-medium">Bulk change current prices</span>
+          <span className="text-sm font-medium">Advanced bulk price edits</span>
         </div>
+      </summary>
+      <div className="grid gap-3 border-t border-border p-3">
         <div className="flex flex-wrap gap-2">
           <Button disabled={visibleCurrentCount === 0 || isSaving} onClick={onSelectVisible} size="sm" type="button" variant="outline">
             <SquareCheckBig className="h-4 w-4" aria-hidden="true" />
@@ -888,38 +953,45 @@ function PriceBulkPanel({
             Clear
           </Button>
         </div>
+        <div className="grid gap-3 lg:grid-cols-[1fr_12rem_12rem_auto_auto] lg:items-end">
+          <Label className="grid gap-1.5">
+            Price
+            <Input value={amount} onChange={(event) => onAmountChange(event.target.value)} />
+          </Label>
+          <Label className="grid gap-1.5">
+            Unit
+            <Select value={uom} onChange={(event) => onUomChange(event.target.value)}>
+              <option value="">Leave unchanged</option>
+              {Object.values(orderUomOptionsByValue).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
+          </Label>
+          <Label className="grid gap-1.5">
+            Source
+            <Select value={source} onChange={(event) => onSourceChange(event.target.value as 'no-change' | 'manual' | 'override')}>
+              <option value="no-change">Leave source unchanged</option>
+              <option value="manual">Manual edit</option>
+              <option value="override">Manual override</option>
+            </Select>
+          </Label>
+          <Button disabled={isSaving || selectedCount === 0} onClick={onPreview} type="button" variant="outline">
+            {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
+            Preview changes
+          </Button>
+          <Button disabled={applyDisabled} onClick={onApply} type="button">
+            {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+            Apply changes
+          </Button>
+        </div>
+        <Alert variant="warning">
+          Preview first, then apply. Applying a price change creates a new current price and keeps the old price in history, so past quote evidence stays explainable.
+        </Alert>
+        <BulkPreviewRows result={preview} />
       </div>
-      <div className="grid gap-3 lg:grid-cols-[1fr_10rem_12rem_auto_auto] lg:items-end">
-        <Label className="grid gap-1.5">
-          Price
-          <Input value={amount} onChange={(event) => onAmountChange(event.target.value)} />
-        </Label>
-        <Label className="grid gap-1.5">
-          Unit
-          <Input value={uom} onChange={(event) => onUomChange(event.target.value)} />
-        </Label>
-        <Label className="grid gap-1.5">
-          Source
-          <Select value={source} onChange={(event) => onSourceChange(event.target.value as 'no-change' | 'manual' | 'override')}>
-            <option value="no-change">Leave source unchanged</option>
-            <option value="manual">Manual edit</option>
-            <option value="override">Manual override</option>
-          </Select>
-        </Label>
-        <Button disabled={isSaving || selectedCount === 0} onClick={onPreview} type="button" variant="outline">
-          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
-          Preview changes
-        </Button>
-        <Button disabled={applyDisabled} onClick={onApply} type="button">
-          {isSaving ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-          Apply changes
-        </Button>
-      </div>
-      <Alert variant="warning">
-        Preview first, then apply. Applying a price change creates a new current price and keeps the old price in history, so past quote evidence stays explainable.
-      </Alert>
-      <BulkPreviewRows result={preview} />
-    </div>
+    </details>
   )
 }
 
@@ -962,7 +1034,7 @@ function MissingPricesPanel({
                 <span className="font-medium">{row.label}</span>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Add {row.components.map(priceComponentLabel).join(', ')} using Quick Price Update, a price import, or supplier price generation.
+                Add {row.components.map(priceComponentLabel).join(', ')} using Manual Override, a price import, or supplier price generation.
               </p>
             </div>
           ))}
@@ -1138,6 +1210,21 @@ export function LibrariesPage({
   const selectedBoardForPricing = useMemo(
     () => boards.find((item) => item.id === pricingItemRefId) ?? null,
     [boards, pricingItemRefId],
+  )
+
+  const selectedBoardForSupplierCost = useMemo(
+    () => itemSupplierDraft.item_type === 'board' ? boards.find((item) => item.id === itemSupplierDraft.item_ref_id) ?? null : null,
+    [boards, itemSupplierDraft.item_ref_id, itemSupplierDraft.item_type],
+  )
+
+  const supplierPriceComponentOptions = useMemo(
+    () => priceComponentOptionsForItem(itemSupplierDraft.item_type, selectedBoardForSupplierCost),
+    [itemSupplierDraft.item_type, selectedBoardForSupplierCost],
+  )
+
+  const supplierOrderUomOptions = useMemo(
+    () => orderUomOptionsForComponent(itemSupplierDraft.item_type, itemSupplierDraft.price_component),
+    [itemSupplierDraft.item_type, itemSupplierDraft.price_component],
   )
 
   const pricingItemOptions = useMemo(() => {
@@ -1576,13 +1663,35 @@ export function LibrariesPage({
           current.item_ref_id && supplierItemOptions.some((option) => option.id === current.item_ref_id)
             ? current.item_ref_id
             : supplierItemOptions[0]?.id ?? '',
-        order_uom: current.item_type === 'slide' ? 'pairs' : current.item_type === 'board' ? 'sheet' : 'pcs',
-        price_component: current.item_type === 'board' ? 'sheet' : 'unit',
       }))
     }, 0)
 
     return () => window.clearTimeout(handle)
   }, [supplierItemOptions])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setItemSupplierDraft((current) => {
+        const board = current.item_type === 'board' ? boards.find((item) => item.id === current.item_ref_id) ?? null : null
+        const componentOptions = priceComponentOptionsForItem(current.item_type, board)
+        const componentValues = componentOptions.map((option) => option.value)
+        const priceComponent = componentValues.includes(current.price_component)
+          ? current.price_component
+          : componentValues[0] ?? 'unit'
+        const uomOptions = orderUomOptionsForComponent(current.item_type, priceComponent)
+        const uomValues = uomOptions.map((option) => option.value)
+        const orderUom = uomValues.includes(current.order_uom)
+          ? current.order_uom
+          : defaultOrderUomForComponent(current.item_type, priceComponent)
+        if (priceComponent === current.price_component && orderUom === current.order_uom) {
+          return current
+        }
+        return { ...current, price_component: priceComponent, order_uom: orderUom }
+      })
+    }, 0)
+
+    return () => window.clearTimeout(handle)
+  }, [boards, itemSupplierDraft.item_ref_id, itemSupplierDraft.item_type])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -3967,7 +4076,7 @@ export function LibrariesPage({
           {activePricingTab === 'lists' ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Price Lists</CardTitle>
+                <CardTitle className="text-base">Supplier Costs & Price Lists</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3">
                 <Label className="grid gap-1.5">
@@ -4067,7 +4176,7 @@ export function LibrariesPage({
                     />
                     Keep manual override prices
                   </Label>
-                  <Button disabled={isSaving || isLoadingPriceItems || !selectedPriceListId} type="submit" variant="outline">
+                  <Button disabled={isSaving || isLoadingPriceItems || !selectedPriceListId} type="submit">
                     <RefreshCcw className="h-4 w-4" aria-hidden="true" />
                     Generate
                   </Button>
@@ -4084,11 +4193,11 @@ export function LibrariesPage({
           {activePricingTab === 'quick-update' ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Quick Price Update</CardTitle>
+                <CardTitle className="text-base">Manual Price Override</CardTitle>
               </CardHeader>
               <CardContent className="grid gap-3">
                 <Alert variant="warning">
-                  Saving a price replaces the current price for future quote totals and keeps the old price in history.
+                  Saving a manual override replaces the current price for future quote totals and keeps the old price in history.
                 </Alert>
                 <form className="grid gap-3" onSubmit={handleSaveQuickPrice}>
                   <Label className="grid gap-1.5">
@@ -4118,6 +4227,13 @@ export function LibrariesPage({
                       ))}
                     </Select>
                   </Label>
+
+                  {pricingItemRefId ? (
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                      <Badge variant="outline">Locked component/unit</Badge>
+                      <span>{componentUomSummary(pricingItemType, selectedBoardForPricing)}</span>
+                    </div>
+                  ) : null}
 
                   {pricingItemType === 'board' && selectedBoardForPricing?.costing_mode === 'sheet' ? (
                     <div className="grid gap-3 md:grid-cols-3">
@@ -4158,7 +4274,7 @@ export function LibrariesPage({
 
                   <Button disabled={isSaving || isLoadingPriceItems} type="submit">
                     <Save className="h-4 w-4" aria-hidden="true" />
-                    Save price
+                    Save Override
                   </Button>
                 </form>
               </CardContent>
@@ -4521,11 +4637,42 @@ export function LibrariesPage({
                     </Label>
                     <Label className="grid gap-1.5">
                       Price component
-                      <Input value={itemSupplierDraft.price_component} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, price_component: event.target.value }))} />
+                      <Select
+                        value={itemSupplierDraft.price_component}
+                        onChange={(event) => {
+                          const priceComponent = event.target.value
+                          setItemSupplierDraft((current) => ({
+                            ...current,
+                            price_component: priceComponent,
+                            order_uom: defaultOrderUomForComponent(current.item_type, priceComponent),
+                          }))
+                        }}
+                      >
+                        {supplierPriceComponentOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <span className="text-xs text-muted-foreground">
+                        Controls how this supplier cost is applied when prices are generated.
+                      </span>
                     </Label>
                     <Label className="grid gap-1.5">
                       Order unit
-                      <Input value={itemSupplierDraft.order_uom} onChange={(event) => setItemSupplierDraft((current) => ({ ...current, order_uom: event.target.value }))} />
+                      <Select
+                        value={itemSupplierDraft.order_uom}
+                        onChange={(event) => setItemSupplierDraft((current) => ({ ...current, order_uom: event.target.value }))}
+                      >
+                        {supplierOrderUomOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <span className="text-xs text-muted-foreground">
+                        Matches the supplier quantity that becomes the generated price row unit.
+                      </span>
                     </Label>
                     <Label className="grid gap-1.5">
                       List price ({displayCurrencyCode})

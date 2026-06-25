@@ -598,6 +598,24 @@ class FakeLibraryStore:
         self.price_item_deleted = (company_id, price_list_id, item_id)
 
 
+class PricingValidationStore(LibraryStore):
+    def __init__(self, item_rows: dict[tuple[str, str], dict]):
+        super().__init__(database_url="postgresql://unused")
+        self.item_rows = item_rows
+
+    def _ensure_price_item_reference(self, company_id: str, item_type: str, item_ref_id: str):
+        row = self.item_rows.get((item_type, item_ref_id))
+        if not row:
+            raise LibraryNotFound("Library row not found")
+        return row
+
+    def _ensure_supplier(self, company_id: str, supplier_id: str):
+        return None
+
+    def _ensure_supplier_item_cost(self, company_id: str, cost_id: str):
+        return None
+
+
 class _CaptureCursor:
     def __init__(self, row: dict):
         self.row = row
@@ -1081,9 +1099,9 @@ def test_brand_backed_catalog_writes_brand_id_not_brand_row():
 def test_import_preview_blocks_supplier_cost_rows_with_missing_refs_and_bad_units():
     content = "\n".join(
         [
-            "Item Type,Brand,Model,Code,Supplier,Supplier SKU,Order UOM,Unit Cost",
-            "slide,Grass,Dynapro,DYN-500,Grass ZA,F130107820204,pairs,479.49",
-            "hinge,Grass,Missing,,Unknown Supplier,,box,100",
+            "Item Type,Brand,Model,Code,Supplier,Supplier SKU,Price Component,Order UOM,Unit Cost",
+            "slide,Grass,Dynapro,DYN-500,Grass ZA,F130107820204, Unit ,pair,479.49",
+            "hinge,Grass,Missing,,Unknown Supplier,,unit,box,100",
         ]
     )
     preview = build_import_preview(
@@ -1106,8 +1124,40 @@ def test_import_preview_blocks_supplier_cost_rows_with_missing_refs_and_bad_unit
 
     assert [row["status"] for row in preview["rows"]] == ["update", "blocked"]
     assert preview["rows"][0]["payload"]["unit_cost_cents"] == 47949
+    assert preview["rows"][0]["payload"]["price_component"] == "unit"
+    assert preview["rows"][0]["payload"]["order_uom"] == "pairs"
     problem_codes = {problem["code"] for problem in preview["rows"][1]["problems"]}
     assert problem_codes == {"missing_catalog_item", "missing_supplier", "invalid_uom"}
+
+
+def test_import_preview_blocks_non_board_price_components():
+    content = "\n".join(
+        [
+            "Item Type,Brand,Model,Code,Price Component,UOM,Unit Price",
+            "slide,Grass,Dynapro,DYN-500,sheet,sheet,125.00",
+        ]
+    )
+    preview = build_import_preview(
+        {"resource": "price_list_items", "source_format": "csv", "content": content},
+        build_reference_maps(
+            {
+                "boards": [],
+                "slides": [slide("slide-1")],
+                "hinges": [],
+                "handles": [],
+                "suppliers": [],
+                "extra_categories": [],
+                "extras": [],
+                "item_suppliers": [],
+                "price_items": [],
+                "price_list_id": "price-list-1",
+            }
+        ),
+    )
+
+    assert preview["rows"][0]["status"] == "blocked"
+    assert preview["rows"][0]["payload"]["price_component"] == "sheet"
+    assert {problem["code"] for problem in preview["rows"][0]["problems"]} == {"forbidden_price_component"}
 
 
 def test_import_preview_reads_xlsx_upload_content():
@@ -1785,6 +1835,53 @@ def test_item_supplier_crud_and_active_cost_summary():
     assert store.deleted[-1] == ("item-suppliers", item_supplier_id)
 
 
+def test_item_supplier_write_normalizes_component_and_order_uom_aliases():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_type": "slide",
+        "item_ref_id": "slide-1",
+        "supplier_id": "supplier-1",
+        "supplier_sku": "F130107820204",
+        "supplier_description": "Dynapro Undermount F/Ext 500mm",
+        "price_component": " Unit ",
+        "order_uom": "pair",
+        "is_preferred": True,
+        "notes": "",
+    }
+    try:
+        response = client.post("/api/v1/libraries/item-suppliers", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert store.item_supplier_payload["price_component"] == "unit"
+    assert store.item_supplier_payload["order_uom"] == "pairs"
+
+
+def test_item_supplier_write_rejects_non_board_price_component():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="owner")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_type": "slide",
+        "item_ref_id": "slide-1",
+        "supplier_id": "supplier-1",
+        "price_component": "sheet",
+        "order_uom": "pairs",
+    }
+    try:
+        response = client.post("/api/v1/libraries/item-suppliers", json=payload, headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"][-1] == "price_component"
+    assert "Non-board pricing rows" in response.json()["detail"][0]["msg"]
+    assert store.item_supplier_payload is None
+
+
 def test_supplier_item_cost_create_upsert_and_history():
     store = FakeLibraryStore()
     app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
@@ -2004,6 +2101,40 @@ def test_effective_status_distinguishes_current_future_and_retired_prices():
     assert _effective_status(datetime(2026, 6, 30, tzinfo=UTC), None, NOW) == "future"
     assert _effective_status(datetime(2026, 5, 1, tzinfo=UTC), datetime(2026, 5, 20, tzinfo=UTC), NOW) == "retired"
     assert _effective_status(datetime(2026, 5, 1, tzinfo=UTC), datetime(2026, 6, 30, tzinfo=UTC), NOW) == "current"
+
+
+def test_supplier_cost_normalization_rejects_sheet_component_for_sqm_board():
+    store = PricingValidationStore({("board", "board-1"): {**board("board-1"), "costing_mode": "sqm"}})
+    payload = {
+        "item_type": "board",
+        "item_ref_id": "board-1",
+        "supplier_id": "supplier-1",
+        "price_component": "sheet",
+        "order_uom": "sheet",
+    }
+
+    with pytest.raises(LibraryValidationError) as exc_info:
+        store._normalize_item_supplier_payload("company-1", payload)
+
+    assert exc_info.value.field_errors[0]["loc"] == ["body", "price_component"]
+    assert "not allowed for sqm board pricing" in exc_info.value.field_errors[0]["msg"]
+
+
+def test_price_item_normalization_accepts_sheet_board_edging_aliases():
+    store = PricingValidationStore({("board", "board-1"): board("board-1")})
+    payload = {
+        "item_type": "board",
+        "item_ref_id": "board-1",
+        "price_component": "edging metre",
+        "uom": "metre",
+        "unit_price_cents": 1800,
+    }
+
+    data = store._normalize_price_item_payload("company-1", payload)
+
+    assert data["item_key"] == "board::board-1"
+    assert data["price_component"] == "edging_m"
+    assert data["uom"] == "m"
 
 
 def test_generate_price_list_from_supplier_costs():
@@ -2326,6 +2457,57 @@ def test_price_list_item_upsert_with_item_ref_id():
             "cost_source": "manual",
         },
     )
+
+
+def test_price_list_item_upsert_normalizes_board_sqm_aliases():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_type": "board",
+        "item_ref_id": "board-1",
+        "price_component": "sq m",
+        "uom": "sqm",
+        "unit_price_cents": 18500,
+    }
+    try:
+        response = client.post(
+            "/api/v1/libraries/price-lists/price-list-1/items/upsert",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert store.price_item_payload[1]["price_component"] == "sqm"
+    assert store.price_item_payload[1]["uom"] == "m2"
+
+
+def test_price_list_item_upsert_rejects_component_uom_mismatch():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="manager")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    payload = {
+        "item_type": "board",
+        "item_ref_id": "board-1",
+        "price_component": "sheet",
+        "uom": "m",
+        "unit_price_cents": 359900,
+    }
+    try:
+        response = client.post(
+            "/api/v1/libraries/price-lists/price-list-1/items/upsert",
+            json=payload,
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"][-1] == "uom"
+    assert "does not match price_component sheet" in response.json()["detail"][0]["msg"]
+    assert store.price_item_payload is None
 
 
 def test_price_list_item_create_with_item_ref_id():

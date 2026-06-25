@@ -4,9 +4,15 @@ from datetime import date
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from corequote_api.authorization import Role
+from corequote_api.pricing_fields import (
+    PricingFieldValidationError,
+    normalize_order_uom,
+    normalize_price_component,
+    validate_pricing_combination,
+)
 
 
 UnitType = str
@@ -1751,9 +1757,7 @@ class PricingSettingsResponse(PricingSettingsRequest):
     updated_at: datetime
 
 
-class PriceListItemRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class PriceListItemFields(BaseModel):
     item_type: Literal["board", "slide", "hinge", "handle", "extra"]
     item_ref_id: str | None = Field(default=None, description="Optional UUID of the library item this price applies to.")
     item_key: str | None = Field(
@@ -1775,7 +1779,50 @@ class PriceListItemRequest(BaseModel):
     )
 
 
-class PriceListItemResponse(PriceListItemRequest):
+class PriceListItemRequest(PriceListItemFields):
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("price_component", mode="before")
+    @classmethod
+    def normalize_price_component_value(cls, value):
+        try:
+            return normalize_price_component(value, field="price_component", default="unit")
+        except PricingFieldValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("price_component")
+    @classmethod
+    def validate_price_component_for_item_type(cls, value: str, info: ValidationInfo) -> str:
+        try:
+            validate_pricing_combination(item_type=str(info.data.get("item_type") or ""), price_component=value)
+        except PricingFieldValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return value
+
+    @field_validator("uom", mode="before")
+    @classmethod
+    def normalize_uom_value(cls, value):
+        try:
+            return normalize_order_uom(value, field="uom")
+        except PricingFieldValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("uom")
+    @classmethod
+    def validate_uom_for_component(cls, value: str, info: ValidationInfo) -> str:
+        try:
+            validate_pricing_combination(
+                item_type=str(info.data.get("item_type") or ""),
+                price_component=str(info.data.get("price_component") or ""),
+                uom=value,
+                uom_field="uom",
+            )
+        except PricingFieldValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return value
+
+
+class PriceListItemResponse(PriceListItemFields):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -1791,9 +1838,7 @@ class PriceListItemResponse(PriceListItemRequest):
     updated_at: datetime
 
 
-class ItemSupplierRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ItemSupplierFields(BaseModel):
     item_type: Literal["board", "slide", "hinge", "handle", "extra"]
     item_ref_id: str = Field(min_length=1, description="Catalog item UUID in the current company.")
     supplier_id: str = Field(min_length=1, description="Supplier UUID in the current company.")
@@ -1805,7 +1850,50 @@ class ItemSupplierRequest(BaseModel):
     notes: str = Field(default="", max_length=1000)
 
 
-class ItemSupplierResponse(ItemSupplierRequest):
+class ItemSupplierRequest(ItemSupplierFields):
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("price_component", mode="before")
+    @classmethod
+    def normalize_price_component_value(cls, value):
+        try:
+            return normalize_price_component(value, field="price_component", default="unit")
+        except PricingFieldValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("price_component")
+    @classmethod
+    def validate_price_component_for_item_type(cls, value: str, info: ValidationInfo) -> str:
+        try:
+            validate_pricing_combination(item_type=str(info.data.get("item_type") or ""), price_component=value)
+        except PricingFieldValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return value
+
+    @field_validator("order_uom", mode="before")
+    @classmethod
+    def normalize_order_uom_value(cls, value):
+        try:
+            return normalize_order_uom(value, field="order_uom", default="pcs")
+        except PricingFieldValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @field_validator("order_uom")
+    @classmethod
+    def validate_order_uom_for_component(cls, value: str, info: ValidationInfo) -> str:
+        try:
+            validate_pricing_combination(
+                item_type=str(info.data.get("item_type") or ""),
+                price_component=str(info.data.get("price_component") or ""),
+                uom=value,
+                uom_field="order_uom",
+            )
+        except PricingFieldValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return value
+
+
+class ItemSupplierResponse(ItemSupplierFields):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
