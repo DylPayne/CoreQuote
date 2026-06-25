@@ -11,6 +11,14 @@ from typing import Any, Literal
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
+from corequote_api.pricing_fields import (
+    PricingFieldIssue,
+    PricingFieldValidationError,
+    normalize_order_uom,
+    normalize_price_component,
+    validate_pricing_combination,
+)
+
 
 ImportResource = Literal[
     "boards",
@@ -34,7 +42,6 @@ XLSX_NS = {
 }
 
 ALLOWED_ITEM_TYPES = {"board", "slide", "hinge", "handle", "extra"}
-ALLOWED_UOMS = {"sheet", "m2", "m", "board", "pcs", "pairs", "pair", "each", "unit", "set", "day", "trip"}
 ALLOWED_COSTING_MODES = {"sheet", "sqm"}
 ALLOWED_GRAIN_POLICIES = {"none", "optional", "required"}
 ALLOWED_SLIDE_MOUNT_TYPES = {"side_mount", "undermount", "metal_system", "custom"}
@@ -558,15 +565,16 @@ def _normalize_supplier_item_cost(raw: dict[str, Any], references: dict[str, Any
     item_type = _item_type(raw.get("item_type"), problems)
     item_ref_id = _resolve_item_ref(item_type, raw, references, problems)
     supplier_id = _resolve_supplier(raw, references, problems)
-    order_uom = _uom(raw.get("order_uom") or "pcs", "order_uom", "Order unit", problems)
-    return {
+    price_component = _price_component(raw.get("price_component"), "price_component", problems, default="unit")
+    order_uom = _uom(raw.get("order_uom") or "pcs", "order_uom", "Order unit", problems, default="pcs")
+    payload = {
         "item_type": item_type,
         "item_ref_id": item_ref_id,
         "supplier_id": supplier_id,
         "supplier_name": _text(raw.get("supplier_name")),
         "supplier_sku": _text(raw.get("supplier_sku")),
         "supplier_description": _text(raw.get("supplier_description")),
-        "price_component": _text(raw.get("price_component")) or "unit",
+        "price_component": price_component,
         "order_uom": order_uom,
         "is_preferred": True,
         "list_price_cents": _money_cents(raw.get("list_price_cents"), "list_price_cents", "List price", problems, required=False),
@@ -574,6 +582,8 @@ def _normalize_supplier_item_cost(raw: dict[str, Any], references: dict[str, Any
         "unit_cost_cents": _money_cents(raw.get("unit_cost_cents"), "unit_cost_cents", "Net cost", problems),
         "currency_code": _currency(raw.get("currency_code"), problems),
     }
+    _validate_import_pricing_combination(payload, references, "order_uom", problems)
+    return payload
 
 
 def _normalize_price_list_item(raw: dict[str, Any], references: dict[str, Any], problems: list[dict[str, Any]]) -> dict[str, Any]:
@@ -582,16 +592,20 @@ def _normalize_price_list_item(raw: dict[str, Any], references: dict[str, Any], 
     item_type = _item_type(raw.get("item_type"), problems)
     item_ref_id = _resolve_item_ref(item_type, raw, references, problems)
     item_key = _text(raw.get("item_key")) or (f"{item_type}::{item_ref_id}" if item_type and item_ref_id else "")
-    return {
+    price_component = _price_component(raw.get("price_component"), "price_component", problems, default=None)
+    uom = _uom(raw.get("uom"), "uom", "Unit", problems)
+    payload = {
         "price_list_id": references.get("price_list_id") or "",
         "item_type": item_type,
         "item_ref_id": item_ref_id,
         "item_key": item_key,
-        "price_component": _required_text(raw, "price_component", "Price component", problems),
-        "uom": _uom(raw.get("uom"), "uom", "Unit", problems),
+        "price_component": price_component,
+        "uom": uom,
         "unit_price_cents": _money_cents(raw.get("unit_price_cents"), "unit_price_cents", "Price", problems),
         "cost_source": _text(raw.get("cost_source")) or "import",
     }
+    _validate_import_pricing_combination(payload, references, "uom", problems)
+    return payload
 
 
 def build_reference_maps(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -1053,14 +1067,61 @@ def _item_type(value: Any, problems: list[dict[str, Any]]) -> str:
     return item_type
 
 
-def _uom(value: Any, field: str, label: str, problems: list[dict[str, Any]]) -> str:
-    uom = _text(value).lower()
-    if not uom:
-        problems.append(_problem(field, "missing_uom", f"{label} is required.", "Map or fill in the unit column."))
-        return ""
-    if uom not in ALLOWED_UOMS:
-        problems.append(_problem(field, "invalid_uom", f"{label} uses an unsupported unit.", "Use a familiar unit such as sheet, m2, m, pcs, pairs, day, or trip."))
-    return uom
+def _price_component(value: Any, field: str, problems: list[dict[str, Any]], *, default: str | None) -> str:
+    try:
+        return normalize_price_component(value, field=field, default=default)
+    except PricingFieldValidationError as exc:
+        _append_pricing_problems(exc.issues, problems)
+        return default or ""
+
+
+def _uom(value: Any, field: str, label: str, problems: list[dict[str, Any]], *, default: str | None = None) -> str:
+    try:
+        return normalize_order_uom(value, field=field, default=default)
+    except PricingFieldValidationError as exc:
+        _append_pricing_problems(
+            (
+                PricingFieldIssue(
+                    field=issue.field,
+                    code=issue.code,
+                    message=issue.message.replace("Unit", label, 1) if issue.message.startswith("Unit") else issue.message,
+                    guidance=issue.guidance,
+                    input_value=issue.input_value,
+                )
+                for issue in exc.issues
+            ),
+            problems,
+        )
+        return default or ""
+
+
+def _validate_import_pricing_combination(
+    payload: dict[str, Any],
+    references: dict[str, Any],
+    uom_field: str,
+    problems: list[dict[str, Any]],
+) -> None:
+    item_type = str(payload.get("item_type") or "").strip().lower()
+    item_ref_id = str(payload.get("item_ref_id") or "").strip()
+    board_costing_mode = None
+    if item_type == "board" and item_ref_id:
+        board = references["items_by_type_id"].get("board", {}).get(item_ref_id)
+        board_costing_mode = str(board.get("costing_mode") or "") if board else None
+    try:
+        validate_pricing_combination(
+            item_type=item_type,
+            price_component=str(payload.get("price_component") or ""),
+            uom=str(payload.get(uom_field) or ""),
+            uom_field=uom_field,
+            board_costing_mode=board_costing_mode,
+        )
+    except PricingFieldValidationError as exc:
+        _append_pricing_problems(exc.issues, problems)
+
+
+def _append_pricing_problems(issues, problems: list[dict[str, Any]]) -> None:
+    for issue in issues:
+        problems.append(_problem(issue.field, issue.code, issue.message, issue.guidance))
 
 
 def _compare_value(value: Any) -> str:

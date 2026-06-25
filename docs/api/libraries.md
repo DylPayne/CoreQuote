@@ -830,6 +830,45 @@ Payload:
 }
 ```
 
+`price_component` and `order_uom` are canonical write fields. Create, update,
+upsert, and import paths trim and lowercase incoming values, normalize safe
+aliases such as `pair` to `pairs` and `sqm` to `m2` for units, and reject values
+that cannot be mapped safely with HTTP 422 field-level validation errors.
+
+Allowed `price_component` values:
+
+- `unit`: normal hardware, handle, and extra pricing.
+- `sheet`: sheet-priced board material.
+- `sqm`: square-metre board material.
+- `edging_m`: board edging by metre.
+- `labour_board`: board labour by board.
+
+Allowed order/unit values are `sheet`, `m2`, `m`, `pairs`, `pcs`, `each`,
+`unit`, `set`, `day`, `trip`, and `board`.
+
+Board rows are constrained by their library `costing_mode`: `sqm` boards use
+`price_component: "sqm"` with `m2`; sheet boards use `sheet`, `edging_m`, or
+`labour_board` with matching sheet/metre/board units. Non-board rows must use
+`price_component: "unit"`.
+
+Invalid fields return HTTP 422 with a field location. Example:
+
+```json
+{
+  "detail": [
+    {
+      "type": "value_error",
+      "loc": ["body", "price_component"],
+      "msg": "Non-board pricing rows must use price_component = unit.",
+      "input": "sheet"
+    }
+  ]
+}
+```
+
+Frontend forms should present these fields as controlled option sets derived
+from the selected item type and, for boards, the selected board costing mode.
+
 Responses include `supplier_name` and the active supplier-cost summary when one
 exists:
 
@@ -1013,6 +1052,11 @@ At least one of `item_ref_id` or `item_key` is required.
 - `unit` for slides, hinges, handles, and extras.
 - `sheet`, `sqm`, `edging_m`, and `labour_board` for boards.
 
+Manual price row writes use the same canonical validation as supplier links.
+The recommended workflow is to enter supplier costs first, then generate price
+rows from supplier costs. Use manual price list create/update/upsert only for an
+explicit override or one-off manual row.
+
 By default, list endpoints return only prices current at `now()`, where
 `effective_from <= as_of` and `effective_to` is either null or later than
 `as_of`. Pass `as_of` to inspect another timestamp. Pass
@@ -1108,6 +1152,7 @@ when multiple supplier costs exist for one item:
 Generated rows use:
 
 - `item_key` as `<item_type>::<item_ref_id>`;
+- canonical `price_component` and `uom` values copied from the supplier link;
 - `source_supplier_item_cost_id` pointing to the supplier cost row;
 - `cost_source` set to `supplier`;
 - `unit_price_cents` copied from the supplier cost `unit_cost_cents`.

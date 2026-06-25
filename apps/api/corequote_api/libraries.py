@@ -11,6 +11,13 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from corequote_api.library_imports import build_import_preview, build_reference_maps
+from corequote_api.pricing_fields import (
+    PricingFieldValidationError,
+    normalize_order_uom,
+    normalize_price_component,
+    pricing_issues_as_fastapi_errors,
+    validate_pricing_combination,
+)
 
 
 class LibraryError(Exception):
@@ -26,7 +33,9 @@ class LibraryConflict(LibraryError):
 
 
 class LibraryValidationError(LibraryError):
-    pass
+    def __init__(self, message: str, *, field_errors: list[dict[str, Any]] | None = None):
+        super().__init__(message)
+        self.field_errors = field_errors or []
 
 
 @dataclass(frozen=True)
@@ -882,6 +891,17 @@ class LibraryStore:
 
             for selected in selected_rows:
                 item_key = f"{selected['item_type']}::{selected['item_ref_id']}"
+                try:
+                    price_component = normalize_price_component(selected["price_component"], default="unit")
+                    uom = normalize_order_uom(selected["order_uom"], field="uom")
+                    validate_pricing_combination(
+                        item_type=selected["item_type"],
+                        price_component=price_component,
+                        uom=uom,
+                        uom_field="uom",
+                    )
+                except PricingFieldValidationError as exc:
+                    raise _pricing_library_validation_error(exc) from exc
                 current = conn.execute(
                     """
                     SELECT id::text, unit_price_cents, uom, source_supplier_item_cost_id::text, cost_source
@@ -902,7 +922,7 @@ class LibraryStore:
                         price_list_id,
                         selected["item_type"],
                         item_key,
-                        selected["price_component"],
+                        price_component,
                         refresh_time,
                         refresh_time,
                     ),
@@ -914,7 +934,6 @@ class LibraryStore:
 
                 source_cost_id = selected["supplier_item_cost_id"]
                 unit_cost_cents = int(selected["unit_cost_cents"])
-                uom = selected["order_uom"]
                 if current and _generated_price_item_matches(current, source_cost_id, unit_cost_cents, uom):
                     unchanged_count += 1
                     continue
@@ -947,7 +966,7 @@ class LibraryStore:
                         selected["item_type"],
                         selected["item_ref_id"],
                         item_key,
-                        selected["price_component"],
+                        price_component,
                         uom,
                         unit_cost_cents,
                         source_cost_id,
@@ -2281,13 +2300,18 @@ class LibraryStore:
         if item_type not in PRICE_ITEM_TYPE_TABLES:
             raise LibraryValidationError(f"Unsupported item_type: {item_type}")
         data["item_type"] = item_type
-        data["price_component"] = str(data.get("price_component") or "unit").strip().lower()
-        data["order_uom"] = str(data.get("order_uom") or "pcs").strip().lower()
         data["supplier_sku"] = str(data.get("supplier_sku") or "").strip()
         data["supplier_description"] = str(data.get("supplier_description") or "").strip()
         data["notes"] = str(data.get("notes") or "").strip()
         data["is_preferred"] = bool(data.get("is_preferred", False))
-        self._ensure_price_item_reference(company_id, item_type, data["item_ref_id"])
+        item_row = self._ensure_price_item_reference(company_id, item_type, data["item_ref_id"])
+        _normalize_pricing_fields_for_library(
+            data,
+            item_type=item_type,
+            uom_field="order_uom",
+            default_uom="pcs",
+            board_costing_mode=item_row.get("costing_mode"),
+        )
         self._ensure_supplier(company_id, data["supplier_id"])
         return data
 
@@ -2362,13 +2386,29 @@ class LibraryStore:
         item_ref_id = str(data.get("item_ref_id") or "").strip()
         item_key = str(data.get("item_key") or "").strip()
         source_supplier_item_cost_id = str(data.get("source_supplier_item_cost_id") or "").strip()
+        if item_type not in PRICE_ITEM_TYPE_TABLES:
+            raise LibraryValidationError(f"Unsupported item_type: {item_type}")
+        data["item_type"] = item_type
+        _normalize_pricing_fields_for_library(
+            data,
+            item_type=item_type,
+            uom_field="uom",
+            default_uom=None,
+        )
         data["cost_source"] = str(data.get("cost_source") or "manual").strip().lower()
         data["source_supplier_item_cost_id"] = source_supplier_item_cost_id or None
         if data["source_supplier_item_cost_id"]:
             self._ensure_supplier_item_cost(company_id, data["source_supplier_item_cost_id"])
 
         if item_ref_id:
-            self._ensure_price_item_reference(company_id, item_type, item_ref_id)
+            item_row = self._ensure_price_item_reference(company_id, item_type, item_ref_id)
+            _normalize_pricing_fields_for_library(
+                data,
+                item_type=item_type,
+                uom_field="uom",
+                default_uom=None,
+                board_costing_mode=item_row.get("costing_mode"),
+            )
             data["item_ref_id"] = item_ref_id
             data["item_key"] = f"{item_type}::{item_ref_id}"
             return data
@@ -2379,20 +2419,28 @@ class LibraryStore:
         data["item_key"] = item_key
         derived_ref = _try_extract_ref_id(item_type, item_key)
         if derived_ref:
-            self._ensure_price_item_reference(company_id, item_type, derived_ref)
+            item_row = self._ensure_price_item_reference(company_id, item_type, derived_ref)
+            _normalize_pricing_fields_for_library(
+                data,
+                item_type=item_type,
+                uom_field="uom",
+                default_uom=None,
+                board_costing_mode=item_row.get("costing_mode"),
+            )
             data["item_ref_id"] = derived_ref
 
         return data
 
-    def _ensure_price_item_reference(self, company_id: str, item_type: str, item_ref_id: str) -> None:
+    def _ensure_price_item_reference(self, company_id: str, item_type: str, item_ref_id: str) -> dict[str, Any]:
         table = PRICE_ITEM_TYPE_TABLES.get(item_type)
         if not table:
             raise LibraryValidationError(f"Unsupported item_type: {item_type}")
+        select_clause = "id::text, costing_mode" if table == "board_types" else "id::text"
 
         with self._connect() as conn:
             row = conn.execute(
                 f"""
-                SELECT id::text
+                SELECT {select_clause}
                 FROM {table}
                 WHERE company_id = %s
                   AND id = %s
@@ -2401,6 +2449,7 @@ class LibraryStore:
             ).fetchone()
         if not row:
             raise LibraryNotFound("Library row not found")
+        return row
 
     def _connect(self):
         if not self.database_url:
@@ -2550,10 +2599,10 @@ def _price_bulk_updates(payload: dict[str, Any]) -> dict[str, Any]:
     if payload.get("unit_price_cents") is not None:
         updates["unit_price_cents"] = int(payload["unit_price_cents"])
     if payload.get("uom") is not None:
-        uom = str(payload["uom"]).strip().lower()
-        if not uom:
-            raise LibraryValidationError("Unit is required when changing price row units")
-        updates["uom"] = uom
+        try:
+            updates["uom"] = normalize_order_uom(payload["uom"], field="uom")
+        except PricingFieldValidationError as exc:
+            raise _pricing_library_validation_error(exc) from exc
     if payload.get("cost_source") is not None:
         cost_source = str(payload["cost_source"]).strip().lower()
         if cost_source not in {"manual", "override"}:
@@ -2898,6 +2947,32 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if data.get("source_supplier_item_cost_id") == "":
         data["source_supplier_item_cost_id"] = None
     return data
+
+
+def _pricing_library_validation_error(error: PricingFieldValidationError) -> LibraryValidationError:
+    return LibraryValidationError(str(error), field_errors=pricing_issues_as_fastapi_errors(error))
+
+
+def _normalize_pricing_fields_for_library(
+    data: dict[str, Any],
+    *,
+    item_type: str,
+    uom_field: str,
+    default_uom: str | None,
+    board_costing_mode: str | None = None,
+) -> None:
+    try:
+        data["price_component"] = normalize_price_component(data.get("price_component"), default="unit")
+        data[uom_field] = normalize_order_uom(data.get(uom_field), field=uom_field, default=default_uom)
+        validate_pricing_combination(
+            item_type=item_type,
+            price_component=data["price_component"],
+            uom=data[uom_field],
+            uom_field=uom_field,
+            board_costing_mode=board_costing_mode,
+        )
+    except PricingFieldValidationError as exc:
+        raise _pricing_library_validation_error(exc) from exc
 
 
 def build_slide_range_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:

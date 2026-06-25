@@ -791,7 +791,7 @@ def _create_response(response_model, callback, *args):
     try:
         row = callback(*args[:-1], _payload(args[-1]))
     except LibraryValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=_validation_detail(exc)) from exc
     except LibraryConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except LibraryNotFound as exc:
@@ -811,7 +811,7 @@ def _update_response(response_model, callback, *args):
     try:
         row = callback(*args[:-1], _payload(args[-1]))
     except LibraryValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=_validation_detail(exc)) from exc
     except LibraryConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except LibraryNotFound as exc:
@@ -827,3 +827,7 @@ def _delete_response(callback, *args) -> Response:
     except LibraryNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library row not found") from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _validation_detail(exc: LibraryValidationError):
+    return exc.field_errors if getattr(exc, "field_errors", None) else str(exc)

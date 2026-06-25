@@ -36,6 +36,18 @@ or refreshing supplier costs does not rewrite existing project or quote
 settings. The calculation returns both cost and sell values so estimators can
 see margin, missing prices, and the source of each total.
 
+Pricing entry is intentionally split into two paths:
+
+- Recommended path: capture supplier costs against catalog items, then generate
+  active price-list rows from those supplier costs.
+- Manual override path: save a quick manual price update when a generated price
+  needs an explicit override.
+
+Both paths use canonical `price_component` and unit values. Non-board catalog
+items use `unit`; boards use `sqm` with `m2` when the board is square-metre
+priced, or `sheet`, `edging_m`, and `labour_board` with sheet/metre/board units
+when the board is sheet priced.
+
 ## Pricing Settings
 
 Detailed pricing uses these quote settings:
