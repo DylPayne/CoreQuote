@@ -989,6 +989,7 @@ GET    /api/v1/libraries/price-lists
 POST   /api/v1/libraries/price-lists
 GET    /api/v1/libraries/price-lists/active
 GET    /api/v1/libraries/price-lists/{price_list_id}
+GET    /api/v1/libraries/price-lists/{price_list_id}/coverage
 PATCH  /api/v1/libraries/price-lists/{price_list_id}
 DELETE /api/v1/libraries/price-lists/{price_list_id}
 ```
@@ -1011,6 +1012,95 @@ Only one price list may be `active` per company. Use
 currently active list. Add `as_of=2026-06-12T08:00:00Z` to resolve the active
 list for a quote or audit timestamp; `effective_from` and `effective_to` are
 checked alongside `status`.
+
+### Price List Coverage
+
+```http
+GET /api/v1/libraries/price-lists/{price_list_id}/coverage
+```
+
+Permission: `pricing:read`.
+
+Returns quote-used catalog pricing coverage for the selected company-scoped
+price list. The endpoint checks draft, ready, sent, and accepted quotes, then
+groups the referenced boards, drawer hardware, hinges, handles, and extras by
+item type and canonical price component.
+
+The response includes covered, missing, stale, and manual override counts.
+Rows include the canonical `item_type`, `item_ref_id`, `item_key`,
+`price_component`, and `uom` needed to pre-fill supplier-cost, supplier
+generation, or manual override actions.
+
+Example response:
+
+```json
+{
+  "price_list_id": "price-list-uuid",
+  "price_list_name": "Default Price List",
+  "generated_at": "2026-06-26T10:15:00Z",
+  "used_count": 2,
+  "covered_count": 1,
+  "missing_count": 1,
+  "stale_count": 0,
+  "override_count": 0,
+  "groups": [
+    {
+      "item_type": "slide",
+      "item_type_label": "Drawer hardware",
+      "used_count": 1,
+      "covered_count": 1,
+      "missing_count": 0,
+      "stale_count": 0,
+      "override_count": 0,
+      "rows": [
+        {
+          "item_type": "slide",
+          "item_type_label": "Drawer hardware",
+          "item_ref_id": "slide-uuid",
+          "item_key": "slide::slide-uuid",
+          "item_name": "Grass Dynapro (DYN-500)",
+          "price_component": "unit",
+          "component": "Unit price",
+          "uom": "pairs",
+          "status": "covered",
+          "has_current_price": true,
+          "active_price_list_item_id": "price-row-uuid",
+          "unit_price_cents": 12500,
+          "cost_source": "supplier",
+          "source_supplier_item_cost_id": "supplier-cost-uuid",
+          "has_supplier_cost": true,
+          "active_supplier_item_id": "item-supplier-uuid",
+          "active_supplier_item_cost_id": "supplier-cost-uuid",
+          "supplier_unit_cost_cents": 12500,
+          "supplier_order_uom": "pairs",
+          "quote_count": 1,
+          "used_in": [
+            {
+              "project_id": "project-uuid",
+              "project_name": "Smith Kitchen",
+              "quote_id": "quote-uuid",
+              "quote_name": "Main kitchen",
+              "quote_number": "Q-001",
+              "revision": 1,
+              "quote_status": "draft",
+              "usage_label": "Unit 1 drawer hardware"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+`status` is:
+
+- `covered`: a current price row exists and no fresher supplier-cost issue was found.
+- `missing`: no current price row exists for the selected price list.
+- `stale`: a supplier-sourced price row exists, but the selected active supplier cost differs or no longer exists.
+- `override`: the current row is a manual or override price.
+
+Coverage is read-only and does not change quote calculation semantics.
 
 ### Price List Items
 

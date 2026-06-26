@@ -10,6 +10,8 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from corequote_core.channel_handles import PROFILE_HANDLE_ID_KEYS
+
 from corequote_api.library_imports import build_import_preview, build_reference_maps
 from corequote_api.pricing_fields import (
     PricingFieldValidationError,
@@ -1053,6 +1055,33 @@ class LibraryStore:
 
     def get_price_list(self, company_id: str, price_list_id: str) -> dict:
         return self._get(PRICE_LIST_CONFIG, company_id, price_list_id)
+
+    def get_price_list_coverage(self, company_id: str, price_list_id: str) -> dict:
+        with self._connect() as conn:
+            price_list = conn.execute(
+                """
+                SELECT id::text, name
+                FROM price_lists
+                WHERE company_id = %s
+                  AND id = %s
+                """,
+                (company_id, price_list_id),
+            ).fetchone()
+            if not price_list:
+                raise LibraryNotFound("Price list not found")
+
+            rows = _price_list_coverage_rows(conn, company_id, price_list_id)
+
+        coverage_rows = _build_price_list_coverage_rows(rows)
+        groups = _price_coverage_groups(coverage_rows)
+        summary_counts = _price_coverage_counts(coverage_rows)
+        return {
+            "price_list_id": price_list["id"],
+            "price_list_name": price_list["name"],
+            "generated_at": datetime.now(UTC),
+            **summary_counts,
+            "groups": groups,
+        }
 
     def update_price_list(self, company_id: str, price_list_id: str, payload: dict[str, Any]) -> dict:
         return self._update(PRICE_LIST_CONFIG, company_id, price_list_id, payload)
@@ -2864,6 +2893,438 @@ def _setup_item(
         "action_label": action_label,
         "action_target": action_target,
     }
+
+
+def _price_list_coverage_rows(conn, company_id: str, price_list_id: str) -> list[dict[str, Any]]:
+    active_quote_statuses = ["draft", "ready", "sent", "accepted"]
+    profile_handle_keys = list(PROFILE_HANDLE_ID_KEYS)
+    return conn.execute(
+        """
+        WITH active_quotes AS (
+            SELECT
+                q.id::text AS quote_id,
+                q.company_id::text AS company_id,
+                q.project_id::text AS project_id,
+                p.name AS project_name,
+                q.name AS quote_name,
+                q.quote_number,
+                q.revision,
+                q.status AS quote_status,
+                q.default_carcass_board_type_id::text AS default_carcass_board_type_id,
+                q.default_door_board_type_id::text AS default_door_board_type_id,
+                q.default_panel_board_type_id::text AS default_panel_board_type_id,
+                q.default_slide_id::text AS default_slide_id,
+                q.default_hinge_id::text AS default_hinge_id,
+                q.default_base_handle_id::text AS default_base_handle_id,
+                q.default_wall_handle_id::text AS default_wall_handle_id,
+                q.default_tall_handle_id::text AS default_tall_handle_id,
+                q.default_drawer_handle_id::text AS default_drawer_handle_id
+            FROM quotes q
+            JOIN projects p
+              ON p.company_id = q.company_id
+             AND p.id = q.project_id
+            WHERE q.company_id = %s
+              AND q.status = ANY(%s)
+        ),
+        required_refs AS (
+            SELECT *, 'board' AS item_type, default_carcass_board_type_id AS item_ref_id, 'Quote carcass default' AS usage_label
+            FROM active_quotes
+            WHERE default_carcass_board_type_id IS NOT NULL
+            UNION ALL
+            SELECT *, 'board' AS item_type, default_door_board_type_id AS item_ref_id, 'Quote door/drawer default' AS usage_label
+            FROM active_quotes
+            WHERE default_door_board_type_id IS NOT NULL
+            UNION ALL
+            SELECT *, 'board' AS item_type, default_panel_board_type_id AS item_ref_id, 'Quote visible panel default' AS usage_label
+            FROM active_quotes
+            WHERE default_panel_board_type_id IS NOT NULL
+            UNION ALL
+            SELECT *, 'slide' AS item_type, default_slide_id AS item_ref_id, 'Quote drawer hardware default' AS usage_label
+            FROM active_quotes
+            WHERE default_slide_id IS NOT NULL
+            UNION ALL
+            SELECT *, 'hinge' AS item_type, default_hinge_id AS item_ref_id, 'Quote hinge default' AS usage_label
+            FROM active_quotes
+            WHERE default_hinge_id IS NOT NULL
+            UNION ALL
+            SELECT *, 'handle' AS item_type, default_base_handle_id AS item_ref_id, 'Quote base handle default' AS usage_label
+            FROM active_quotes
+            WHERE default_base_handle_id IS NOT NULL
+            UNION ALL
+            SELECT *, 'handle' AS item_type, default_wall_handle_id AS item_ref_id, 'Quote wall handle default' AS usage_label
+            FROM active_quotes
+            WHERE default_wall_handle_id IS NOT NULL
+            UNION ALL
+            SELECT *, 'handle' AS item_type, default_tall_handle_id AS item_ref_id, 'Quote tall handle default' AS usage_label
+            FROM active_quotes
+            WHERE default_tall_handle_id IS NOT NULL
+            UNION ALL
+            SELECT *, 'handle' AS item_type, default_drawer_handle_id AS item_ref_id, 'Quote drawer handle default' AS usage_label
+            FROM active_quotes
+            WHERE default_drawer_handle_id IS NOT NULL
+            UNION ALL
+            SELECT
+                q.*,
+                'board' AS item_type,
+                COALESCE(u.carcass_board_type_id::text, q.default_carcass_board_type_id) AS item_ref_id,
+                'Unit ' || u.unit_number::text || ' carcass board' AS usage_label
+            FROM quote_units u
+            JOIN active_quotes q
+              ON q.company_id = u.company_id::text
+             AND q.quote_id = u.quote_id::text
+            WHERE COALESCE(u.carcass_board_type_id::text, q.default_carcass_board_type_id) IS NOT NULL
+            UNION ALL
+            SELECT
+                q.*,
+                'board' AS item_type,
+                COALESCE(u.door_board_type_id::text, q.default_door_board_type_id) AS item_ref_id,
+                'Unit ' || u.unit_number::text || ' door/drawer board' AS usage_label
+            FROM quote_units u
+            JOIN active_quotes q
+              ON q.company_id = u.company_id::text
+             AND q.quote_id = u.quote_id::text
+            WHERE COALESCE(u.door_board_type_id::text, q.default_door_board_type_id) IS NOT NULL
+            UNION ALL
+            SELECT
+                q.*,
+                'slide' AS item_type,
+                COALESCE(NULLIF(u.extra_params->>'slide_id', ''), q.default_slide_id) AS item_ref_id,
+                'Unit ' || u.unit_number::text || ' drawer hardware' AS usage_label
+            FROM quote_units u
+            JOIN active_quotes q
+              ON q.company_id = u.company_id::text
+             AND q.quote_id = u.quote_id::text
+            WHERE COALESCE(NULLIF(u.extra_params->>'slide_id', ''), q.default_slide_id) IS NOT NULL
+            UNION ALL
+            SELECT
+                q.*,
+                'hinge' AS item_type,
+                COALESCE(NULLIF(u.extra_params->>'hinge_id', ''), q.default_hinge_id) AS item_ref_id,
+                'Unit ' || u.unit_number::text || ' hinge' AS usage_label
+            FROM quote_units u
+            JOIN active_quotes q
+              ON q.company_id = u.company_id::text
+             AND q.quote_id = u.quote_id::text
+            WHERE COALESCE(NULLIF(u.extra_params->>'hinge_id', ''), q.default_hinge_id) IS NOT NULL
+            UNION ALL
+            SELECT
+                q.*,
+                'handle' AS item_type,
+                COALESCE(
+                    NULLIF(u.extra_params->>'handle_id', ''),
+                    CASE
+                        WHEN lower(u.unit_type_key) LIKE '%%draw%%' THEN q.default_drawer_handle_id
+                        WHEN lower(u.unit_type_key) LIKE '%%wall%%' THEN q.default_wall_handle_id
+                        WHEN lower(u.unit_type_key) LIKE '%%tall%%' THEN q.default_tall_handle_id
+                        ELSE q.default_base_handle_id
+                    END
+                ) AS item_ref_id,
+                'Unit ' || u.unit_number::text || ' handle' AS usage_label
+            FROM quote_units u
+            JOIN active_quotes q
+              ON q.company_id = u.company_id::text
+             AND q.quote_id = u.quote_id::text
+            WHERE COALESCE(
+                NULLIF(u.extra_params->>'handle_id', ''),
+                CASE
+                    WHEN lower(u.unit_type_key) LIKE '%%draw%%' THEN q.default_drawer_handle_id
+                    WHEN lower(u.unit_type_key) LIKE '%%wall%%' THEN q.default_wall_handle_id
+                    WHEN lower(u.unit_type_key) LIKE '%%tall%%' THEN q.default_tall_handle_id
+                    ELSE q.default_base_handle_id
+                END
+            ) IS NOT NULL
+            UNION ALL
+            SELECT
+                q.*,
+                'handle' AS item_type,
+                NULLIF(profile.value, '') AS item_ref_id,
+                'Unit ' || u.unit_number::text || ' profile handle' AS usage_label
+            FROM quote_units u
+            JOIN active_quotes q
+              ON q.company_id = u.company_id::text
+             AND q.quote_id = u.quote_id::text
+            JOIN LATERAL jsonb_each_text(u.extra_params) profile(key, value)
+              ON profile.key = ANY(%s)
+            WHERE NULLIF(profile.value, '') IS NOT NULL
+            UNION ALL
+            SELECT
+                q.*,
+                'extra' AS item_type,
+                qe.extra_id::text AS item_ref_id,
+                'Quote extra' AS usage_label
+            FROM quote_extras qe
+            JOIN active_quotes q
+              ON q.company_id = qe.company_id::text
+             AND q.quote_id = qe.quote_id::text
+        ),
+        catalog_refs AS (
+            SELECT
+                refs.project_id,
+                refs.project_name,
+                refs.quote_id,
+                refs.quote_name,
+                refs.quote_number,
+                refs.revision,
+                refs.quote_status,
+                refs.usage_label,
+                refs.item_type,
+                refs.item_ref_id,
+                refs.item_type || '::' || refs.item_ref_id AS item_key,
+                CASE
+                    WHEN refs.item_type = 'board' THEN NULLIF(trim(concat_ws(' ', board.brand, board.material, board.thickness::text || 'mm')), '')
+                    WHEN refs.item_type = 'slide' THEN NULLIF(trim(concat_ws(' ', slide.brand, slide.model, CASE WHEN length(trim(slide.code)) > 0 THEN '(' || slide.code || ')' END)), '')
+                    WHEN refs.item_type = 'hinge' THEN NULLIF(trim(concat_ws(' ', hinge.brand, hinge.model, CASE WHEN length(trim(hinge.code)) > 0 THEN '(' || hinge.code || ')' END)), '')
+                    WHEN refs.item_type = 'handle' THEN NULLIF(trim(CASE WHEN length(trim(COALESCE(handle_supplier.name, ''))) > 0 THEN handle.name || ' (' || handle_supplier.name || ')' ELSE handle.name END), '')
+                    WHEN refs.item_type = 'extra' THEN NULLIF(trim(CASE WHEN length(trim(COALESCE(category.name, ''))) > 0 THEN extra.name || ' (' || category.name || ')' ELSE extra.name END), '')
+                END AS item_name,
+                CASE
+                    WHEN refs.item_type = 'board' AND board.costing_mode = 'sqm' THEN 'sqm'
+                    WHEN refs.item_type = 'board' THEN 'sheet'
+                    ELSE 'unit'
+                END AS price_component,
+                CASE
+                    WHEN refs.item_type = 'board' AND board.costing_mode = 'sqm' THEN 'm2'
+                    WHEN refs.item_type = 'board' THEN 'sheet'
+                    WHEN refs.item_type = 'slide' THEN 'pairs'
+                    ELSE 'pcs'
+                END AS uom
+            FROM required_refs refs
+            LEFT JOIN board_types board
+              ON refs.item_type = 'board'
+             AND board.company_id = refs.company_id::uuid
+             AND board.id::text = refs.item_ref_id
+            LEFT JOIN slides slide
+              ON refs.item_type = 'slide'
+             AND slide.company_id = refs.company_id::uuid
+             AND slide.id::text = refs.item_ref_id
+            LEFT JOIN hinges hinge
+              ON refs.item_type = 'hinge'
+             AND hinge.company_id = refs.company_id::uuid
+             AND hinge.id::text = refs.item_ref_id
+            LEFT JOIN handles handle
+              ON refs.item_type = 'handle'
+             AND handle.company_id = refs.company_id::uuid
+             AND handle.id::text = refs.item_ref_id
+            LEFT JOIN suppliers handle_supplier
+              ON handle_supplier.company_id = handle.company_id
+             AND handle_supplier.id = handle.supplier_id
+            LEFT JOIN extras extra
+              ON refs.item_type = 'extra'
+             AND extra.company_id = refs.company_id::uuid
+             AND extra.id::text = refs.item_ref_id
+            LEFT JOIN extra_categories category
+              ON category.company_id = extra.company_id
+             AND category.id = extra.category_id
+            WHERE refs.item_ref_id IS NOT NULL
+              AND refs.item_ref_id <> ''
+        )
+        SELECT
+            refs.*,
+            price.id::text AS active_price_list_item_id,
+            price.unit_price_cents,
+            price.uom AS active_price_uom,
+            price.cost_source,
+            price.source_supplier_item_cost_id::text,
+            supplier.item_supplier_id,
+            supplier.supplier_item_cost_id,
+            supplier.unit_cost_cents AS supplier_unit_cost_cents,
+            supplier.order_uom AS supplier_order_uom
+        FROM catalog_refs refs
+        LEFT JOIN LATERAL (
+            SELECT
+                item.id,
+                item.unit_price_cents,
+                item.uom,
+                item.cost_source,
+                item.source_supplier_item_cost_id
+            FROM price_list_items item
+            WHERE item.company_id = %s
+              AND item.price_list_id = %s
+              AND item.item_type = refs.item_type
+              AND item.item_key = refs.item_key
+              AND item.price_component = refs.price_component
+              AND item.effective_from <= now()
+              AND (item.effective_to IS NULL OR item.effective_to > now())
+            ORDER BY item.effective_from DESC, item.id DESC
+            LIMIT 1
+        ) price ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT
+                item.id::text AS item_supplier_id,
+                cost.id::text AS supplier_item_cost_id,
+                cost.unit_cost_cents,
+                item.order_uom
+            FROM item_suppliers item
+            JOIN supplier_item_costs cost
+              ON cost.company_id = item.company_id
+             AND cost.item_supplier_id = item.id
+             AND cost.effective_from <= now()
+             AND (cost.effective_to IS NULL OR cost.effective_to > now())
+            WHERE item.company_id = %s
+              AND item.item_type = refs.item_type
+              AND item.item_ref_id::text = refs.item_ref_id
+              AND item.price_component = refs.price_component
+            ORDER BY item.is_preferred DESC, cost.unit_cost_cents ASC, item.id ASC
+            LIMIT 1
+        ) supplier ON TRUE
+        WHERE refs.item_name IS NOT NULL
+          AND refs.item_name <> ''
+        ORDER BY refs.item_type ASC, refs.item_name ASC, refs.price_component ASC, refs.project_name ASC, refs.quote_number ASC, refs.usage_label ASC
+        """,
+        (company_id, active_quote_statuses, profile_handle_keys, company_id, price_list_id, company_id),
+    ).fetchall()
+
+
+def _build_price_list_coverage_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    quote_contexts: dict[tuple[str, str, str], dict[tuple[str, str, str], dict[str, Any]]] = {}
+
+    for row in rows:
+        key = (str(row["item_type"]), str(row["item_ref_id"]), str(row["price_component"]))
+        coverage = grouped.get(key)
+        if coverage is None:
+            has_current_price = bool(row.get("active_price_list_item_id"))
+            cost_source = str(row.get("cost_source") or "").strip().lower() or None
+            has_supplier_cost = bool(row.get("supplier_item_cost_id"))
+            is_stale = _coverage_row_is_stale(row, has_current_price=has_current_price, cost_source=cost_source)
+            is_override = has_current_price and cost_source in {"manual", "override"}
+            grouped[key] = {
+                "item_type": row["item_type"],
+                "item_type_label": _coverage_item_type_label(str(row["item_type"])),
+                "item_ref_id": row["item_ref_id"],
+                "item_key": row["item_key"],
+                "item_name": row["item_name"],
+                "price_component": row["price_component"],
+                "component": _coverage_component_label(str(row["price_component"])),
+                "uom": row.get("active_price_uom") or row["uom"],
+                "status": _coverage_row_status(
+                    has_current_price=has_current_price,
+                    is_stale=is_stale,
+                    is_override=is_override,
+                ),
+                "has_current_price": has_current_price,
+                "active_price_list_item_id": row.get("active_price_list_item_id"),
+                "unit_price_cents": row.get("unit_price_cents"),
+                "cost_source": cost_source,
+                "source_supplier_item_cost_id": row.get("source_supplier_item_cost_id"),
+                "has_supplier_cost": has_supplier_cost,
+                "active_supplier_item_id": row.get("item_supplier_id"),
+                "active_supplier_item_cost_id": row.get("supplier_item_cost_id"),
+                "supplier_unit_cost_cents": row.get("supplier_unit_cost_cents"),
+                "supplier_order_uom": row.get("supplier_order_uom"),
+                "quote_count": 0,
+                "used_in": [],
+            }
+            quote_contexts[key] = {}
+
+        context_key = (
+            str(row["project_id"]),
+            str(row["quote_id"]),
+            str(row["usage_label"]),
+        )
+        quote_contexts[key][context_key] = {
+            "project_id": row["project_id"],
+            "project_name": row["project_name"],
+            "quote_id": row["quote_id"],
+            "quote_name": row["quote_name"],
+            "quote_number": row["quote_number"],
+            "revision": int(row["revision"]),
+            "quote_status": row["quote_status"],
+            "usage_label": row["usage_label"],
+        }
+
+    coverage_rows = []
+    for key, coverage in grouped.items():
+        contexts = sorted(
+            quote_contexts[key].values(),
+            key=lambda item: (str(item["project_name"]), str(item["quote_number"]), int(item["revision"]), str(item["usage_label"])),
+        )
+        coverage["used_in"] = contexts
+        coverage["quote_count"] = len({context["quote_id"] for context in contexts})
+        coverage_rows.append(coverage)
+
+    return sorted(
+        coverage_rows,
+        key=lambda row: (
+            _coverage_item_type_sort(str(row["item_type"])),
+            str(row["item_name"]),
+            str(row["price_component"]),
+        ),
+    )
+
+
+def _price_coverage_groups(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["item_type"]), []).append(row)
+    return [
+        {
+            "item_type": item_type,
+            "item_type_label": _coverage_item_type_label(item_type),
+            **_price_coverage_counts(group_rows),
+            "rows": group_rows,
+        }
+        for item_type, group_rows in sorted(grouped.items(), key=lambda item: _coverage_item_type_sort(item[0]))
+    ]
+
+
+def _price_coverage_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "used_count": len(rows),
+        "covered_count": sum(1 for row in rows if row["has_current_price"]),
+        "missing_count": sum(1 for row in rows if not row["has_current_price"]),
+        "stale_count": sum(1 for row in rows if row["status"] == "stale"),
+        "override_count": sum(1 for row in rows if row["status"] == "override"),
+    }
+
+
+def _coverage_row_is_stale(row: dict[str, Any], *, has_current_price: bool, cost_source: str | None) -> bool:
+    if not has_current_price or cost_source != "supplier":
+        return False
+    if not row.get("supplier_item_cost_id"):
+        return True
+    return (
+        str(row.get("source_supplier_item_cost_id") or "") != str(row.get("supplier_item_cost_id") or "")
+        or int(row.get("unit_price_cents") or 0) != int(row.get("supplier_unit_cost_cents") or 0)
+        or str(row.get("active_price_uom") or "") != str(row.get("supplier_order_uom") or "")
+    )
+
+
+def _coverage_row_status(*, has_current_price: bool, is_stale: bool, is_override: bool) -> str:
+    if not has_current_price:
+        return "missing"
+    if is_stale:
+        return "stale"
+    if is_override:
+        return "override"
+    return "covered"
+
+
+def _coverage_item_type_label(item_type: str) -> str:
+    labels = {
+        "board": "Board",
+        "slide": "Drawer hardware",
+        "hinge": "Hinge",
+        "handle": "Handle",
+        "extra": "Extra",
+    }
+    return labels.get(item_type, item_type.replace("_", " ").title())
+
+
+def _coverage_component_label(price_component: str) -> str:
+    labels = {
+        "unit": "Unit price",
+        "sqm": "Square metre price",
+        "sheet": "Sheet price",
+        "edging_m": "Edging per metre",
+        "labour_board": "Labour per board",
+    }
+    return labels.get(price_component, price_component.replace("_", " ").title())
+
+
+def _coverage_item_type_sort(item_type: str) -> int:
+    order = {"board": 10, "slide": 20, "hinge": 30, "handle": 40, "extra": 50}
+    return order.get(item_type, 999)
 
 
 def _summary_count(summary: dict[str, Any], key: str) -> int:

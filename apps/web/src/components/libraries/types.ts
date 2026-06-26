@@ -310,6 +310,66 @@ export type GeneratePriceListSummary = {
   missing_price_count: number
 }
 
+export type PricingCoverageStatus = 'covered' | 'missing' | 'stale' | 'override'
+
+export type PricingCoverageQuoteContext = {
+  project_id: string
+  project_name: string
+  quote_id: string
+  quote_name: string
+  quote_number: string
+  revision: number
+  quote_status: string
+  usage_label: string
+}
+
+export type PricingCoverageRow = {
+  item_type: PriceItemType
+  item_type_label: string
+  item_ref_id: string
+  item_key: string
+  item_name: string
+  price_component: string
+  component: string
+  uom: string
+  status: PricingCoverageStatus
+  has_current_price: boolean
+  active_price_list_item_id: string | null
+  unit_price_cents: number | null
+  cost_source: PriceListItemRow['cost_source'] | null
+  source_supplier_item_cost_id: string | null
+  has_supplier_cost: boolean
+  active_supplier_item_id: string | null
+  active_supplier_item_cost_id: string | null
+  supplier_unit_cost_cents: number | null
+  supplier_order_uom: string | null
+  quote_count: number
+  used_in: PricingCoverageQuoteContext[]
+}
+
+export type PricingCoverageGroup = {
+  item_type: PriceItemType
+  item_type_label: string
+  used_count: number
+  covered_count: number
+  missing_count: number
+  stale_count: number
+  override_count: number
+  rows: PricingCoverageRow[]
+}
+
+export type PricingCoverage = {
+  price_list_id: string
+  price_list_name: string
+  generated_at: string
+  used_count: number
+  covered_count: number
+  missing_count: number
+  stale_count: number
+  override_count: number
+  groups: PricingCoverageGroup[]
+}
+
 export type SupplierDiscountSummary = {
   supplier_id: string
   discount_bps: number

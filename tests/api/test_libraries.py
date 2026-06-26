@@ -67,6 +67,7 @@ class FakeLibraryStore:
         self.supplier_discount_payload: tuple[str, dict] | None = None
         self.generation_payload: tuple[str, dict] | None = None
         self.price_item_list_payload: tuple[str, str, bool, datetime | None, str | None, str | None, str | None, int | None] | None = None
+        self.price_coverage_payload: tuple[str, str] | None = None
         self.price_item_bulk_update_payload: tuple[str, str, dict] | None = None
         self.setup_checklist_company_id: str | None = None
         self.import_preview_company_id: str | None = None
@@ -463,6 +464,10 @@ class FakeLibraryStore:
     def get_price_list(self, company_id: str, price_list_id: str):
         return price_list(price_list_id)
 
+    def get_price_list_coverage(self, company_id: str, price_list_id: str):
+        self.price_coverage_payload = (company_id, price_list_id)
+        return price_coverage(price_list_id)
+
     def update_price_list(self, company_id: str, price_list_id: str, payload: dict):
         self.price_list_payload = payload
         return price_list(price_list_id, name=payload["name"], status=payload["status"])
@@ -800,6 +805,97 @@ def price_item(
         "effective_status": _effective_status(effective_from, effective_to, NOW),
         "created_at": NOW,
         "updated_at": NOW,
+    }
+
+
+def price_coverage(price_list_id: str) -> dict:
+    quote_context = {
+        "project_id": "project-1",
+        "project_name": "Smith Kitchen",
+        "quote_id": "quote-1",
+        "quote_name": "Main kitchen",
+        "quote_number": "Q-001",
+        "revision": 1,
+        "quote_status": "draft",
+        "usage_label": "Unit 1 drawer hardware",
+    }
+    covered_row = {
+        "item_type": "slide",
+        "item_type_label": "Drawer hardware",
+        "item_ref_id": "slide-1",
+        "item_key": "slide::slide-1",
+        "item_name": "Grass Dynapro (DYN-500)",
+        "price_component": "unit",
+        "component": "Unit price",
+        "uom": "pairs",
+        "status": "covered",
+        "has_current_price": True,
+        "active_price_list_item_id": "price-item-1",
+        "unit_price_cents": 12500,
+        "cost_source": "supplier",
+        "source_supplier_item_cost_id": "supplier-cost-1",
+        "has_supplier_cost": True,
+        "active_supplier_item_id": "item-supplier-1",
+        "active_supplier_item_cost_id": "supplier-cost-1",
+        "supplier_unit_cost_cents": 12500,
+        "supplier_order_uom": "pairs",
+        "quote_count": 1,
+        "used_in": [quote_context],
+    }
+    missing_row = {
+        "item_type": "handle",
+        "item_type_label": "Handle",
+        "item_ref_id": "handle-1",
+        "item_key": "handle::handle-1",
+        "item_name": "Core Bar Handle",
+        "price_component": "unit",
+        "component": "Unit price",
+        "uom": "pcs",
+        "status": "missing",
+        "has_current_price": False,
+        "active_price_list_item_id": None,
+        "unit_price_cents": None,
+        "cost_source": None,
+        "source_supplier_item_cost_id": None,
+        "has_supplier_cost": False,
+        "active_supplier_item_id": None,
+        "active_supplier_item_cost_id": None,
+        "supplier_unit_cost_cents": None,
+        "supplier_order_uom": None,
+        "quote_count": 1,
+        "used_in": [{**quote_context, "usage_label": "Quote base handle default"}],
+    }
+    return {
+        "price_list_id": price_list_id,
+        "price_list_name": "Default Price List",
+        "generated_at": NOW,
+        "used_count": 2,
+        "covered_count": 1,
+        "missing_count": 1,
+        "stale_count": 0,
+        "override_count": 0,
+        "groups": [
+            {
+                "item_type": "slide",
+                "item_type_label": "Drawer hardware",
+                "used_count": 1,
+                "covered_count": 1,
+                "missing_count": 0,
+                "stale_count": 0,
+                "override_count": 0,
+                "rows": [covered_row],
+            },
+            {
+                "item_type": "handle",
+                "item_type_label": "Handle",
+                "used_count": 1,
+                "covered_count": 0,
+                "missing_count": 1,
+                "stale_count": 0,
+                "override_count": 0,
+                "rows": [missing_row],
+            },
+        ],
     }
 
 
@@ -2350,6 +2446,40 @@ def test_price_list_items_accept_search_status_and_recent_filters():
         "current",
         14,
     )
+
+
+def test_price_list_coverage_returns_quote_context_and_groups():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.get("/api/v1/libraries/price-lists/price-list-1/coverage", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["price_list_id"] == "price-list-1"
+    assert payload["covered_count"] == 1
+    assert payload["missing_count"] == 1
+    assert [group["item_type"] for group in payload["groups"]] == ["slide", "handle"]
+    assert payload["groups"][0]["rows"][0]["used_in"][0]["project_name"] == "Smith Kitchen"
+    assert payload["groups"][1]["rows"][0]["status"] == "missing"
+    assert store.price_coverage_payload == ("company-1", "price-list-1")
+
+
+def test_price_list_coverage_requires_pricing_read_permission():
+    store = FakeLibraryStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="production")
+    app.dependency_overrides[libraries.get_library_store] = lambda: store
+    try:
+        response = client.get("/api/v1/libraries/price-lists/price-list-1/coverage", headers=auth_header())
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: pricing:read"}
+    assert store.price_coverage_payload is None
 
 
 def test_bulk_price_update_previews_and_applies_selected_rows():

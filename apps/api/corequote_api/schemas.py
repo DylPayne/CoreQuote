@@ -1745,6 +1745,64 @@ class PriceListResponse(PriceListRequest):
     updated_at: datetime
 
 
+class PricingCoverageQuoteContextResponse(BaseModel):
+    project_id: str
+    project_name: str
+    quote_id: str
+    quote_name: str
+    quote_number: str
+    revision: int = Field(ge=1)
+    quote_status: str
+    usage_label: str
+
+
+class PricingCoverageRowResponse(BaseModel):
+    item_type: Literal["board", "slide", "hinge", "handle", "extra"]
+    item_type_label: str
+    item_ref_id: str
+    item_key: str
+    item_name: str
+    price_component: str
+    component: str
+    uom: str
+    status: Literal["covered", "missing", "stale", "override"]
+    has_current_price: bool
+    active_price_list_item_id: str | None = None
+    unit_price_cents: int | None = None
+    cost_source: Literal["manual", "supplier", "override", "import"] | None = None
+    source_supplier_item_cost_id: str | None = None
+    has_supplier_cost: bool
+    active_supplier_item_id: str | None = None
+    active_supplier_item_cost_id: str | None = None
+    supplier_unit_cost_cents: int | None = None
+    supplier_order_uom: str | None = None
+    quote_count: int = Field(ge=0)
+    used_in: list[PricingCoverageQuoteContextResponse] = Field(default_factory=list)
+
+
+class PricingCoverageGroupResponse(BaseModel):
+    item_type: Literal["board", "slide", "hinge", "handle", "extra"]
+    item_type_label: str
+    used_count: int = Field(ge=0)
+    covered_count: int = Field(ge=0)
+    missing_count: int = Field(ge=0)
+    stale_count: int = Field(ge=0)
+    override_count: int = Field(ge=0)
+    rows: list[PricingCoverageRowResponse] = Field(default_factory=list)
+
+
+class PricingCoverageResponse(BaseModel):
+    price_list_id: str
+    price_list_name: str
+    generated_at: datetime
+    used_count: int = Field(ge=0)
+    covered_count: int = Field(ge=0)
+    missing_count: int = Field(ge=0)
+    stale_count: int = Field(ge=0)
+    override_count: int = Field(ge=0)
+    groups: list[PricingCoverageGroupResponse] = Field(default_factory=list)
+
+
 class PricingSettingsRequest(PricingSettingsFields):
     model_config = ConfigDict(extra="forbid")
 
