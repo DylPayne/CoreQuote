@@ -340,6 +340,15 @@ class QuoteStatusRequest(BaseModel):
     status: QuoteStatus
 
 
+class QuotePricingBasisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pricing_as_of: datetime | None = Field(
+        default=None,
+        description="Optional timestamp used to resolve effective price-list rows for this quote.",
+    )
+
+
 class QuoteResponse(QuoteRequest):
     model_config = ConfigDict(from_attributes=True)
 
@@ -352,6 +361,7 @@ class QuoteResponse(QuoteRequest):
     previous_revision_id: str | None = None
     previous_revision_quote_number: str | None = None
     previous_revision_revision: int | None = Field(default=None, ge=1)
+    pricing_as_of: datetime | None = None
     unit_count: int = Field(default=0, ge=0)
     custom_panels: "QuoteCustomPanelsRequest" = Field(default_factory=lambda: QuoteCustomPanelsRequest())
     created_at: datetime

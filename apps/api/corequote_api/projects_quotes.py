@@ -103,6 +103,7 @@ QUOTE_SELECT = """
     q.wall_front_overhang_default,
     q.production_metadata,
     q.custom_panels,
+    q.pricing_as_of,
     q.hardware_catalog_snapshot,
     COALESCE(count(qu.id), 0)::int AS unit_count,
     q.created_at,
@@ -175,7 +176,7 @@ def _sum_bucket_totals(quote_summaries: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _quote_pricing_as_of(quote: dict[str, Any]) -> datetime:
-    return _coerce_effective_datetime(quote.get("updated_at") or quote.get("created_at"))
+    return _coerce_effective_datetime(quote.get("pricing_as_of") or quote.get("updated_at") or quote.get("created_at"))
 
 
 def _quote_hardware_snapshot_refs(
@@ -655,6 +656,23 @@ class WorkspaceStore:
                     """,
                     (cleaned_status, Jsonb(snapshot) if snapshot is not None else None, company_id, quote_id),
                 ).fetchone()
+        if not row:
+            raise WorkspaceNotFound("Quote not found")
+        return self.get_quote(company_id, quote_id)
+
+    def update_quote_pricing_basis(self, company_id: str, quote_id: str, pricing_as_of: datetime | None) -> dict:
+        effective_at = _coerce_effective_datetime(pricing_as_of) if pricing_as_of is not None else None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                UPDATE quotes
+                SET pricing_as_of = %s
+                WHERE company_id = %s
+                  AND id = %s
+                RETURNING id::text
+                """,
+                (effective_at, company_id, quote_id),
+            ).fetchone()
         if not row:
             raise WorkspaceNotFound("Quote not found")
         return self.get_quote(company_id, quote_id)

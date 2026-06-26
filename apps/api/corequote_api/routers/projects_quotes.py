@@ -25,6 +25,7 @@ from corequote_api.schemas import (
     QuoteExtrasRequest,
     QuoteExtrasResponse,
     QuoteOutputReviewResponse,
+    QuotePricingBasisRequest,
     QuotePricingSettingsResponse,
     QuoteProductionHandoffResponse,
     QuoteReadinessResponse,
@@ -186,6 +187,30 @@ def update_quote_status(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     except WorkspaceConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return _quote_response(row)
+
+
+@router.patch(
+    "/quotes/{quote_id}/pricing-basis",
+    response_model=QuoteResponse,
+    summary="Update the quote pricing basis date",
+)
+def update_quote_pricing_basis(
+    quote_id: str,
+    payload: QuotePricingBasisRequest,
+    current_user: QuotesWriter,
+    store: StoreDep,
+) -> QuoteResponse:
+    try:
+        row = store.update_quote_pricing_basis(
+            current_user.company_id,
+            quote_id,
+            payload.pricing_as_of,
+        )
+    except WorkspaceValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found") from exc
     return _quote_response(row)
 
 
