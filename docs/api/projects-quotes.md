@@ -82,6 +82,7 @@ POST  /api/v1/projects/{project_id}/quotes
 GET   /api/v1/quotes/{quote_id}
 PATCH /api/v1/quotes/{quote_id}
 PATCH /api/v1/quotes/{quote_id}/status
+PATCH /api/v1/quotes/{quote_id}/pricing-basis
 POST  /api/v1/quotes/{quote_id}/duplicate
 POST  /api/v1/quotes/{quote_id}/revisions
 DELETE /api/v1/quotes/{quote_id}
@@ -155,9 +156,31 @@ Quote responses include `unit_count`, status, quote number, and revision fields 
   "previous_revision_id": null,
   "previous_revision_quote_number": null,
   "previous_revision_revision": null,
+  "pricing_as_of": "2026-06-12T08:00:00Z",
   "unit_count": 5,
   "created_at": "2026-06-01T10:30:00Z",
   "updated_at": "2026-06-01T10:30:00Z"
+}
+```
+
+### Quote Pricing Basis
+
+```http
+PATCH /api/v1/quotes/{quote_id}/pricing-basis
+```
+
+Permission: `quotes:write`.
+
+Sets the timestamp used to resolve effective price-list rows for the quote.
+Use this when an older quote should pick up prices that were added after the
+quote was created. Passing `null` clears the explicit basis and falls back to
+the quote's latest update timestamp.
+
+Request payload:
+
+```json
+{
+  "pricing_as_of": "2026-06-12T08:00:00Z"
 }
 ```
 
@@ -1364,7 +1387,7 @@ The endpoint builds a live project pricing summary by combining:
 
 - Project quotes and units.
 - Quote-selected extras.
-- Price-list items current at each quote's pricing timestamp if an active price list exists.
+- Price-list items current at each quote's explicit pricing basis, or the quote's latest update timestamp when no basis is set.
 - Project pricing defaults for project metadata.
 - Each quote's own pricing settings for quote calculations.
 

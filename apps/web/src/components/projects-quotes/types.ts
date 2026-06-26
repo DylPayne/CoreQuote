@@ -57,6 +57,7 @@ export type QuoteRow = {
   previous_revision_id: string | null
   previous_revision_quote_number: string | null
   previous_revision_revision: number | null
+  pricing_as_of: string | null
   default_carcass_board_type_id: string | null
   default_door_board_type_id: string | null
   default_panel_board_type_id: string | null

@@ -18,6 +18,7 @@ import {
   LoaderCircle,
   Pencil,
   Plus,
+  RefreshCcw,
   Trash2,
   XCircle,
   type LucideIcon,
@@ -66,6 +67,27 @@ function formatMaterialArea(value: number) {
 function formatEstimatedSheets(value: number | null) {
   if (value === null) return 'Needs dimensions'
   return `${formatPricingQty(value)} est. ${value === 1 ? 'sheet' : 'sheets'}`
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return 'Not set'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function dateTimeInputValue(value: string | null) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return localDate.toISOString().slice(0, 16)
+}
+
+function dateTimeInputToIso(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const date = new Date(trimmed)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
 function formatUnitDraftWallOverhang(draft: UnitDraft, quoteDefault?: QuoteRow['wall_front_overhang_default'] | null) {
@@ -1719,6 +1741,7 @@ export function ProjectsQuotesPage({
   const [bulkApplyDraft, setBulkApplyDraft] = useState<BulkApplyDraft>(defaultBulkApplyDraft)
   const [projectPricingSettingsDraft, setProjectPricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
   const [quotePricingSettingsDraft, setQuotePricingSettingsDraft] = useState<PricingSettingsDraft>(defaultPricingSettingsDraft)
+  const [quotePricingBasisDraft, setQuotePricingBasisDraft] = useState<{ quoteId: string; value: string } | null>(null)
 
   const [projectEditId, setProjectEditId] = useState<string | null>(null)
   const [quoteEditId, setQuoteEditId] = useState<string | null>(null)
@@ -1755,6 +1778,7 @@ export function ProjectsQuotesPage({
   const [isSavingQuoteCustomPanels, setIsSavingQuoteCustomPanels] = useState(false)
   const [isSavingProjectPricingSettings, setIsSavingProjectPricingSettings] = useState(false)
   const [isSavingQuotePricingSettings, setIsSavingQuotePricingSettings] = useState(false)
+  const [isSavingQuotePricingBasis, setIsSavingQuotePricingBasis] = useState(false)
   const [generatingOutputActionId, setGeneratingOutputActionId] = useState<QuoteOutputAction['id'] | null>(null)
   const [isQuoteExtrasDirty, setIsQuoteExtrasDirty] = useState(false)
   const [isQuoteCustomPanelsDirty, setIsQuoteCustomPanelsDirty] = useState(false)
@@ -1784,6 +1808,12 @@ export function ProjectsQuotesPage({
     return Array.from(groups.entries()).map(([bucket, lines]) => ({ bucket, lines }))
   }, [selectedQuotePricing])
   const pricingCurrencyCode = projectPricing?.currency_code ?? currencyCode
+  const quotePricingBasisDefaultValue = dateTimeInputValue(
+    selectedQuotePricing?.pricing_as_of ?? selectedQuote?.pricing_as_of ?? selectedQuote?.updated_at ?? null,
+  )
+  const quotePricingBasisValue = quotePricingBasisDraft?.quoteId === selectedQuoteId
+    ? quotePricingBasisDraft.value
+    : quotePricingBasisDefaultValue
 
   const boardLabel = useCallback(
     (boardId: string | null) => {
@@ -2844,6 +2874,44 @@ export function ProjectsQuotesPage({
     } finally {
       setIsSavingQuotePricingSettings(false)
     }
+  }
+
+  async function saveQuotePricingBasis(pricingAsOf: string | null) {
+    if (!selectedProjectId || !selectedQuoteId) return
+    setIsSavingQuotePricingBasis(true)
+    setError(null)
+    try {
+      const updated = await apiRequest<QuoteRow>(`/api/v1/quotes/${selectedQuoteId}/pricing-basis`, {
+        method: 'PATCH',
+        token: authToken,
+        body: { pricing_as_of: pricingAsOf },
+      })
+      setQuotes((current) => current.map((quote) => (quote.id === updated.id ? updated : quote)))
+      setQuotePricingBasisDraft({ quoteId: selectedQuoteId, value: dateTimeInputValue(updated.pricing_as_of ?? pricingAsOf) })
+      await loadQuoteReadiness(selectedQuoteId)
+      await loadProjectPricing(selectedProjectId)
+      if (quoteOutputReview) {
+        await loadQuoteOutputReview(selectedQuoteId)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save the quote price date.')
+    } finally {
+      setIsSavingQuotePricingBasis(false)
+    }
+  }
+
+  async function handleSaveQuotePricingBasis(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const pricingAsOf = dateTimeInputToIso(quotePricingBasisValue)
+    if (!pricingAsOf) {
+      setError('Choose a valid quote price date.')
+      return
+    }
+    await saveQuotePricingBasis(pricingAsOf)
+  }
+
+  async function handleUseLatestQuotePrices() {
+    await saveQuotePricingBasis(new Date().toISOString())
   }
 
   async function handleProjectSubmit(event: FormEvent<HTMLFormElement>) {
@@ -4221,6 +4289,46 @@ export function ProjectsQuotesPage({
                             activePriceListId={selectedQuotePricing.active_price_list_id}
                             onOpenLibraries={onOpenLibraries}
                           />
+                          <form className="grid gap-3 rounded-[var(--card-radius)] border border-border bg-card p-3" onSubmit={handleSaveQuotePricingBasis}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold">Price date</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {formatDateTime(selectedQuotePricing.pricing_as_of)}
+                                </p>
+                              </div>
+                              {selectedQuotePricing.missing_prices.length > 0 ? (
+                                <Badge variant="warning">{formatMissingPriceCount(selectedQuotePricing.missing_prices.length)}</Badge>
+                              ) : (
+                                <Badge variant="success">Prices found</Badge>
+                              )}
+                            </div>
+                            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                              <Label className="grid gap-1.5">
+                                Date and time
+                                <Input
+                                  type="datetime-local"
+                                  value={quotePricingBasisValue}
+                                  onChange={(event) => {
+                                    if (!selectedQuoteId) return
+                                    setQuotePricingBasisDraft({ quoteId: selectedQuoteId, value: event.target.value })
+                                  }}
+                                />
+                              </Label>
+                              <Button disabled={isSavingQuotePricingBasis} type="submit" variant="outline">
+                                {isSavingQuotePricingBasis ? (
+                                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+                                ) : (
+                                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                                )}
+                                Save date
+                              </Button>
+                              <Button disabled={isSavingQuotePricingBasis} onClick={handleUseLatestQuotePrices} type="button">
+                                <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+                                Use latest prices
+                              </Button>
+                            </div>
+                          </form>
                           <MissingPriceGuidance
                             includeQuote={false}
                             missingPrices={selectedQuotePricing.missing_prices}

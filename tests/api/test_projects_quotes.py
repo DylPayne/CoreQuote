@@ -91,6 +91,7 @@ class FakeWorkspaceStore:
         self.updated_project_pricing_settings_payload: tuple[str, str, dict] | None = None
         self.requested_quote_pricing_settings: tuple[str, str] | None = None
         self.updated_quote_pricing_settings_payload: tuple[str, str, dict] | None = None
+        self.updated_quote_pricing_basis_payload: tuple[str, str, datetime | None] | None = None
 
     def list_projects(self, company_id: str, search: str | None = None) -> list[dict]:
         return [project("project-1", quote_count=2)]
@@ -459,6 +460,12 @@ class FakeWorkspaceStore:
         self.updated_quote_pricing_settings_payload = (company_id, quote_id, payload)
         return pricing_settings(quote_id=quote_id, **payload)
 
+    def update_quote_pricing_basis(self, company_id: str, quote_id: str, pricing_as_of: datetime | None) -> dict:
+        if quote_id == "missing":
+            raise WorkspaceNotFound("Quote not found")
+        self.updated_quote_pricing_basis_payload = (company_id, quote_id, pricing_as_of)
+        return quote(quote_id, project_id="project-1", pricing_as_of=pricing_as_of, unit_count=2)
+
 
 def test_list_projects_returns_quote_counts():
     store = FakeWorkspaceStore()
@@ -648,6 +655,44 @@ def test_update_quote_status_requires_quotes_write_permission():
     assert response.status_code == 403
     assert response.json() == {"detail": "Missing permission: quotes:write"}
     assert store.updated_quote_status_payload is None
+
+
+def test_update_quote_pricing_basis_from_workspace():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="estimator")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    pricing_as_of = "2026-06-12T08:00:00Z"
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/pricing-basis",
+            json={"pricing_as_of": pricing_as_of},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    expected = datetime(2026, 6, 12, 8, 0, tzinfo=UTC)
+    assert response.status_code == 200
+    assert response.json()["pricing_as_of"] == "2026-06-12T08:00:00Z"
+    assert store.updated_quote_pricing_basis_payload == ("company-1", "quote-1", expected)
+
+
+def test_update_quote_pricing_basis_requires_quotes_write_permission():
+    store = FakeWorkspaceStore()
+    app.dependency_overrides[auth.get_auth_store] = lambda: FakeAuthStore(role="viewer")
+    app.dependency_overrides[projects_quotes.get_workspace_store] = lambda: store
+    try:
+        response = client.patch(
+            "/api/v1/quotes/quote-1/pricing-basis",
+            json={"pricing_as_of": "2026-06-12T08:00:00Z"},
+            headers=auth_header(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Missing permission: quotes:write"}
+    assert store.updated_quote_pricing_basis_payload is None
 
 
 def test_create_quote_revision_links_to_previous_quote():
@@ -1983,6 +2028,20 @@ def test_quote_pricing_as_of_prefers_quote_updated_at():
     assert _quote_pricing_as_of({"created_at": created_at, "updated_at": updated_at}) == updated_at
 
 
+def test_quote_pricing_as_of_prefers_explicit_pricing_basis():
+    created_at = datetime(2026, 5, 1, 9, 0, tzinfo=UTC)
+    updated_at = datetime(2026, 6, 1, 10, 30, tzinfo=UTC)
+    pricing_as_of = datetime(2026, 6, 12, 8, 0, tzinfo=UTC)
+
+    assert _quote_pricing_as_of(
+        {
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "pricing_as_of": pricing_as_of,
+        }
+    ) == pricing_as_of
+
+
 def test_workspace_price_lookup_respects_effective_date_and_company_scope():
     store = WorkspaceStore(database_url="postgresql://unused")
     conn = RecordingPricingConn()
@@ -2039,6 +2098,7 @@ def quote(
     previous_revision_id: str | None = None,
     previous_revision_quote_number: str | None = None,
     previous_revision_revision: int | None = None,
+    pricing_as_of: datetime | None = None,
     unit_count: int = 0,
     wall_front_overhang_default: dict | None = None,
 ) -> dict:
@@ -2054,6 +2114,7 @@ def quote(
         "previous_revision_id": previous_revision_id,
         "previous_revision_quote_number": previous_revision_quote_number,
         "previous_revision_revision": previous_revision_revision,
+        "pricing_as_of": pricing_as_of,
         "default_carcass_board_type_id": None,
         "default_door_board_type_id": None,
         "default_panel_board_type_id": None,
