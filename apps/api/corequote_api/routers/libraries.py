@@ -34,6 +34,7 @@ from corequote_api.schemas import (
     PriceListItemResponse,
     PriceListRequest,
     PriceListResponse,
+    PricingCoverageResponse,
     PricingSettingsRequest,
     PricingSettingsResponse,
     LibrarySetupChecklistResponse,
@@ -600,6 +601,19 @@ def get_active_price_list(
 @router.get("/price-lists/{price_list_id}", response_model=PriceListResponse, summary="Get a price list")
 def get_price_list(price_list_id: str, current_user: PricingReader, store: StoreDep) -> PriceListResponse:
     return _get_response(PriceListResponse, store.get_price_list, current_user.company_id, price_list_id)
+
+
+@router.get(
+    "/price-lists/{price_list_id}/coverage",
+    response_model=PricingCoverageResponse,
+    summary="Get price list coverage for active quote work",
+)
+def get_price_list_coverage(
+    price_list_id: str,
+    current_user: PricingReader,
+    store: StoreDep,
+) -> PricingCoverageResponse:
+    return _get_response(PricingCoverageResponse, store.get_price_list_coverage, current_user.company_id, price_list_id)
 
 
 @router.patch("/price-lists/{price_list_id}", response_model=PriceListResponse, summary="Update a price list")

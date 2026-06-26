@@ -49,7 +49,7 @@ import type { HardwareAccessoryOptions } from '@/components/libraries/tables'
 import { PricingSettingsEditor } from '@/components/pricing-settings-editor'
 import { defaultPricingSettingsDraft, pricingSettingsPayloadFromDraft, pricingSettingsToDraft, type PricingSettingsDraft } from '@/components/pricing-settings'
 import { currencyLabel, normalizeCurrencyCode } from '@/lib/currency'
-import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HandleType, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingSettingsRow, SlideMountType, SlideRangeCreateResponse, SlideRangeDraft, SlideRangeLengthDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
+import type { BoardDraft, BoardGrainPolicy, BoardTypeRow, ExtraCategoryDraft, ExtraCategoryRow, ExtraDraft, ExtraRow, GeneratePriceListSummary, HandleDraft, HandleRow, HandleType, HardwareAccessoryConfig, HardwareAccessoryRule, HingeDraft, HingeRow, ItemSupplierDraft, ItemSupplierRow, LibraryBulkUpdateResult, LibraryCatalogBulkResource, LibraryEffectiveStatus, LibraryImportApplyRequest, LibraryImportApplyResult, LibraryImportApplyRowStatus, LibraryImportPreview, LibraryImportPreviewRequest, LibraryImportResource, LibraryImportRowStatus, LibraryImportSourceFormat, LibrarySetupActionTarget, LibrarySetupChecklist, LibrarySetupItemStatus, LibraryTab, PriceItemType, PriceListDraft, PriceListItemRow, PriceListRow, PricingCoverage, PricingCoverageGroup, PricingCoverageRow, PricingCoverageStatus, PricingSettingsRow, SlideMountType, SlideRangeCreateResponse, SlideRangeDraft, SlideRangeLengthDraft, SlideRow, SupplierDiscountSummary, SupplierDraft, SupplierRow } from '@/components/libraries/types'
 
 const priceItemTypes: PriceItemType[] = ['slide', 'hinge', 'handle', 'extra', 'board']
 
@@ -96,7 +96,7 @@ type RecentFilterValue = 'all' | '7' | '30' | '90'
 type PriceStatusFilterValue = 'all' | LibraryEffectiveStatus
 type PriceTypeFilterValue = 'all' | PriceItemType
 type PriceSourceFilterValue = 'all' | PriceListItemRow['cost_source']
-type PricingSubTab = 'settings' | 'lists' | 'quick-update' | 'history' | 'all-prices'
+type PricingSubTab = 'coverage' | 'settings' | 'lists' | 'quick-update' | 'history' | 'all-prices'
 type BulkAccessoryResource = Extract<LibraryCatalogBulkResource, 'slides' | 'hinges'>
 type CreateCatalogResource = LibraryCatalogBulkResource | 'extra-categories'
 type CatalogBulkMode = 'fields' | 'accessories'
@@ -139,6 +139,7 @@ const priceSourceOptions: Array<{ label: string; value: PriceSourceFilterValue }
 ]
 
 const pricingSubTabs: Array<{ label: string; value: PricingSubTab }> = [
+  { label: 'Coverage', value: 'coverage' },
   { label: 'Pricing Settings', value: 'settings' },
   { label: 'Supplier Costs & Lists', value: 'lists' },
   { label: 'Manual Override', value: 'quick-update' },
@@ -537,6 +538,13 @@ const priceSourceLabels: Record<PriceListItemRow['cost_source'], string> = {
   supplier: 'Supplier cost',
 }
 
+const coverageStatusLabels: Record<PricingCoverageStatus, string> = {
+  covered: 'Covered',
+  missing: 'Missing',
+  override: 'Manual override',
+  stale: 'Stale supplier cost',
+}
+
 const priceItemTypeLabels: Record<PriceItemType, string> = {
   board: 'Board',
   extra: 'Extra',
@@ -644,6 +652,16 @@ function priceStatusLabel(status: LibraryEffectiveStatus) {
 
 function priceSourceLabel(source: PriceListItemRow['cost_source']) {
   return priceSourceLabels[source]
+}
+
+function coverageStatusLabel(status: PricingCoverageStatus) {
+  return coverageStatusLabels[status]
+}
+
+function coverageStatusBadgeVariant(status: PricingCoverageStatus) {
+  if (status === 'covered') return 'success' as const
+  if (status === 'missing' || status === 'stale') return 'warning' as const
+  return 'outline' as const
 }
 
 function priceItemTypeLabel(itemType: PriceItemType) {
@@ -1045,6 +1063,174 @@ function MissingPricesPanel({
   )
 }
 
+function PricingCoveragePanel({
+  coverage,
+  currencyCode,
+  isLoading,
+  onAddSupplierCost,
+  onGenerateFromSupplierCosts,
+  onManualOverride,
+}: {
+  coverage: PricingCoverage | null
+  currencyCode: string
+  isLoading: boolean
+  onAddSupplierCost: (row: PricingCoverageRow) => void
+  onGenerateFromSupplierCosts: (row: PricingCoverageRow) => void
+  onManualOverride: (row: PricingCoverageRow) => void
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-[var(--control-radius)] border border-border p-3 text-sm text-muted-foreground">
+        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+        Loading pricing coverage
+      </div>
+    )
+  }
+
+  if (!coverage) {
+    return (
+      <Alert className="text-sm">
+        Select a price list to review quote-used pricing coverage.
+      </Alert>
+    )
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline">{coverage.used_count} quote-used rows</Badge>
+        <Badge variant={coverage.missing_count > 0 ? 'warning' : 'success'}>{coverage.missing_count} missing</Badge>
+        <Badge variant={coverage.stale_count > 0 ? 'warning' : 'outline'}>{coverage.stale_count} stale</Badge>
+        <Badge variant={coverage.override_count > 0 ? 'outline' : 'success'}>{coverage.override_count} manual overrides</Badge>
+        <span className="text-xs text-muted-foreground">Updated {formatDateTime(coverage.generated_at)}</span>
+      </div>
+
+      {coverage.used_count === 0 ? (
+        <Alert className="text-sm">
+          No draft, ready, sent, or accepted quotes currently reference priced catalog items.
+        </Alert>
+      ) : null}
+
+      {coverage.groups.map((group) => (
+        <PricingCoverageGroupPanel
+          currencyCode={currencyCode}
+          group={group}
+          key={group.item_type}
+          onAddSupplierCost={onAddSupplierCost}
+          onGenerateFromSupplierCosts={onGenerateFromSupplierCosts}
+          onManualOverride={onManualOverride}
+        />
+      ))}
+    </div>
+  )
+}
+
+function PricingCoverageGroupPanel({
+  currencyCode,
+  group,
+  onAddSupplierCost,
+  onGenerateFromSupplierCosts,
+  onManualOverride,
+}: {
+  currencyCode: string
+  group: PricingCoverageGroup
+  onAddSupplierCost: (row: PricingCoverageRow) => void
+  onGenerateFromSupplierCosts: (row: PricingCoverageRow) => void
+  onManualOverride: (row: PricingCoverageRow) => void
+}) {
+  return (
+    <div className="overflow-hidden rounded-[var(--control-radius)] border border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{group.item_type_label}</span>
+          <Badge variant="outline">{group.used_count} used</Badge>
+          <Badge variant={group.missing_count > 0 ? 'warning' : 'success'}>{group.missing_count} missing</Badge>
+          <Badge variant={group.stale_count > 0 ? 'warning' : 'outline'}>{group.stale_count} stale</Badge>
+          <Badge variant="outline">{group.override_count} overrides</Badge>
+        </div>
+      </div>
+      <TableContainer>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Item</TableHead>
+              <TableHead>Component</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Quote context</TableHead>
+              <TableHead>Price</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {group.rows.map((row) => (
+              <TableRow key={`${row.item_type}-${row.item_ref_id}-${row.price_component}`}>
+                <TableCell>
+                  <div className="grid gap-1">
+                    <span className="font-medium">{row.item_name}</span>
+                    <span className="text-xs text-muted-foreground">{row.item_key}</span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="grid gap-1">
+                    <span>{row.component}</span>
+                    <span className="text-xs text-muted-foreground">{row.uom}</span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge variant={coverageStatusBadgeVariant(row.status)}>{coverageStatusLabel(row.status)}</Badge>
+                    {row.has_supplier_cost ? <Badge variant="outline">supplier cost</Badge> : null}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="grid gap-1 text-xs">
+                    <span className="font-medium">{row.quote_count} quote{row.quote_count === 1 ? '' : 's'}</span>
+                    {row.used_in.slice(0, 2).map((context) => (
+                      <span className="text-muted-foreground" key={`${context.quote_id}-${context.usage_label}`}>
+                        {context.quote_number} r{context.revision} · {context.usage_label}
+                      </span>
+                    ))}
+                    {row.used_in.length > 2 ? (
+                      <span className="text-muted-foreground">+{row.used_in.length - 2} more uses</span>
+                    ) : null}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="grid gap-1">
+                    <span>{row.unit_price_cents === null ? 'No current price' : formatCurrencyFromCents(row.unit_price_cents, currencyCode)}</span>
+                    {row.cost_source ? <span className="text-xs text-muted-foreground">{priceSourceLabel(row.cost_source)}</span> : null}
+                    {row.supplier_unit_cost_cents !== null ? (
+                      <span className="text-xs text-muted-foreground">
+                        Supplier {formatCurrencyFromCents(row.supplier_unit_cost_cents, currencyCode)}
+                      </span>
+                    ) : null}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={() => onAddSupplierCost(row)} size="sm" type="button" variant="outline">
+                      <PackagePlus className="h-4 w-4" aria-hidden="true" />
+                      Supplier cost
+                    </Button>
+                    <Button disabled={!row.has_supplier_cost} onClick={() => onGenerateFromSupplierCosts(row)} size="sm" type="button" variant="outline">
+                      <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+                      Generate
+                    </Button>
+                    <Button onClick={() => onManualOverride(row)} size="sm" type="button" variant="outline">
+                      <Save className="h-4 w-4" aria-hidden="true" />
+                      Override
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </div>
+  )
+}
+
 function arrayBufferToBase64(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer)
   const chunkSize = 0x8000
@@ -1069,7 +1255,7 @@ export function LibrariesPage({
   onOpenProjects: () => void
 }) {
   const setActiveTab = onActiveTabChange
-  const [activePricingTab, setActivePricingTab] = useState<PricingSubTab>('settings')
+  const [activePricingTab, setActivePricingTab] = useState<PricingSubTab>('coverage')
 
   const [setupChecklist, setSetupChecklist] = useState<LibrarySetupChecklist | null>(null)
   const [boards, setBoards] = useState<BoardTypeRow[]>([])
@@ -1084,12 +1270,14 @@ export function LibrariesPage({
   const [pricingSettings, setPricingSettings] = useState<PricingSettingsRow | null>(null)
   const [priceLists, setPriceLists] = useState<PriceListRow[]>([])
   const [priceItems, setPriceItems] = useState<PriceListItemRow[]>([])
+  const [priceCoverage, setPriceCoverage] = useState<PricingCoverage | null>(null)
   const [selectedPriceListId, setSelectedPriceListId] = useState('')
 
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(true)
   const [isLoadingPricing, setIsLoadingPricing] = useState(true)
   const [isLoadingChecklist, setIsLoadingChecklist] = useState(true)
   const [isLoadingPriceItems, setIsLoadingPriceItems] = useState(false)
+  const [isLoadingCoverage, setIsLoadingCoverage] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isPreviewingImport, setIsPreviewingImport] = useState(false)
   const [isApplyingImport, setIsApplyingImport] = useState(false)
@@ -1604,6 +1792,26 @@ export function LibrariesPage({
     [authToken],
   )
 
+  const refreshPriceCoverage = useCallback(
+    async (priceListId: string) => {
+      setIsLoadingCoverage(true)
+      setPricingError(null)
+
+      try {
+        const coverage = await apiRequest<PricingCoverage>(`/api/v1/libraries/price-lists/${priceListId}/coverage`, {
+          token: authToken,
+        })
+        setPriceCoverage(coverage)
+      } catch (error) {
+        setPricingError(error instanceof Error ? error.message : 'Could not load pricing coverage.')
+        setPriceCoverage(null)
+      } finally {
+        setIsLoadingCoverage(false)
+      }
+    },
+    [authToken],
+  )
+
   const refreshPricing = useCallback(async () => {
     setIsLoadingPricing(true)
     setPricingError(null)
@@ -1625,17 +1833,19 @@ export function LibrariesPage({
 
       setSelectedPriceListId(activeListId)
       if (activeListId) {
-        await refreshPriceItems(activeListId)
+        await Promise.all([refreshPriceItems(activeListId), refreshPriceCoverage(activeListId)])
       } else {
         setPriceItems([])
+        setPriceCoverage(null)
       }
     } catch (error) {
       setPricingError(error instanceof Error ? error.message : 'Could not load pricing settings.')
       setPriceItems([])
+      setPriceCoverage(null)
     } finally {
       setIsLoadingPricing(false)
     }
-  }, [authToken, refreshPriceItems])
+  }, [authToken, refreshPriceCoverage, refreshPriceItems])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -1649,7 +1859,11 @@ export function LibrariesPage({
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
-      setPricingItemRefId(pricingItemOptions[0]?.id ?? '')
+      setPricingItemRefId((current) =>
+        current && pricingItemOptions.some((option) => option.id === current)
+          ? current
+          : pricingItemOptions[0]?.id ?? '',
+      )
     }, 0)
 
     return () => window.clearTimeout(handle)
@@ -1792,6 +2006,67 @@ export function LibrariesPage({
       return
     }
     setActiveTab(actionTarget)
+  }
+
+  function handleCoverageSupplierCost(row: PricingCoverageRow) {
+    setActiveTab('suppliers')
+    if (suppliers.length === 0) {
+      setActionError('Add a supplier before saving supplier costs for this item.')
+      return
+    }
+    const supplierId = itemSupplierDraft.supplier_id && suppliers.some((supplier) => supplier.id === itemSupplierDraft.supplier_id)
+      ? itemSupplierDraft.supplier_id
+      : suppliers[0]?.id ?? ''
+    const supplier = suppliers.find((item) => item.id === supplierId)
+    const discountPercent = bpsToPercentString(supplier?.default_discount_bps ?? 0)
+    const startingCost = row.supplier_unit_cost_cents ?? row.unit_price_cents ?? 0
+    setItemSupplierDraft({
+      ...defaultItemSupplierDraft,
+      item_type: row.item_type,
+      item_ref_id: row.item_ref_id,
+      supplier_id: supplierId,
+      supplier_description: row.item_name,
+      price_component: row.price_component,
+      order_uom: row.supplier_order_uom ?? row.uom,
+      is_preferred: true,
+      list_price_amount: centsToAmountString(startingCost),
+      discount_percent: discountPercent,
+      unit_cost_amount: calculateDiscountedAmountString(centsToAmountString(startingCost), discountPercent) ?? centsToAmountString(startingCost),
+    })
+    setActionError(null)
+    setActionSuccess(`Supplier cost form prepared for ${row.item_name}.`)
+  }
+
+  function handleCoverageGenerate(row: PricingCoverageRow) {
+    setActiveTab('pricing')
+    setActivePricingTab('lists')
+    setGenerationItemTypes([row.item_type])
+    setPreserveManualOverrides(true)
+    setActionError(null)
+    setActionSuccess(`Supplier generation prepared for ${row.item_type_label.toLowerCase()} rows.`)
+  }
+
+  function handleCoverageManualOverride(row: PricingCoverageRow) {
+    setActiveTab('pricing')
+    setActivePricingTab('quick-update')
+    setPricingItemType(row.item_type)
+    setPricingItemRefId(row.item_ref_id)
+    const amount = centsToAmountString(row.unit_price_cents ?? 0)
+    if (row.item_type === 'board') {
+      if (row.price_component === 'sqm') {
+        setSqmPriceAmount(amount)
+      } else if (row.price_component === 'sheet') {
+        setSheetPriceAmount(amount)
+      } else if (row.price_component === 'edging_m') {
+        setEdgingPriceAmount(amount)
+      } else if (row.price_component === 'labour_board') {
+        setLabourPriceAmount(amount)
+      }
+    } else {
+      setUnitPriceAmount(amount)
+    }
+    setActionError(null)
+    setActionSuccess(`Manual override form prepared for ${row.item_name}.`)
   }
 
   function visibleCatalogIds(resource: LibraryCatalogBulkResource) {
@@ -1945,7 +2220,7 @@ export function LibrariesPage({
       setPriceBulkPreview(result)
       if (confirm) {
         setSelectedPriceItemIds([])
-        await refreshPriceItems(selectedPriceListId)
+        await Promise.all([refreshPriceItems(selectedPriceListId), refreshPriceCoverage(selectedPriceListId)])
         await refreshSetupChecklist()
         setActionSuccess(result.summary_message)
       }
@@ -2281,7 +2556,7 @@ export function LibrariesPage({
       setPriceLists(nextLists)
       setPriceListDraft(defaultPriceListDraft)
       setSelectedPriceListId(created.id)
-      await refreshPriceItems(created.id)
+      await Promise.all([refreshPriceItems(created.id), refreshPriceCoverage(created.id)])
     }, 'Price list created.')
   }
 
@@ -2291,9 +2566,10 @@ export function LibrariesPage({
       clearImportResults()
     }
     if (nextPriceListId) {
-      await refreshPriceItems(nextPriceListId)
+      await Promise.all([refreshPriceItems(nextPriceListId), refreshPriceCoverage(nextPriceListId)])
     } else {
       setPriceItems([])
+      setPriceCoverage(null)
     }
   }
 
@@ -2372,7 +2648,7 @@ export function LibrariesPage({
         })
       }
 
-      await refreshPriceItems(selectedPriceListId)
+      await Promise.all([refreshPriceItems(selectedPriceListId), refreshPriceCoverage(selectedPriceListId)])
     }, 'Price saved.')
   }
 
@@ -2755,6 +3031,9 @@ export function LibrariesPage({
         token: authToken,
       })
       await refreshCatalog()
+      if (selectedPriceListId) {
+        await refreshPriceCoverage(selectedPriceListId)
+      }
     }, () => {
       if (!summary) return 'Supplier discount saved.'
       if (!applyDiscountToCosts) return 'Supplier default discount saved.'
@@ -2818,6 +3097,9 @@ export function LibrariesPage({
         price_component: current.price_component,
       }))
       await refreshCatalog()
+      if (selectedPriceListId) {
+        await refreshPriceCoverage(selectedPriceListId)
+      }
     }, 'Supplier cost saved.')
   }
 
@@ -2825,6 +3107,9 @@ export function LibrariesPage({
     await withActionState(async () => {
       await apiRequest(`/api/v1/libraries/item-suppliers/${itemId}`, { method: 'DELETE', token: authToken })
       await refreshCatalog()
+      if (selectedPriceListId) {
+        await refreshPriceCoverage(selectedPriceListId)
+      }
     }, 'Supplier source deleted.')
   }
 
@@ -2854,7 +3139,7 @@ export function LibrariesPage({
         },
       )
       setLastGenerationSummary(summary)
-      await refreshPriceItems(selectedPriceListId)
+      await Promise.all([refreshPriceItems(selectedPriceListId), refreshPriceCoverage(selectedPriceListId)])
     }, 'Price list generated from supplier costs.')
   }
 
@@ -4046,6 +4331,27 @@ export function LibrariesPage({
               </ControlGroup>
             </CardContent>
           </Card>
+
+          {activePricingTab === 'coverage' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Pricing Coverage</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Quote-used catalog rows are checked against {selectedPriceList?.name ?? 'the selected price list'}.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <PricingCoveragePanel
+                  coverage={priceCoverage}
+                  currencyCode={displayCurrencyCode}
+                  isLoading={isLoadingCoverage}
+                  onAddSupplierCost={handleCoverageSupplierCost}
+                  onGenerateFromSupplierCosts={handleCoverageGenerate}
+                  onManualOverride={handleCoverageManualOverride}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
           {activePricingTab === 'settings' ? (
           <Card>
